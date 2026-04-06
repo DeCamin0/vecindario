@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "APPLE_TEAM_ID.com.decamino.vecindario",
+        "paths": ["/vecindario/c/*/login", "/vecindario/c/*"]
+      }
+    ]
+  }
+}

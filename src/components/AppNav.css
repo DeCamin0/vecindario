@@ -1,0 +1,198 @@
+/* Slots: desktop = header inline (≥768px); mobile = fixed bottom bar (<768px) */
+
+.app-nav-slot--desktop {
+  display: none;
+  align-items: center;
+}
+
+.app-nav-slot--mobile {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  .app-nav-slot--desktop {
+    display: flex;
+  }
+
+  .app-nav-slot--mobile {
+    display: none;
+  }
+}
+
+/* ——— Mobile: tab bar abajo ——— */
+.app-nav-slot--mobile .app-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 14px 14px 0 0;
+  padding: 4px 2px calc(8px + env(safe-area-inset-bottom, 0px));
+  box-shadow:
+    0 -8px 32px rgba(15, 23, 42, 0.08),
+    0 -1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+.app-nav-slot--mobile .app-nav-list {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: stretch;
+  align-items: stretch;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.app-nav-slot--mobile .app-nav-list::-webkit-scrollbar {
+  display: none;
+}
+
+.app-nav-slot--mobile .app-nav-list > li {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-nav-slot--mobile .app-nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 1px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 44px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.app-nav-slot--mobile .app-nav-link:active {
+  transform: scale(0.96);
+}
+
+.app-nav-slot--mobile .app-nav-link--active {
+  color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.14);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+
+.app-nav-slot--mobile .app-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-nav-slot--mobile .app-nav-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.app-nav-slot--mobile .app-nav-link--active .app-nav-icon {
+  color: var(--color-primary);
+}
+
+.app-nav-slot--mobile .app-nav-label {
+  text-align: center;
+  line-height: 1.1;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 1px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-nav-slot--mobile .app-nav {
+    background: rgba(255, 255, 255, 0.96);
+    border-top-color: #e2e8f0;
+    box-shadow:
+      0 -4px 24px rgba(15, 23, 42, 0.08),
+      0 -1px 0 rgba(15, 23, 42, 0.06) inset;
+  }
+
+  .app-nav-slot--mobile .app-nav-link--active {
+    background: rgba(37, 99, 235, 0.12);
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+  }
+}
+
+/* ——— Desktop: enlaces en cabecera ——— */
+.app-nav-slot--desktop .app-nav {
+  display: block;
+  position: static;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-nav-slot--desktop .app-nav-list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  overflow: visible;
+}
+
+.app-nav-slot--desktop .app-nav-link {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  min-width: 0;
+  min-height: 40px;
+  color: var(--text-body);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 500;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.app-nav-slot--desktop .app-nav-link:hover {
+  color: var(--text-heading);
+  background: var(--color-primary-soft);
+}
+
+.app-nav-slot--desktop .app-nav-link--active {
+  color: var(--color-primary);
+  background: var(--color-primary-muted);
+}
+
+.app-nav-slot--desktop .app-nav-label {
+  display: inline;
+  white-space: nowrap;
+}
+
+.app-nav-slot--desktop .app-nav-icon svg {
+  width: 20px;
+  height: 20px;
+}

@@ -1,0 +1,122 @@
+.open-app-page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem 1rem 3rem;
+  position: relative;
+  background: var(--bg-deep, #e8edf5);
+}
+
+.open-app-page__bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.12), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(99, 102, 241, 0.08), transparent);
+}
+
+.open-app-page__shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.open-app-card {
+  padding: 1.75rem 1.5rem;
+}
+
+.open-app-card__logo {
+  display: block;
+  margin: 0 auto 1rem;
+  border-radius: 1rem;
+}
+
+.open-app-card__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text, #0a0f1a);
+}
+
+.open-app-card__lead {
+  margin: 0 0 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--text-muted, #475569);
+  text-align: center;
+}
+
+.open-app-card__block {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border-radius: var(--radius-md, 12px);
+  background: #f1f5f9;
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.open-app-card__block--stores {
+  margin-bottom: 0;
+}
+
+.open-app-card__h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #475569);
+}
+
+.open-app-card__hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-muted, #64748b);
+}
+
+.open-app-card__hint--tight {
+  margin-bottom: 0;
+  margin-top: 0.75rem;
+}
+
+.open-app-card__url {
+  display: block;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  word-break: break-all;
+  background: #ffffff;
+  border: 1px solid var(--border, #cbd5e1);
+  color: var(--primary, #1d4ed8);
+}
+
+.open-app-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.25rem;
+}
+
+.open-app-card__store-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.open-app-card__pending {
+  font-size: 0.8rem;
+  color: var(--warning, #fbbf24);
+}
+
+.open-app-card__foot {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.open-app-credit-wrap {
+  margin-top: 1.5rem;
+}

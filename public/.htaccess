@@ -1,0 +1,25 @@
+# Vecindario – Apache config for SPA in /vecindario/
+# Place this file in the directory served at https://decamino.es/vecindario/
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /vecindario/
+
+  # Serve existing files (JS, CSS, images, manifest, service worker) directly
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # Serve existing directories directly
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # SPA: all other requests → index.html (React Router handles the path)
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Optional: cache static assets (adjust as needed)
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|png|jpg|jpeg|gif|ico|svg|webmanifest)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>

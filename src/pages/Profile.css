@@ -1,0 +1,120 @@
+.profile-page .page-header {
+  margin-bottom: var(--section-gap);
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  margin-bottom: var(--section-gap);
+}
+
+.user-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-avatar-inner {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.user-info {
+  min-width: 0;
+}
+
+.user-name {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--text-heading);
+}
+
+.user-email {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.profile-menu {
+  margin-bottom: var(--section-gap);
+}
+
+.menu-list {
+  padding: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  text-decoration: none;
+  color: var(--text-body);
+  border-bottom: 1px solid var(--color-border-light);
+  transition: background 0.2s ease;
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-item:hover {
+  background: var(--color-bg-subtle);
+}
+
+.menu-item--accent {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.menu-item--accent:hover {
+  background: var(--color-primary-soft);
+}
+
+.menu-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.menu-label {
+  flex: 1;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-heading);
+}
+
+.menu-chevron {
+  font-size: 1.25rem;
+  color: var(--text-quiet);
+}
+
+.profile-logout {
+  margin-top: var(--space-6);
+}
+
+/* Profile logout: ghost button with muted text */
+.profile-logout .btn--ghost {
+  color: var(--text-muted);
+}
+
+.profile-logout .btn--ghost:hover {
+  color: var(--text-heading);
+}
+
+.profile-version {
+  margin: var(--space-6) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-quiet);
+}

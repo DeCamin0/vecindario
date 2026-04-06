@@ -1,0 +1,314 @@
+// Vecindario — exclusiv baza `vecindario_db` (DATABASE_URL în .env). Nu folosi decamino_db aici.
+
+// Client implicit: vecindario-app/node_modules/.prisma (compatibil cu @prisma/client hoisted din rădăcină).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum VecindarioRole {
+  resident
+  community_admin
+  president
+  super_admin
+  concierge
+}
+
+/// Utilizatori Vecindario (login API). Tabel dedicat, separat de DeCamino.
+model VecindarioUser {
+  id           Int            @id @default(autoincrement())
+  /// Opcional para vecinos dados de alta solo con portal + piso (sin correo).
+  email        String?        @unique @db.VarChar(255)
+  passwordHash String         @map("password_hash") @db.VarChar(255)
+  name         String?        @db.VarChar(255)
+  /// Piso / puerta del apartamento (separado del portal de acceso).
+  piso         String?        @map("piso") @db.VarChar(64)
+  /// Portal o acceso de la finca (ej. 34, P1); columna aparte, no mezclar con piso.
+  portal       String?        @map("portal") @db.VarChar(64)
+  /// Comunidad del vecino (obligatoria si alta sin email; null en staff/presidente sin enlace).
+  communityId  Int?           @map("community_id")
+  community    Community?     @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  role         VecindarioRole @default(resident)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  bookings          CommunityBooking[]
+  gymAccessLogs     CommunityGymAccessLog[]
+  reportedIncidents   CommunityIncident[]         @relation("IncidentReporter")
+  resolvedIncidents   CommunityIncident[]         @relation("IncidentResolver")
+  incidentComments    CommunityIncidentComment[]  @relation("IncidentCommentAuthor")
+  serviceRequestsRequested CommunityServiceRequest[] @relation("ServiceRequestRequester")
+  serviceRequestMessages CommunityServiceRequestMessage[] @relation("ServiceRequestMessageAuthor")
+  vecindarioNotifications    VecindarioNotification[]
+  expoPushTokens             VecindarioExpoPushToken[]
+  webPushSubscriptions       VecindarioWebPushSubscription[]
+
+  @@index([communityId], map: "vecindario_users_community_id_idx")
+  @@map("vecindario_users")
+}
+
+/// Comunități (gestionate din Super Admin).
+model Community {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(255)
+  /// NIF / CIF (opcional en alta; se puede completar después).
+  nifCif        String?  @map("nif_cif") @db.VarChar(32)
+  /// Dirección de la finca / comunidad (opcional; facturación, correos, referencia).
+  address       String?  @map("address") @db.VarChar(512)
+  accessCode    String?  @unique @map("access_code") @db.VarChar(100)
+  /// Slug para enlace corto de acceso: /c/{loginSlug}/login (opcional, único).
+  loginSlug     String?  @unique @map("login_slug") @db.VarChar(80)
+  /// Email principal comunidad (vecinos / avisos) — único obligatorio en alta desde Super Admin.
+  contactEmail  String?  @map("contact_email") @db.VarChar(255)
+  /// Email del presidente (legado: entrada correo + VEC). Opcional si el presidente es vecino por vivienda.
+  presidentEmail String? @map("president_email") @db.VarChar(255)
+  /// Portal de acceso de la vivienda del presidente actual (mismo criterio que vecinos; rotación anual).
+  presidentPortal String? @map("president_portal") @db.VarChar(64)
+  /// Piso / puerta del presidente actual.
+  presidentPiso   String? @map("president_piso") @db.VarChar(64)
+  /// Vivienda del vicepresidente de la junta (portal + piso; sin permisos de panel «presidente» en la app).
+  boardVicePortal String? @map("board_vice_portal") @db.VarChar(64)
+  boardVicePiso   String? @map("board_vice_piso") @db.VarChar(64)
+  /// Vocales: [{ "portal", "piso" }, …] — solo referencia en ficha; sin rol JWT especial por ahora.
+  boardVocalsJson Json?   @map("board_vocals_json")
+  /// Email del administrador de comunidad (gestión incidencias/reservas; instrucciones de alta).
+  communityAdminEmail String? @map("community_admin_email") @db.VarChar(255)
+  /// Email del conserje / portería (opcional; alta automática e invitación como en presidente/admin).
+  conciergeEmail String? @map("concierge_email") @db.VarChar(255)
+  status        String   @default("active") @db.VarChar(32)
+  /// Último día inclusivo del plan (null = sin caducidad). Tras esa fecha, el job diario pasa la comunidad a inactive.
+  planExpiresOn DateTime? @map("plan_expires_on") @db.Date
+  /// Número de portales / accesos (planificación).
+  portalCount   Int      @default(1) @map("portal_count")
+  /// Nombre o alias por portal (JSON: ["34","36",…]); índice 0 = portal 1; longitud acorde a portalCount.
+  portalLabels  Json     @default("[]") @map("portal_labels")
+  /// Cupo previsto de vecinos / cuentas (null = sin tope definido aún).
+  residentSlots Int?     @map("resident_slots")
+  /// Control de acceso al gimnasio (activar / desactivar; editable después).
+  gymAccessEnabled Boolean @default(false) @map("gym_access_enabled")
+  /// Cuántas pistas de pádel tiene la comunidad (0 = ninguna).
+  padelCourtCount  Int     @default(0) @map("padel_court_count")
+  /// Máximo de horas por una reserva de pádel (una franja cuenta como tal duración en la cuota diaria).
+  padelMaxHoursPerBooking Int @default(2) @map("padel_max_hours_per_booking")
+  /// Máximo total de horas de pádel por vivienda (piso) y día natural; mismo criterio por email si no hay piso.
+  padelMaxHoursPerApartmentPerDay Int @default(4) @map("padel_max_hours_apartment_day")
+  /// Horas mínimas de antelación respecto al inicio del tramo (ej. 24 = 1 día, 48 = 2 días).
+  padelMinAdvanceHours Int @default(24) @map("padel_min_advance_hours")
+  /// Inicio del horario reservable de pádel (HH:mm, hora local de la comunidad).
+  padelOpenTime  String @default("08:00") @map("padel_open_time") @db.VarChar(5)
+  /// Fin del horario reservable de pádel (HH:mm); debe ser posterior a padelOpenTime el mismo día.
+  padelCloseTime String @default("22:00") @map("padel_close_time") @db.VarChar(5)
+  /// Salones (sala reuniones, salón social, espacios custom): `slots` = franjas mañana/tarde/noche; `day` = reserva por día completo.
+  salonBookingMode String @default("slots") @map("salon_booking_mode") @db.VarChar(32)
+  /// Salones / espacios con nombre propio: [{ "id", "name" }, …]
+  customLocations  Json    @default("[]") @map("custom_locations")
+  /// App vecinos: mostrar pestaña Servicios (solicitudes).
+  appNavServicesEnabled  Boolean @default(true) @map("app_nav_services_enabled")
+  /// App vecinos: pestaña Incidencias.
+  appNavIncidentsEnabled Boolean @default(true) @map("app_nav_incidents_enabled")
+  /// App vecinos: pestaña Reservas.
+  appNavBookingsEnabled  Boolean @default(true) @map("app_nav_bookings_enabled")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  bookings         CommunityBooking[]
+  gymAccessLogs    CommunityGymAccessLog[]
+  vecindarioUsers  VecindarioUser[]
+  incidents        CommunityIncident[]
+  serviceRequests  CommunityServiceRequest[]
+
+  @@map("communities")
+}
+
+/// Registro de entrada/salida al gimnasio (control de acceso); una fila por pulsación.
+model CommunityGymAccessLog {
+  id               Int             @id @default(autoincrement())
+  communityId      Int             @map("community_id")
+  community        Community       @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  vecindarioUserId Int?            @map("vecindario_user_id")
+  user             VecindarioUser? @relation(fields: [vecindarioUserId], references: [id], onDelete: SetNull)
+  /// entrada | salida
+  tipo             String          @map("tipo") @db.VarChar(16)
+  actorEmail       String?         @map("actor_email") @db.VarChar(255)
+  actorPiso        String?         @map("actor_piso") @db.VarChar(64)
+  actorPortal      String?         @map("actor_portal") @db.VarChar(64)
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  @@index([vecindarioUserId, communityId, createdAt(sort: Desc)], map: "cgym_user_comm_created_idx")
+  @@index([communityId, createdAt(sort: Desc)], map: "cgym_comm_created_idx")
+  @@map("community_gym_access_logs")
+}
+
+/// Reservas de espacios (pádel, salón, franjas mañana/tarde, etc.): día + minutos desde medianoche + metadatos UI.
+model CommunityBooking {
+  id               Int             @id @default(autoincrement())
+  communityId      Int             @map("community_id")
+  community        Community       @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  facilityId       String          @map("facility_id") @db.VarChar(120)
+  facilityName     String?         @map("facility_name") @db.VarChar(255)
+  /// Día natural de la reserva (calendario local de la comunidad).
+  bookingDate      DateTime        @map("booking_date") @db.Date
+  /// Minutos desde 00:00 del mismo día (0–1440; mismo día que bookingDate).
+  startMinute      Int             @map("start_minute")
+  endMinute        Int             @map("end_minute")
+  /// Identificador estable en cliente (ej. morning, padel-600-660).
+  slotKey          String?         @map("slot_key") @db.VarChar(128)
+  /// Texto mostrado (ej. 10:00 – 11:00).
+  slotLabel        String?         @map("slot_label") @db.VarChar(255)
+  vecindarioUserId Int?            @map("vecindario_user_id")
+  user             VecindarioUser? @relation(fields: [vecindarioUserId], references: [id], onDelete: SetNull)
+  actorEmail       String?         @map("actor_email") @db.VarChar(255)
+  actorPiso        String?         @map("actor_piso") @db.VarChar(64)
+  actorPortal      String?         @map("actor_portal") @db.VarChar(64)
+  status           String          @default("confirmed") @db.VarChar(32)
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  @@unique([communityId, facilityId, bookingDate, startMinute], map: "cb_comm_facility_date_start")
+  @@index([communityId, bookingDate], map: "cb_comm_date_idx")
+  @@map("community_bookings")
+}
+
+/// Incidencias en zonas comunes: alta como pendiente; personal de gestión / conserje marca resuelta.
+model CommunityIncident {
+  id               Int             @id @default(autoincrement())
+  communityId      Int             @map("community_id")
+  community        Community       @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  reporterUserId   Int             @map("reporter_user_id")
+  reporter         VecindarioUser  @relation("IncidentReporter", fields: [reporterUserId], references: [id], onDelete: Restrict)
+  categoryId       String          @map("category_id") @db.VarChar(64)
+  categoryLabel    String          @map("category_label") @db.VarChar(128)
+  description      String          @db.Text
+  locationText     String          @map("location_text") @db.VarChar(512)
+  portalLabel      String?         @map("portal_label") @db.VarChar(128)
+  urgency          String          @default("medium") @db.VarChar(16)
+  /// pendiente | resuelta
+  status           String          @default("pendiente") @db.VarChar(32)
+  resolvedAt       DateTime?       @map("resolved_at")
+  resolvedByUserId Int?            @map("resolved_by_user_id")
+  resolvedBy       VecindarioUser? @relation("IncidentResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  photoMime        String?         @map("photo_mime") @db.VarChar(64)
+  photoBase64      String?         @map("photo_base64") @db.LongText
+  createdAt        DateTime        @default(now()) @map("created_at")
+  /// Si true, vecinos no pueden añadir comentarios (solo gestión). Lo activa el conserje de la comunidad.
+  commentsLocked   Boolean         @default(false) @map("comments_locked")
+
+  comments CommunityIncidentComment[]
+
+  @@index([communityId, status, createdAt(sort: Desc)], map: "ci_comm_status_created_idx")
+  @@index([reporterUserId], map: "ci_reporter_idx")
+  @@map("community_incidents")
+}
+
+/// Comentarios de vecinos y personal en una incidencia (no sustituyen al estado gestionado por portería/admin).
+model CommunityIncidentComment {
+  id           Int               @id @default(autoincrement())
+  incidentId   Int               @map("incident_id")
+  incident     CommunityIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  authorUserId Int               @map("author_user_id")
+  author       VecindarioUser    @relation("IncidentCommentAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  body         String            @db.Text
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@index([incidentId, createdAt(sort: Desc)], map: "cic_incident_created_idx")
+  @@map("community_incident_comments")
+}
+
+/// Solicitudes de servicio (presupuesto manual por super admin; no marketplace entre vecinos).
+model CommunityServiceRequest {
+  id               Int            @id @default(autoincrement())
+  communityId      Int            @map("community_id")
+  community        Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  requesterUserId  Int            @map("requester_user_id")
+  requester        VecindarioUser @relation("ServiceRequestRequester", fields: [requesterUserId], references: [id], onDelete: Restrict)
+  categoryId       String         @map("category_id") @db.VarChar(64)
+  categoryLabel    String         @map("category_label") @db.VarChar(128)
+  /// Ej. cleaning_general — solo si categoryId = cleaning.
+  serviceSubtype   String?        @map("service_subtype") @db.VarChar(64)
+  description      String         @db.Text
+  preferredDate    DateTime?      @map("preferred_date") @db.Date
+  /// JSON: [{ "mime": "image/jpeg", "base64": "..." }, …] — misma idea que incidencias.
+  photosJson       Json           @default("[]") @map("photos_json")
+  /// pending_review | price_sent | accepted | rejected | in_progress | completed
+  status           String         @default("pending_review") @db.VarChar(32)
+  /// Estimación mínima (o única si priceAmountMax es null).
+  priceAmount      Decimal?       @map("price_amount") @db.Decimal(12, 2)
+  /// Estimación máxima opcional (rango orientativo para el vecino).
+  priceAmountMax   Decimal?       @map("price_amount_max") @db.Decimal(12, 2)
+  priceNote        String?        @map("price_note") @db.Text
+  priceSentAt      DateTime?      @map("price_sent_at")
+  acceptedAt       DateTime?      @map("accepted_at")
+  rejectedAt       DateTime?      @map("rejected_at")
+  providerName     String?        @map("provider_name") @db.VarChar(255)
+  completedAt      DateTime?      @map("completed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  messages CommunityServiceRequestMessage[]
+
+  @@index([communityId, status, createdAt(sort: Desc)], map: "csr_comm_status_created_idx")
+  @@index([requesterUserId], map: "csr_requester_idx")
+  @@map("community_service_requests")
+}
+
+/// Mensajes vecino ↔ super admin durante el ciclo de la solicitud (hasta completed).
+model CommunityServiceRequestMessage {
+  id               Int                     @id @default(autoincrement())
+  serviceRequestId Int                     @map("service_request_id")
+  serviceRequest   CommunityServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+  authorUserId     Int                     @map("author_user_id")
+  author           VecindarioUser          @relation("ServiceRequestMessageAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  body             String                  @db.Text
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  @@index([serviceRequestId, createdAt(sort: Asc)], map: "csrm_req_created_idx")
+  @@map("community_service_request_messages")
+}
+
+/// Notificări în aplicația Vecindario (servicii, mesaje, etc.) — livrare UI prin polling / viitor push.
+model VecindarioNotification {
+  id               Int            @id @default(autoincrement())
+  recipientUserId  Int            @map("recipient_user_id")
+  recipient        VecindarioUser @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  type             String         @db.VarChar(40)
+  title            String         @db.VarChar(255)
+  body             String         @db.Text
+  readAt           DateTime?      @map("read_at")
+  serviceRequestId Int?           @map("service_request_id")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  @@index([recipientUserId, createdAt(sort: Desc)], map: "vn_recipient_created_idx")
+  @@index([recipientUserId, readAt], map: "vn_recipient_read_idx")
+  @@map("vecindario_notifications")
+}
+
+/// Token Expo Push (app móvil) para notificaciones fuera de la app.
+model VecindarioExpoPushToken {
+  id        Int            @id @default(autoincrement())
+  userId    Int            @map("user_id")
+  user      VecindarioUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String         @db.VarChar(512)
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  @@unique([userId, token], map: "vept_user_token_uidx")
+  @@index([userId], map: "vept_user_idx")
+  @@map("vecindario_expo_push_tokens")
+}
+
+/// Suscripción Web Push (PWA).
+model VecindarioWebPushSubscription {
+  id           Int            @id @default(autoincrement())
+  userId       Int            @map("user_id")
+  user         VecindarioUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointKey  String         @unique @map("endpoint_key") @db.VarChar(64)
+  endpoint     String         @db.Text
+  p256dh       String         @db.Text @map("p256dh")
+  auth         String         @db.Text
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  @@index([userId], map: "vwps_user_idx")
+  @@map("vecindario_web_push_subscriptions")
+}

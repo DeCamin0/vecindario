@@ -1,0 +1,29 @@
+.developer-credit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-5);
+}
+
+.developer-credit-label {
+  font-size: var(--text-sm);
+  color: var(--text-quiet);
+  letter-spacing: var(--tracking-wide);
+}
+
+.developer-credit-logo {
+  display: block;
+  height: clamp(26px, 4.5vw, 36px);
+  width: auto;
+  max-width: min(200px, 42vw);
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.developer-credit-version {
+  font-size: var(--text-sm);
+  color: var(--text-quiet);
+  margin-left: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}

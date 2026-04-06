@@ -1,0 +1,62 @@
+.auth-screen .mobile-app-banner {
+  max-width: 400px;
+}
+
+.auth-login-panel .mobile-app-banner {
+  max-width: 460px;
+}
+
+.mobile-app-banner {
+  width: 100%;
+  margin-bottom: 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.mobile-app-banner__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.mobile-app-banner__text {
+  flex: 1 1 200px;
+  margin: 0;
+  font-size: var(--text-sm, 0.875rem);
+  line-height: 1.45;
+  color: var(--text-muted, #94a3b8);
+}
+
+.mobile-app-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mobile-app-banner__btn {
+  white-space: nowrap;
+}
+
+.mobile-app-banner__dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mobile-app-banner__dismiss:hover {
+  color: var(--text, #f8fafc);
+  background: rgba(148, 163, 184, 0.12);
+}

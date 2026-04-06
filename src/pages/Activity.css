@@ -1,0 +1,204 @@
+.activity-page .page-header {
+  margin-bottom: var(--section-gap);
+}
+
+.activity-section {
+  margin-bottom: var(--section-gap);
+}
+
+@media (min-width: 768px) {
+  .activity-section {
+    margin-bottom: var(--section-gap-lg);
+  }
+}
+
+.activity-section:last-child {
+  margin-bottom: 0;
+}
+
+.activity-section-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.activity-section-intro {
+  margin: calc(var(--space-2) * -1) 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+.activity-bookings-intro {
+  margin-top: 0;
+}
+
+.activity-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+a.activity-item--link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+a.activity-item--link:hover {
+  border-color: rgba(37, 99, 235, 0.22);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+/* Empty state — intentional, premium */
+.activity-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  transition: box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+@media (min-width: 640px) {
+  .activity-empty {
+    padding: var(--space-10) var(--space-6);
+  }
+}
+
+.activity-empty-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto var(--space-4);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-full);
+}
+
+@media (min-width: 640px) {
+  .activity-empty-icon-wrap {
+    width: 3.5rem;
+    height: 3.5rem;
+    margin-bottom: var(--space-5);
+  }
+}
+
+.activity-empty-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.activity-empty-text {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: var(--leading-snug);
+  color: var(--text-heading);
+}
+
+@media (min-width: 640px) {
+  .activity-empty-text {
+    font-size: var(--text-lg);
+  }
+}
+
+.activity-empty-hint {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+  max-width: 20rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.activity-empty-cta {
+  margin-top: 0;
+}
+
+.activity-item {
+  padding: var(--space-3) var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .activity-item {
+    padding: var(--space-4) var(--space-5);
+  }
+}
+
+.activity-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.activity-item-category {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.activity-item-status {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.activity-item-status--pending,
+.activity-item-status--pendiente {
+  background: var(--color-warning-muted);
+  color: var(--color-warning);
+}
+
+.activity-item-status--reported,
+.activity-item-status--reportado {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.activity-item-status--in-progress,
+.activity-item-status--en-curso {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.activity-item-status--completed,
+.activity-item-status--completado {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.activity-item-status--resolved,
+.activity-item-status--resuelta {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.activity-item-subtype {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.activity-item-desc {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-body);
+}
+
+.activity-item-date,
+.activity-item-meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}

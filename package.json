@@ -1,0 +1,53 @@
+{
+  "name": "vecindario-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server:dev": "npm run dev --prefix server",
+    "server:seed": "npm run seed --prefix server",
+    "server:build": "npm run build --prefix server",
+    "server:start": "npm run start --prefix server",
+    "icons": "node scripts/generate-pwa-icons.mjs",
+    "brand:sync": "node scripts/sync-brand-from-logo-folder.mjs",
+    "prebuild": "node scripts/generate-pwa-icons.mjs",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "postinstall": "prisma generate && node scripts/sync-prisma-to-server.mjs",
+    "db:generate": "prisma generate",
+    "db:sync-server-prisma": "node scripts/sync-prisma-to-server.mjs",
+    "db:prepare": "node scripts/db-prepare.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "server:release": "npm run db:migrate && npm run server:build && npm run server:start",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:pull": "prisma db pull"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "prisma": "^5.22.0",
+    "sharp": "^0.34.5",
+    "vite": "^7.1.5",
+    "vite-plugin-pwa": "^1.0.3"
+  }
+}
