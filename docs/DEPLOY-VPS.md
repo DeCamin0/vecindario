@@ -6,25 +6,23 @@ Presupune: DNS `api.vecindario.decaminoservicios.com` → IP VPS; Traefik + cont
 
 În folderul `vecindario-app`:
 
+Repo-ul poate fi deja inițializat local. Înainte de primul push:
+
 ```bash
-git init
-git add -A
 git status
 ```
 
-Verifică că **nu** apare `.env` sau `server/.env`. Apoi:
+Verifică că **nu** apare `.env` sau `server/.env` în fișiere urmărite.
 
-```bash
-git commit -m "Initial Vecindario"
-```
-
-Pe hosting Git: creezi repo **nou** (ex. `vecindario`), fără README generat dacă vrei istoric curat.
+Pe GitHub/GitLab: creezi repo **nou** gol (ex. `vecindario`).
 
 ```bash
 git remote add origin https://github.com/ORG/vecindario.git
 git branch -M main
 git push -u origin main
 ```
+
+(Dacă nu ai setat încă identitatea Git: `git config user.name "..."` și `git config user.email "..."` — local sau `--global`.)
 
 ## 2. Pe VPS: clone
 
