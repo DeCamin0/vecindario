@@ -4,7 +4,16 @@
     "details": [
       {
         "appID": "APPLE_TEAM_ID.com.decamino.vecindario",
-        "paths": ["/vecindario/c/*/login", "/vecindario/c/*"]
+        "paths": [
+          "/c/*/login",
+          "/c/*",
+          "/login",
+          "/register",
+          "/open-app",
+          "/open-app/*",
+          "/pool-self-checkin",
+          "/pool-self-checkin/*"
+        ]
       }
     ]
   }

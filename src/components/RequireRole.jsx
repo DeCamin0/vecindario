@@ -16,7 +16,10 @@ export default function RequireRole({ role, children }) {
   }
 
   const needsJwt =
-    role === 'super_admin' || (Array.isArray(role) && role.includes('super_admin'))
+    role === 'super_admin' ||
+    role === 'company_admin' ||
+    (Array.isArray(role) &&
+      (role.includes('super_admin') || role.includes('company_admin')))
   if (needsJwt && !accessToken) {
     return <Navigate to="/login" replace />
   }

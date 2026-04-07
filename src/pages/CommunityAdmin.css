@@ -46,6 +46,42 @@
   line-height: var(--leading-normal);
 }
 
+.community-admin-community-switch {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: min(100%, 420px);
+}
+
+.community-admin-community-switch-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.community-admin-community-select {
+  width: 100%;
+  max-width: 100%;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-heading);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.community-admin-community-select:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 /* Main */
 .community-admin-main {
   padding: var(--space-4) var(--space-4) var(--space-8);
@@ -99,9 +135,9 @@
   }
 }
 
-@media (min-width: 768px) {
+@media (min-width: 900px) {
   .community-admin-stats {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     margin-bottom: var(--space-10);
   }
 }
@@ -126,6 +162,17 @@
 .community-admin-stat:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.03);
   border-color: var(--color-border);
+}
+
+a.community-admin-stat.community-admin-stat--link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+a.community-admin-stat.community-admin-stat--link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .community-admin-stat--accent {
@@ -314,8 +361,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: 520px;
+  max-width: 640px;
   padding: var(--space-6);
+}
+
+.community-residents-vivienda-hint {
+  margin: -0.25rem 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text-muted);
 }
 
 .community-residents-list {
@@ -434,4 +488,213 @@
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.community-residents-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.community-residents-form-section:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.community-residents-form-section-title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.community-residents-form-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 560px) {
+  .community-residents-form-grid--2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.community-residents-unit-line {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.community-residents-edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  overflow-y: auto;
+}
+
+.community-residents-edit-dialog {
+  width: 100%;
+  max-width: 520px;
+  margin-bottom: var(--space-8);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  padding: var(--space-6);
+}
+
+.community-residents-edit-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.community-residents-edit-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.community-residents-edit-close {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.community-residents-edit-close:hover {
+  color: var(--text-heading);
+  background: var(--color-bg-subtle);
+}
+
+.community-residents-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.community-residents-bulk-actions-hint {
+  flex: 1 1 14rem;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.community-residents-bulk-dialog {
+  max-width: 560px;
+}
+
+.community-residents-bulk-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.community-residents-bulk-preview-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-body);
+}
+
+.community-residents-bulk-preview-list li {
+  margin-bottom: var(--space-1);
+}
+
+/* Ajustes piscina (panel gestión) */
+.community-pool-settings-form {
+  padding: var(--space-4);
+  text-align: left;
+  max-width: 520px;
+}
+
+.community-pool-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+}
+
+.community-pool-row {
+  margin-bottom: var(--space-3);
+}
+
+.community-pool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* QR fijo autoregistro en puerta (URL = pantalla /pool-self-checkin) */
+.community-pool-self-qr-card {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  text-align: left;
+  max-width: 520px;
+}
+
+.community-pool-self-qr-intro {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.community-pool-self-qr-url {
+  margin: 0 0 var(--space-3);
+  font-size: 0.85rem;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted);
+}
+
+.community-pool-self-qr-img-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.community-pool-self-qr-img {
+  width: 200px;
+  height: 200px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: #fff;
+}
+
+.community-pool-self-qr-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
 }

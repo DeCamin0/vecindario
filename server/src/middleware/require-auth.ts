@@ -17,6 +17,10 @@ export const requireAuth: RequestHandler = (req, res, next) => {
     }
     req.userId = id
     req.userRole = payload.role as import('@prisma/client').VecindarioRole
+    const cidRaw = typeof payload.cid === 'string' ? payload.cid.trim() : ''
+    const cidNum = cidRaw ? Number(cidRaw) : NaN
+    req.companyAdminCompanyId =
+      Number.isInteger(cidNum) && cidNum >= 1 ? cidNum : undefined
     next()
   } catch {
     res.status(401).json({ error: 'Unauthorized' })

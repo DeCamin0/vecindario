@@ -6,6 +6,9 @@ import express from 'express'
 import cors from 'cors'
 import { authRouter } from './routes/auth.js'
 import { adminCommunitiesRouter } from './routes/admin-communities.js'
+import { adminCompaniesRouter } from './routes/admin-companies.js'
+import { companyCommunitiesRouter } from './routes/company-communities.js'
+import { requireCompanyAdmin } from './middleware/require-company-admin.js'
 import { publicCommunitiesRouter } from './routes/public-communities.js'
 import { communityBookingsRouter } from './routes/community-bookings.js'
 import { communityResidentsRouter } from './routes/community-residents.js'
@@ -16,6 +19,7 @@ import { pushRouter } from './routes/push.js'
 import { requireSuperAdmin } from './middleware/require-super-admin.js'
 import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
+import { poolAccessRouter } from './routes/pool-access.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
@@ -40,6 +44,7 @@ app.get('/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api/pool-access', poolAccessRouter)
 app.use('/api/bookings', communityBookingsRouter)
 app.use('/api/incidents', communityIncidentsRouter)
 app.use('/api/services', communityServicesRouter)
@@ -48,6 +53,8 @@ app.use('/api/push', pushRouter)
 app.use('/api/community', communityResidentsRouter)
 app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireSuperAdmin, adminCommunitiesRouter)
+app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)
+app.use('/api/company/communities', ...requireCompanyAdmin, companyCommunitiesRouter)
 
 const port = Number(process.env.PORT || 4001)
 const server = http.createServer(app)

@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMemo } from 'react'
 import { getPublicAppOrigin } from '../utils/communityLoginUrl'
+import { buildAndroidIntentOpenUrl } from '../utils/nativeAppOpen'
 import {
   getStorePlatform,
   isMobileUserAgent,
@@ -51,6 +52,14 @@ export default function OpenAppLanding() {
   const webPath = webLoginPath(slug)
   const appSchemeHref = nativeAppDeepLink(slug)
   const universalHttps = absoluteWebLoginUrl(slug)
+  const androidIntentHref = useMemo(() => {
+    try {
+      const u = new URL(universalHttps)
+      return buildAndroidIntentOpenUrl(u.origin, u.pathname, u.search || '')
+    } catch {
+      return '#'
+    }
+  }, [universalHttps])
 
   return (
     <div className="open-app-page">
@@ -85,12 +94,22 @@ export default function OpenAppLanding() {
           </div>
 
           <div className="open-app-card__actions">
-            <Link className="btn btn--primary btn--block" to={webPath}>
+            {isMobile && platform === 'android' ? (
+              <a className="btn btn--primary btn--block" href={androidIntentHref}>
+                Abrir en la app (Android)
+              </a>
+            ) : null}
+            {isMobile && platform === 'ios' ? (
+              <a className="btn btn--primary btn--block" href={appSchemeHref}>
+                Abrir en la app (iOS)
+              </a>
+            ) : null}
+            <Link className="btn btn--secondary btn--block" to={webPath}>
               Continuar en la web
             </Link>
-            {isMobile ? (
-              <a className="btn btn--secondary btn--block" href={appSchemeHref}>
-                Abrir en la app Vecindario
+            {isMobile && platform === 'android' ? (
+              <a className="btn btn--ghost btn--block" href={appSchemeHref}>
+                Abrir con enlace vecindario:// (alternativa)
               </a>
             ) : null}
           </div>

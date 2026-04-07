@@ -13,9 +13,12 @@ datasource db {
 enum VecindarioRole {
   resident
   community_admin
+  company_admin
   president
   super_admin
   concierge
+  /// Socorrista / personal de acceso solo a validación de piscina
+  pool_staff
 }
 
 /// Utilizatori Vecindario (login API). Tabel dedicat, separat de DeCamino.
@@ -25,13 +28,28 @@ model VecindarioUser {
   email        String?        @unique @db.VarChar(255)
   passwordHash String         @map("password_hash") @db.VarChar(255)
   name         String?        @db.VarChar(255)
-  /// Piso / puerta del apartamento (separado del portal de acceso).
+  /// Teléfono de contacto (opcional).
+  phone        String?        @map("phone") @db.VarChar(40)
+  /// Piso / planta u otro identificador de vivienda (texto libre).
   piso         String?        @map("piso") @db.VarChar(64)
   /// Portal o acceso de la finca (ej. 34, P1); columna aparte, no mezclar con piso.
   portal       String?        @map("portal") @db.VarChar(64)
+  /// Puerta / apartamento (texto libre). Obligatorio en alta de vecino; puede ser null en cuentas antiguas.
+  puerta       String?        @map("puerta") @db.VarChar(64)
+  /// Habitaciones (dato informativo, texto libre).
+  habitaciones String?        @map("habitaciones") @db.VarChar(64)
+  /// Plaza de garaje (opcional, texto libre).
+  plazaGaraje  String?        @map("plaza_garaje") @db.VarChar(64)
+  /// Accesos piscina titular (texto / número como dato).
+  poolAccessOwner String?     @map("pool_access_owner") @db.VarChar(64)
+  /// Accesos piscina invitado (texto / número como dato).
+  poolAccessGuest String?     @map("pool_access_guest") @db.VarChar(64)
   /// Comunidad del vecino (obligatoria si alta sin email; null en staff/presidente sin enlace).
   communityId  Int?           @map("community_id")
   community    Community?     @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  /// Empresa gestionada (solo rol company_admin).
+  companyAdminCompanyId Int?    @map("company_admin_company_id")
+  companyAdminCompany   Company? @relation("CompanyAdminUsers", fields: [companyAdminCompanyId], references: [id], onDelete: SetNull)
   role         VecindarioRole @default(resident)
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
@@ -46,9 +64,28 @@ model VecindarioUser {
   vecindarioNotifications    VecindarioNotification[]
   expoPushTokens             VecindarioExpoPushToken[]
   webPushSubscriptions       VecindarioWebPushSubscription[]
+  poolAccessPasses           PoolAccessPass[]
+  poolValidationsAsResident  PoolAccessValidationLog[] @relation("PoolValidationResident")
+  poolValidationsAsValidator PoolAccessValidationLog[] @relation("PoolValidator")
+  poolPresenceAsResident     PoolPresenceSession[]      @relation("PoolPresenceResident")
+  poolPresenceAsValidator    PoolPresenceSession[]      @relation("PoolPresenceValidator")
 
   @@index([communityId], map: "vecindario_users_community_id_idx")
+  @@index([companyAdminCompanyId], map: "vecindario_users_company_admin_company_idx")
   @@map("vecindario_users")
+}
+
+/// Empresa (administradores de empresa crean comunidades pendientes de aprobación).
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  communities        Community[]
+  companyAdminUsers  VecindarioUser[] @relation("CompanyAdminUsers")
+
+  @@map("companies")
 }
 
 /// Comunități (gestionate din Super Admin).
@@ -79,6 +116,8 @@ model Community {
   communityAdminEmail String? @map("community_admin_email") @db.VarChar(255)
   /// Email del conserje / portería (opcional; alta automática e invitación como en presidente/admin).
   conciergeEmail String? @map("concierge_email") @db.VarChar(255)
+  /// Email del socorrista / validación de acceso a piscina (mismo criterio que conserje: ficha + VEC en login).
+  poolStaffEmail String? @map("pool_staff_email") @db.VarChar(255)
   status        String   @default("active") @db.VarChar(32)
   /// Último día inclusivo del plan (null = sin caducidad). Tras esa fecha, el job diario pasa la comunidad a inactive.
   planExpiresOn DateTime? @map("plan_expires_on") @db.Date
@@ -86,6 +125,8 @@ model Community {
   portalCount   Int      @default(1) @map("portal_count")
   /// Nombre o alias por portal (JSON: ["34","36",…]); índice 0 = portal 1; longitud acorde a portalCount.
   portalLabels  Json     @default("[]") @map("portal_labels")
+  /// Por portal (misma longitud que portalCount): plantas, puertas por planta y letras vs números — ver portal-dwelling-config.ts.
+  portalDwellingConfig Json @default("[]") @map("portal_dwelling_config")
   /// Cupo previsto de vecinos / cuentas (null = sin tope definido aún).
   residentSlots Int?     @map("resident_slots")
   /// Control de acceso al gimnasio (activar / desactivar; editable después).
@@ -112,15 +153,87 @@ model Community {
   appNavIncidentsEnabled Boolean @default(true) @map("app_nav_incidents_enabled")
   /// App vecinos: pestaña Reservas.
   appNavBookingsEnabled  Boolean @default(true) @map("app_nav_bookings_enabled")
+  /// App vecinos: pestaña Acceso piscina (visible solo si está marcada).
+  appNavPoolAccessEnabled Boolean @default(false) @map("app_nav_pool_access_enabled")
+  /// Sistema de acceso a piscina (códigos / validación por socorrista).
+  poolAccessSystemEnabled Boolean @default(false) @map("pool_access_system_enabled")
+  /// Temporada de piscina activa (interruptor rápido).
+  poolSeasonActive        Boolean @default(false) @map("pool_season_active")
+  poolSeasonStart         DateTime? @map("pool_season_start") @db.Date
+  poolSeasonEnd           DateTime? @map("pool_season_end") @db.Date
+  /// Texto libre de horario (ej. 10:00–21:00); MVP sin reglas por franja.
+  poolHoursNote           String?   @map("pool_hours_note") @db.VarChar(255)
+  /// Tope de personas en la instalación a la vez (null = sin límite global; sigue el tope por vivienda al admitir).
+  poolMaxOccupancy        Int?      @map("pool_max_occupancy")
   createdAt        DateTime @default(now()) @map("created_at")
+  /// Empresa propietaria (opcional; comunidades legacy sin empresa).
+  companyId        Int?     @map("company_id")
+  company          Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   bookings         CommunityBooking[]
   gymAccessLogs    CommunityGymAccessLog[]
   vecindarioUsers  VecindarioUser[]
   incidents        CommunityIncident[]
   serviceRequests  CommunityServiceRequest[]
+  poolAccessPasses PoolAccessPass[]
+  poolAccessValidationLogs PoolAccessValidationLog[]
+  poolPresenceSessions     PoolPresenceSession[]
 
+  @@index([companyId], map: "communities_company_id_idx")
   @@map("communities")
+}
+
+/// Código corto de acceso a piscina (vecino); caducidad típica 24h.
+model PoolAccessPass {
+  id          Int            @id @default(autoincrement())
+  userId      Int            @map("user_id")
+  user        VecindarioUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId Int            @map("community_id")
+  community   Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  code        String         @unique @map("code") @db.VarChar(24)
+  expiresAt   DateTime       @map("expires_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@index([communityId])
+  @@index([userId])
+  @@map("pool_access_passes")
+}
+
+/// Registro mínimo de validaciones (extensible a historial / analítica).
+model PoolAccessValidationLog {
+  id              Int            @id @default(autoincrement())
+  communityId     Int            @map("community_id")
+  community       Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  residentUserId  Int            @map("resident_user_id")
+  resident        VecindarioUser @relation("PoolValidationResident", fields: [residentUserId], references: [id], onDelete: Cascade)
+  validatorUserId Int            @map("validator_user_id")
+  validator       VecindarioUser @relation("PoolValidator", fields: [validatorUserId], references: [id], onDelete: Cascade)
+  outcome         String         @map("outcome") @db.VarChar(32)
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  @@index([communityId, createdAt])
+  @@map("pool_access_validation_logs")
+}
+
+/// Personas dentro de la piscina (entrada registrada por socorrista; releasedAt = salida).
+model PoolPresenceSession {
+  id              Int            @id @default(autoincrement())
+  communityId     Int            @map("community_id")
+  community       Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  residentUserId  Int            @map("resident_user_id")
+  resident        VecindarioUser @relation("PoolPresenceResident", fields: [residentUserId], references: [id], onDelete: Cascade)
+  passCode        String         @map("pass_code") @db.VarChar(24)
+  peopleCount     Int            @map("people_count")
+  validatorUserId Int            @map("validator_user_id")
+  validator       VecindarioUser @relation("PoolPresenceValidator", fields: [validatorUserId], references: [id], onDelete: Cascade)
+  /// staff = socorrista; self = vecino (enlace/QR fijo en puerta)
+  admissionSource String         @default("staff") @map("admission_source") @db.VarChar(16)
+  admittedAt      DateTime       @default(now()) @map("admitted_at")
+  releasedAt      DateTime?      @map("released_at")
+
+  @@index([communityId, releasedAt])
+  @@index([residentUserId, communityId, releasedAt])
+  @@map("pool_presence_sessions")
 }
 
 /// Registro de entrada/salida al gimnasio (control de acceso); una fila por pulsación.

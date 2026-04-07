@@ -1,5 +1,6 @@
 import type { Community, VecindarioUser } from '@prisma/client'
 import { userMayUseCommunityIncidents } from './community-incidents-access.js'
+import { isCommunityOperationalStatus } from './community-status.js'
 
 const SERVICE_STATUSES = new Set([
   'pending_review',
@@ -19,7 +20,7 @@ export async function userMayCreateServiceRequest(
   user: VecindarioUser,
   comm: Community | null,
 ): Promise<boolean> {
-  if (!comm || comm.status === 'inactive') return false
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   if (comm.appNavServicesEnabled === false) return false
   if (user.role === 'super_admin') return false
   return userMayUseCommunityIncidents(user, comm)

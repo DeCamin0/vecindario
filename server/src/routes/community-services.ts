@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { VecindarioUser } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth } from '../middleware/require-auth.js'
-import { loadVecindarioUser } from '../lib/community-incidents-access.js'
+import { loadVecindarioUser, userMayManageIncidents } from '../lib/community-incidents-access.js'
 import {
   isValidServiceStatus,
   userMayCreateServiceRequest,
@@ -120,6 +120,7 @@ const svc = prisma as unknown as {
     findMany(args: unknown): Promise<ServiceRequestRow[]>
     create(args: unknown): Promise<ServiceRequestRow>
     update(args: unknown): Promise<ServiceRequestRow>
+    count(args: unknown): Promise<number>
   }
 }
 
@@ -252,6 +253,33 @@ communityServicesRouter.get('/my', requireAuth, async (req, res) => {
   res.json(
     rows.map((r) => mapRowList(r, { isSuper: false, viewerUserId: user.id })),
   )
+})
+
+/** GET /api/services/management-metrics?communityId= — staff gestión (conteo solicitudes en revisión) */
+communityServicesRouter.get('/management-metrics', requireAuth, async (req, res) => {
+  const communityId = Number(req.query.communityId)
+  if (!Number.isInteger(communityId) || communityId < 1) {
+    res.status(400).json({ error: 'communityId inválido' })
+    return
+  }
+  const user = await loadVecindarioUser(req.userId!)
+  const comm = await prisma.community.findUnique({ where: { id: communityId } })
+  if (!user || !comm) {
+    res.status(404).json({ error: 'No encontrado' })
+    return
+  }
+  if (!userMayManageIncidents(user, comm)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+  if (comm.appNavServicesEnabled === false) {
+    res.json({ pendingServiceRequests: 0 })
+    return
+  }
+  const pendingServiceRequests = await svc.communityServiceRequest.count({
+    where: { communityId, status: 'pending_review' },
+  })
+  res.json({ pendingServiceRequests })
 })
 
 /** GET /api/services — solo super_admin (todas las comunidades) */

@@ -34,7 +34,7 @@ function shortDescription(text, maxLen = 60) {
   return t.length <= maxLen ? t : t.slice(0, maxLen) + '…'
 }
 
-const NAV_FALLBACK = { services: true, incidents: true, bookings: true }
+const NAV_FALLBACK = { services: true, incidents: true, bookings: true, poolAccess: false }
 
 function activitySubtitle(flags, ready) {
   if (!ready) return 'Historial de solicitudes, incidencias y reservas.'

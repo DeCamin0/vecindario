@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { apiUrl } from '../config/api.js'
 import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js'
+import { pisoPuertaChoicesForPortal } from '../utils/dwellingPortalChoices.js'
 import DeveloperCredit from '../components/DeveloperCredit'
 import MobileAppDownloadBanner from '../components/MobileAppDownloadBanner'
 import { BRAND_LOGO_PNG } from '../syncBrandFavicon.js'
@@ -14,7 +15,7 @@ const ROLE_OPTIONS = [
     value: 'resident',
     label: 'Residente / vecino',
     short: 'Vecino',
-    sub: 'Portal y piso',
+    sub: 'Portal, piso y puerta',
     icon: '🏠',
   },
   {
@@ -25,22 +26,29 @@ const ROLE_OPTIONS = [
     icon: '🛎️',
   },
   {
+    value: 'pool_staff',
+    label: 'Socorrista / piscina',
+    short: 'Piscina',
+    sub: 'Correo + VEC',
+    icon: '🏊',
+  },
+  {
     value: 'community_admin',
     label: 'Administrador de comunidad',
     short: 'Administrador',
-    sub: 'Correo + VEC',
+    sub: 'Correo y contraseña',
     icon: '📋',
   },
 ]
 
-/** Solo vecinos (y presidente por vivienda): VEC + portal + piso + contraseña. Admin y conserje: email + contraseña + VEC. */
+/** Solo vecinos (y presidente por vivienda): VEC + portal + piso + contraseña. Conserje: email + contraseña + VEC. Administrador: solo email + contraseña (nunca accessCode; como super admin a nivel de comunidad). */
 function showPortalPisoFields(role) {
   return role === 'resident'
 }
 
-/** Código VEC: vecino, administrador y conserje. */
+/** Código VEC manual: vecino y conserje. Administrador ya no lo necesita (varias comunidades por correo). */
 function showVecCodeField(role) {
-  return role === 'resident' || role === 'community_admin' || role === 'concierge'
+  return role === 'resident' || role === 'concierge' || role === 'pool_staff'
 }
 
 function Login() {
@@ -64,6 +72,7 @@ function Login() {
   const [password, setPassword] = useState('')
   const [piso, setPiso] = useState('')
   const [portal, setPortal] = useState('')
+  const [puerta, setPuerta] = useState('')
   const [role, setRole] = useState('resident')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -73,7 +82,7 @@ function Login() {
   const [vecError, setVecError] = useState('')
   const [slugRouteBusy, setSlugRouteBusy] = useState(false)
   const [slugRouteError, setSlugRouteError] = useState('')
-  /** Super admin: flujo aparte (solo email + contraseña, sin VEC). */
+  /** Super admin / admin de empresa: flujos aparte (solo email + contraseña, sin VEC). */
   const [loginMode, setLoginMode] = useState('community')
 
   const codeForPortals = (communityAccessCode?.trim() || vecCode.trim() || '').toUpperCase() || ''
@@ -82,16 +91,37 @@ function Login() {
     showPortalPisoFields(role) &&
     communityId != null &&
     Boolean(codeForPortals.trim())
-  const { loading: portalOptionsLoading, portals: portalChoicesRaw } = useCommunityPortalOptions(
-    fetchPortals ? communityId : null,
-    fetchPortals ? codeForPortals : null,
-  )
+  const { loading: portalOptionsLoading, portals: portalChoicesRaw, dwellingByPortalIndex } =
+    useCommunityPortalOptions(
+      fetchPortals ? communityId : null,
+      fetchPortals ? codeForPortals : null,
+    )
   const portalSelectOptions = useMemo(() => {
     if (!portalChoicesRaw?.length) return null
     const u = portal.trim()
     if (u && !portalChoicesRaw.includes(u)) return [u, ...portalChoicesRaw]
     return portalChoicesRaw
   }, [portalChoicesRaw, portal])
+
+  const { pisoOptions: pisoChoicesRaw, puertaOptions: puertaChoicesRaw } = useMemo(
+    () =>
+      pisoPuertaChoicesForPortal(portal, portalChoicesRaw, dwellingByPortalIndex),
+    [portal, portalChoicesRaw, dwellingByPortalIndex],
+  )
+
+  const pisoSelectOptions = useMemo(() => {
+    if (!pisoChoicesRaw?.length) return null
+    const u = piso.trim()
+    if (u && !pisoChoicesRaw.includes(u)) return [...pisoChoicesRaw, u]
+    return pisoChoicesRaw
+  }, [pisoChoicesRaw, piso])
+
+  const puertaSelectOptions = useMemo(() => {
+    if (!puertaChoicesRaw?.length) return null
+    const u = puerta.trim()
+    if (u && !puertaChoicesRaw.includes(u)) return [...puertaChoicesRaw, u]
+    return puertaChoicesRaw
+  }, [puertaChoicesRaw, puerta])
 
   const slugCommunityReady =
     fromSlugRoute && !slugRouteBusy && !slugRouteError && communityId != null && Boolean(community)
@@ -134,8 +164,14 @@ function Login() {
     if (slugCommunityReady && role === 'resident') {
       return 'Acceso directo: comunidad por enlace. Portal, piso y contraseña (el VEC ya está vinculado).'
     }
-    if (slugCommunityReady && (role === 'community_admin' || role === 'concierge')) {
-      return 'Comunidad identificada por el enlace. Email y contraseña del rol (administrador o conserje de la ficha).'
+    if (slugCommunityReady && role === 'concierge') {
+      return 'Comunidad por enlace: correo de conserje y contraseña (el VEC ya está vinculado al enlace).'
+    }
+    if (slugCommunityReady && role === 'pool_staff') {
+      return 'Comunidad por enlace: correo de socorrista y contraseña (el VEC ya está vinculado al enlace).'
+    }
+    if (slugCommunityReady && role === 'community_admin') {
+      return 'Administrador: solo correo y contraseña de la ficha — sin código VEC.'
     }
     if (role === 'resident') {
       return 'Valida el VEC y entra con portal, piso y contraseña.'
@@ -143,11 +179,18 @@ function Login() {
     if (role === 'concierge') {
       return 'Código VEC de la comunidad + correo de conserje (el de la ficha) + contraseña.'
     }
-    return 'VEC + correo de administrador de la comunidad + contraseña.'
+    if (role === 'pool_staff') {
+      return 'Código VEC + correo de socorrista (el de la ficha) + contraseña.'
+    }
+    if (role === 'community_admin') {
+      return 'Correo y contraseña del administrador de comunidad. Si gestionas varias, elige la activa después en el menú.'
+    }
+    return 'Correo y contraseña del administrador de comunidad.'
   }, [role, slugCommunityReady])
 
   const showEmailFieldCommunity =
-    loginMode === 'community' && (role === 'community_admin' || role === 'concierge')
+    loginMode === 'community' &&
+    (role === 'community_admin' || role === 'concierge' || role === 'pool_staff')
 
   const verifyVecCode = async () => {
     setVecError('')
@@ -219,7 +262,51 @@ function Login() {
       return
     }
 
-    if ((role === 'community_admin' || role === 'concierge') && !email.trim()) {
+    if (loginMode === 'company_admin') {
+      if (!email.trim()) {
+        setError('Introduce el email de administrador de empresa')
+        return
+      }
+      if (!password) {
+        setError('Introduce tu contraseña')
+        return
+      }
+      setSubmitting(true)
+      try {
+        const res = await fetch(apiUrl('/api/auth/login'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            password,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setError(data.message || data.error || 'Credenciales incorrectas')
+          return
+        }
+        if (!data.accessToken || !data.user) {
+          setError('Respuesta inválida del servidor')
+          return
+        }
+        if (data.user.role !== 'company_admin') {
+          setError('Esta cuenta no es administrador de empresa. Elige otro acceso o contacta con soporte.')
+          return
+        }
+        applyServerSession(data.accessToken, data.user, {
+          company: data.company,
+        })
+        navigate('/company-admin', { replace: true })
+      } catch {
+        setError('No se pudo conectar con el servidor')
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    if ((role === 'community_admin' || role === 'concierge' || role === 'pool_staff') && !email.trim()) {
       setError('Introduce tu email')
       return
     }
@@ -238,7 +325,7 @@ function Login() {
         return
       }
       if (!piso.trim() || !portal.trim()) {
-        setError('Indica piso/puerta y portal (son dos campos distintos).')
+        setError('Indica portal y piso. Añade puerta si tu cuenta se dio de alta con los tres datos.')
         return
       }
       const vecForLogin = (communityAccessCode || vecCode).trim().toUpperCase()
@@ -253,6 +340,7 @@ function Login() {
           password,
           piso: piso.trim().slice(0, 64),
           portal: portal.trim().slice(0, 64),
+          ...(puerta.trim() ? { puerta: puerta.trim().slice(0, 64) } : {}),
         }
         const res = await fetch(apiUrl('/api/auth/login'), {
           method: 'POST',
@@ -269,12 +357,16 @@ function Login() {
           return
         }
         if (data.community?.name != null && data.community?.id != null) {
+          const acFromServer =
+            data.community.accessCode != null && String(data.community.accessCode).trim()
+              ? String(data.community.accessCode).trim().toUpperCase()
+              : ''
           setCommunity(data.community.name, {
             id: data.community.id,
-            accessCode: vecForLogin || communityAccessCode?.trim().toUpperCase() || '',
+            accessCode: acFromServer || vecForLogin || communityAccessCode?.trim().toUpperCase() || '',
           })
         }
-        applyServerSession(data.accessToken, data.user)
+        applyServerSession(data.accessToken, data.user, { company: data.company })
         const serverRole = data.user.role
         if (serverRole === 'president' || serverRole === 'community_admin') {
           navigate(postLoginSlugQuery ? `/community-admin${postLoginSlugQuery}` : '/community-admin', {
@@ -282,6 +374,10 @@ function Login() {
           })
         } else if (serverRole === 'concierge') {
           navigate(postLoginSlugQuery ? `/${postLoginSlugQuery}` : '/', { replace: true })
+        } else if (serverRole === 'pool_staff') {
+          navigate(postLoginSlugQuery ? `/pool-validate${postLoginSlugQuery}` : '/pool-validate', {
+            replace: true,
+          })
         } else {
           navigate(postLoginSlugQuery ? `/${postLoginSlugQuery}` : '/', { replace: true })
         }
@@ -293,7 +389,7 @@ function Login() {
       return
     }
 
-    if (role === 'community_admin' || role === 'concierge') {
+    if (role === 'concierge' || role === 'pool_staff') {
       const vecOk = vecCode.trim() || communityAccessCode?.trim()
       if (!vecOk) {
         setError('Introduce el código VEC de la comunidad o usa el enlace de acceso de tu comunidad.')
@@ -304,11 +400,14 @@ function Login() {
     setSubmitting(true)
     try {
       const vecForStaff = (vecCode.trim() || communityAccessCode?.trim() || '').toUpperCase()
-      const payload = {
-        email: email.trim().toLowerCase(),
-        password,
-        accessCode: vecForStaff,
-      }
+      const payload =
+        role === 'community_admin'
+          ? { email: email.trim().toLowerCase(), password }
+          : {
+              email: email.trim().toLowerCase(),
+              password,
+              accessCode: vecForStaff,
+            }
       const res = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -323,21 +422,36 @@ function Login() {
         setError('Respuesta inválida del servidor')
         return
       }
-      applyServerSession(data.accessToken, data.user)
+      applyServerSession(data.accessToken, data.user, { company: data.company })
       if (data.community?.name != null && data.community?.id != null) {
-        setCommunity(data.community.name, { id: data.community.id, accessCode: vecForStaff })
+        const acFromServer =
+          data.community.accessCode != null && String(data.community.accessCode).trim()
+            ? String(data.community.accessCode).trim().toUpperCase()
+            : ''
+        setCommunity(data.community.name, {
+          id: data.community.id,
+          accessCode: acFromServer || vecForStaff,
+        })
       }
       const serverRole = data.user.role
       if (serverRole === 'super_admin') {
         navigate('/admin', { replace: true })
+      } else if (serverRole === 'company_admin') {
+        navigate('/company-admin', { replace: true })
       } else if (serverRole === 'community_admin' || serverRole === 'president') {
         navigate(postLoginSlugQuery ? `/community-admin${postLoginSlugQuery}` : '/community-admin', {
           replace: true,
         })
       } else if (serverRole === 'concierge') {
         navigate(postLoginSlugQuery ? `/${postLoginSlugQuery}` : '/', { replace: true })
+      } else if (serverRole === 'pool_staff') {
+        navigate(postLoginSlugQuery ? `/pool-validate${postLoginSlugQuery}` : '/pool-validate', {
+          replace: true,
+        })
       } else {
-        setError('Tu cuenta no coincide con administrador o conserje; elige «Residente» si eres vecino.')
+        setError(
+          'Tu cuenta no coincide con el rol elegido (administrador, conserje o piscina); elige «Residente» si eres vecino.',
+        )
       }
     } catch {
       setError('No se pudo conectar con el servidor')
@@ -369,8 +483,10 @@ function Login() {
             </p>
             <ul className="auth-login-hero__ticks">
               <li>Enlace por comunidad (slug) o código VEC manual</li>
-              <li>Vecinos: portal, piso y contraseña</li>
-              <li>Administrador y conserje: correo de la ficha + contraseña (+ VEC o enlace)</li>
+              <li>Vecinos: portal, piso, puerta (apartamento) y contraseña</li>
+              <li>Administrador: correo y contraseña de la ficha (varias comunidades; elige la activa en la app)</li>
+              <li>Conserje: correo + contraseña + código VEC (o enlace de comunidad)</li>
+              <li>Socorrista (piscina): correo + contraseña + VEC — solo validación de acceso</li>
             </ul>
           </div>
         </aside>
@@ -387,17 +503,23 @@ function Login() {
                 />
               </div>
               <h1 className="auth-title auth-title--login">
-                {loginMode === 'super_admin' ? 'Super administrador' : 'Iniciar sesión'}
+                {loginMode === 'super_admin'
+                  ? 'Super administrador'
+                  : loginMode === 'company_admin'
+                    ? 'Administrador de empresa'
+                    : 'Iniciar sesión'}
               </h1>
               <p className="auth-login-tagline">
                 {loginMode === 'super_admin'
                   ? 'Panel global de la plataforma. Solo email y contraseña — sin código VEC.'
+                  : loginMode === 'company_admin'
+                    ? 'Gestiona las comunidades de tu empresa. Las nuevas quedan pendientes hasta que un super administrador las active.'
                   : taglineCommunity}
               </p>
             </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
-          {loginMode === 'super_admin' && (
+          {(loginMode === 'super_admin' || loginMode === 'company_admin') && (
             <div className="auth-field">
               <button
                 type="button"
@@ -434,9 +556,13 @@ function Login() {
                       className={`auth-role-btn${selected ? ' auth-role-btn--active' : ''}`}
                       onClick={() => {
                         setRole(value)
-                        if (value === 'community_admin' || value === 'concierge') {
+                        if (value === 'resident') {
+                          setEmail('')
+                        }
+                        if (value === 'community_admin' || value === 'concierge' || value === 'pool_staff') {
                           setPiso('')
                           setPortal('')
+                          setPuerta('')
                         }
                         setError('')
                       }}
@@ -536,7 +662,9 @@ function Login() {
                     ? 'Comunidad seleccionada: '
                     : role === 'concierge'
                       ? 'Comunidad (conserje): '
-                      : 'Comunidad vinculada: '}
+                      : role === 'pool_staff'
+                        ? 'Comunidad (piscina): '
+                        : 'Comunidad vinculada: '}
                   <strong>{community}</strong>
                   {role === 'community_admin' && (
                     <span className="auth-vec-ok-hint"> — debe coincidir con el correo de administrador de esa comunidad.</span>
@@ -547,15 +675,27 @@ function Login() {
                       — debe coincidir con el correo de conserje dado de alta en esa comunidad.
                     </span>
                   )}
+                  {role === 'pool_staff' && (
+                    <span className="auth-vec-ok-hint">
+                      {' '}
+                      — debe coincidir con el correo de socorrista en esa comunidad.
+                    </span>
+                  )}
                 </p>
               )}
             </div>
           )}
 
-          {(showEmailFieldCommunity || loginMode === 'super_admin') && (
+          {(showEmailFieldCommunity ||
+            loginMode === 'super_admin' ||
+            loginMode === 'company_admin') && (
             <div className="auth-field">
               <label className="auth-label" htmlFor="email">
-                {loginMode === 'super_admin' ? 'Email de super administrador' : 'Email'}
+                {loginMode === 'super_admin'
+                  ? 'Email de super administrador'
+                  : loginMode === 'company_admin'
+                    ? 'Email de administrador de empresa'
+                    : 'Email'}
               </label>
               <input
                 id="email"
@@ -565,7 +705,7 @@ function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                autoFocus={loginMode === 'super_admin'}
+                autoFocus={loginMode === 'super_admin' || loginMode === 'company_admin'}
               />
             </div>
           )}
@@ -573,43 +713,41 @@ function Login() {
           {loginMode === 'community' && showPortalPisoFields(role) && (
             <div className="auth-login-double">
               <div className="auth-field">
-                <label className="auth-label" htmlFor="login-piso">
-                  Piso / puerta <span className="auth-required">(apartamento)</span>
-                </label>
-                <input
-                  id="login-piso"
-                  type="text"
-                  className="auth-input"
-                  placeholder="Ej. 3º B"
-                  value={piso}
-                  onChange={(e) => setPiso(e.target.value)}
-                  autoComplete="off"
-                  required
-                  aria-required
-                />
-              </div>
-              <div className="auth-field">
                 <label className="auth-label" htmlFor="login-portal">
                   Portal <span className="auth-required">(acceso)</span>
                 </label>
                 {fetchPortals && portalOptionsLoading ? (
                   <select
                     id="login-portal"
+                    name="vecindario_portal"
                     className="auth-input auth-select"
                     disabled
                     aria-busy="true"
                     value=""
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
                   >
                     <option value="">Cargando portales…</option>
                   </select>
                 ) : portalSelectOptions ? (
                   <select
                     id="login-portal"
+                    name="vecindario_portal"
                     className="auth-input auth-select"
                     value={portal}
-                    onChange={(e) => setPortal(e.target.value)}
+                    onChange={(e) => {
+                      setPortal(e.target.value)
+                      setPiso('')
+                      setPuerta('')
+                    }}
                     required
                     aria-required
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
                   >
                     <option value="">Selecciona portal</option>
                     {portalSelectOptions.map((opt) => (
@@ -621,14 +759,110 @@ function Login() {
                 ) : (
                   <input
                     id="login-portal"
+                    name="vecindario_portal"
                     type="text"
                     className="auth-input"
                     placeholder="Ej. 34, P1"
                     value={portal}
                     onChange={(e) => setPortal(e.target.value)}
                     autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
                     required
                     aria-required
+                  />
+                )}
+              </div>
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="login-piso">
+                  Piso <span className="auth-required">(planta / bloque)</span>
+                </label>
+                {pisoSelectOptions ? (
+                  <select
+                    id="login-piso"
+                    name="vecindario_piso"
+                    className="auth-input auth-select"
+                    value={piso}
+                    onChange={(e) => setPiso(e.target.value)}
+                    required
+                    aria-required
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
+                  >
+                    <option value="">Selecciona planta</option>
+                    {pisoSelectOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id="login-piso"
+                    name="vecindario_piso"
+                    type="text"
+                    className="auth-input"
+                    placeholder="Ej. 3º, Bajo A, Ático"
+                    value={piso}
+                    onChange={(e) => setPiso(e.target.value)}
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    required
+                    aria-required
+                  />
+                )}
+              </div>
+              <div className="auth-field auth-login-double-full">
+                <label className="auth-label" htmlFor="login-puerta">
+                  Puerta <span className="auth-required">(apartamento)</span>
+                </label>
+                <p className="auth-field-hint">
+                  Mismo dato que en el alta. Déjalo vacío solo si tu cuenta es antigua y aún no tiene puerta en el
+                  sistema.
+                </p>
+                {puertaSelectOptions ? (
+                  <select
+                    id="login-puerta"
+                    name="vecindario_puerta"
+                    className="auth-input auth-select"
+                    value={puerta}
+                    onChange={(e) => setPuerta(e.target.value)}
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
+                  >
+                    <option value="">— (cuenta antigua sin puerta)</option>
+                    {puertaSelectOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id="login-puerta"
+                    name="vecindario_puerta"
+                    type="text"
+                    className="auth-input"
+                    placeholder="Ej. B, 2 (obligatorio si consta en tu alta)"
+                    value={puerta}
+                    onChange={(e) => setPuerta(e.target.value)}
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
                   />
                 )}
               </div>
@@ -663,6 +897,8 @@ function Login() {
               ? 'Entrando…'
               : loginMode === 'super_admin'
                 ? 'Entrar al panel de control'
+                : loginMode === 'company_admin'
+                  ? 'Entrar al panel de empresa'
                 : 'Iniciar sesión'}
           </button>
         </form>
@@ -682,12 +918,35 @@ function Login() {
                     setError('')
                     setPiso('')
                     setPortal('')
+                    setPuerta('')
                   }}
                 >
                   Acceso super administrador
                 </button>
                 <p className="auth-login-super-hint">
                   Uso interno: gestión de comunidades y plataforma. No necesitas código VEC.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn--secondary auth-login-super-btn"
+                  style={{ marginTop: '0.5rem' }}
+                  onClick={() => {
+                    navigate('/login')
+                    setLoginMode('company_admin')
+                    setVecCode('')
+                    setVecError('')
+                    setSlugRouteError('')
+                    setCommunity(null)
+                    setError('')
+                    setPiso('')
+                    setPortal('')
+                    setPuerta('')
+                  }}
+                >
+                  Acceso administrador de empresa
+                </button>
+                <p className="auth-login-super-hint">
+                  Gestiona comunidades de tu empresa (alta pendiente de aprobación del super administrador).
                 </p>
               </div>
             )}

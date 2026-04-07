@@ -40,6 +40,13 @@
   white-space: nowrap;
 }
 
+.mobile-app-banner__linkbtn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .mobile-app-banner__dismiss {
   display: inline-flex;
   align-items: center;

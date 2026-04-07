@@ -1,5 +1,6 @@
 import type { Community, VecindarioUser } from '@prisma/client'
 import { prisma } from './prisma.js'
+import { isCommunityOperationalStatus } from './community-status.js'
 import { residentMatchesPresidentUnit } from './president-by-unit.js'
 import { userLinkedToCommunity } from './community-user-access.js'
 
@@ -14,7 +15,7 @@ export function assertUserMayAccessCommunityStaff(
   user: VecindarioUser,
   comm: Community | null,
 ): boolean {
-  if (!comm || comm.status === 'inactive') return false
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   const e = normEmail(user.email)
   if (user.role === 'super_admin') return true
   if (user.role === 'community_admin' && normEmail(comm.communityAdminEmail) === e) return true
@@ -36,7 +37,7 @@ export async function userMayUseCommunityIncidents(
   user: VecindarioUser,
   comm: Community | null,
 ): Promise<boolean> {
-  if (!comm || comm.status === 'inactive') return false
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   if (assertUserMayAccessCommunityStaff(user, comm)) return true
   if (user.communityId != null && user.communityId === comm.id) return true
   return userLinkedToCommunity(
@@ -47,7 +48,7 @@ export async function userMayUseCommunityIncidents(
 
 /** Ver todas las incidencias de la comunidad y cambiar estado (pendiente / resuelta). */
 export function userMayManageIncidents(user: VecindarioUser, comm: Community): boolean {
-  if (comm.status === 'inactive') return false
+  if (!isCommunityOperationalStatus(comm.status)) return false
   if (user.role === 'super_admin') return true
   if (user.role === 'resident' && residentMatchesPresidentUnit(comm, user)) return true
   const e = normEmail(user.email)
@@ -59,7 +60,7 @@ export function userMayManageIncidents(user: VecindarioUser, comm: Community): b
 
 /** Cerrar / abrir comentarios en una incidencia: solo conserje de la ficha (y super admin). */
 export function userMayLockIncidentComments(user: VecindarioUser, comm: Community): boolean {
-  if (comm.status === 'inactive') return false
+  if (!isCommunityOperationalStatus(comm.status)) return false
   if (user.role === 'super_admin') return true
   const e = normEmail(user.email)
   if (user.role === 'concierge' && normEmail(comm.conciergeEmail) === e) return true

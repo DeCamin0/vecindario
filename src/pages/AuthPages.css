@@ -243,6 +243,13 @@
   color: var(--color-error, #b91c1c);
 }
 
+.auth-field-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
 .auth-input {
   width: 100%;
   padding: var(--space-4);
@@ -644,6 +651,10 @@
     grid-template-columns: 1fr 1fr;
     gap: var(--space-4);
   }
+}
+
+.auth-login-double-full {
+  grid-column: 1 / -1;
 }
 
 /* Selector de rol — botones (sustituye el desplegable «¿Cómo entras?») */

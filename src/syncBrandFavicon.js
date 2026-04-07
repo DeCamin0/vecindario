@@ -5,7 +5,7 @@ function resolveBrandLogoPng() {
     const b = base.endsWith('/') ? base : `${base}/`
     return `${b}Vencindario_logo.png`
   }
-  return '/vecindario/Vencindario_logo.png'
+  return '/Vencindario_logo.png'
 }
 
 export const BRAND_LOGO_PNG = resolveBrandLogoPng()

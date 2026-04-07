@@ -5,10 +5,11 @@ import './AppNav.css'
 
 const baseLinks = [
   { to: '/', end: true, label: 'Inicio', icon: 'home' },
-  { to: '/services', label: 'Servicios', icon: 'services' },
-  { to: '/incidents', label: 'Incidencias', icon: 'incidents' },
-  { to: '/bookings', label: 'Reservas', icon: 'bookings' },
-  { to: '/activity', label: 'Actividad', icon: 'activity' },
+  { to: '/services', label: 'Servicios', icon: 'services', navFlag: 'services' },
+  { to: '/incidents', label: 'Incidencias', icon: 'incidents', navFlag: 'incidents' },
+  { to: '/bookings', label: 'Reservas', icon: 'bookings', navFlag: 'bookings' },
+  { to: '/pool', label: 'Acceso piscina', icon: 'pool', navFlag: 'poolAccess' },
+  { to: '/activity', label: 'Actividad', icon: 'activity', navFlag: null },
   { to: '/profile', label: 'Perfil', icon: 'profile' },
 ]
 
@@ -62,18 +63,47 @@ const icons = {
       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
   ),
+  pool: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.32 0L12 2.69z" />
+    </svg>
+  ),
 }
 
-const NAV_DEFAULT_FLAGS = { services: true, incidents: true, bookings: true }
+const NAV_DEFAULT_FLAGS = { services: true, incidents: true, bookings: true, poolAccess: false }
+
+const poolStaffLinks = [
+  { to: '/pool-validate', label: 'Validar piscina', icon: 'pool' },
+  { to: '/profile', label: 'Perfil', icon: 'profile' },
+]
 
 export default function AppNav({ id, ariaLabel = 'Navegación principal' }) {
   const { userRole, appNavFlags, appNavFlagsReady } = useAuth()
+  if (userRole === 'pool_staff') {
+    return (
+      <nav className="app-nav" id={id} aria-label={ariaLabel}>
+        <ul className="app-nav-list">
+          {poolStaffLinks.map(({ to, label, icon }) => (
+            <li key={to}>
+              <NavLink
+                to={to}
+                className={({ isActive }) =>
+                  `app-nav-link ${isActive ? 'app-nav-link--active' : ''}`
+                }
+              >
+                <span className="app-nav-icon">{icons[icon]}</span>
+                <span className="app-nav-label">{label}</span>
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )
+  }
   const flags = appNavFlagsReady ? appNavFlags : NAV_DEFAULT_FLAGS
   const activityVisible = flags.services || flags.incidents || flags.bookings
   const filteredBase = baseLinks.filter((link) => {
-    if (link.to === '/services') return flags.services
-    if (link.to === '/incidents') return flags.incidents
-    if (link.to === '/bookings') return flags.bookings
+    if (link.navFlag != null) return Boolean(flags[link.navFlag])
     if (link.to === '/activity') return activityVisible
     return true
   })

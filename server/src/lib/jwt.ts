@@ -8,12 +8,33 @@ export function getJwtSecret(): string {
   return s
 }
 
-export function signAccessToken(payload: { sub: string; email: string; role: string }): string {
-  const expiresIn = process.env.JWT_EXPIRES_IN || '7d'
-  return jwt.sign(payload, getJwtSecret(), { expiresIn } as jwt.SignOptions)
+export type AccessTokenPayload = {
+  sub: string
+  email: string
+  role: string
+  /** companyId para rol company_admin */
+  cid?: string
 }
 
-export function verifyAccessToken(token: string): { sub: string; email: string; role: string } {
-  const decoded = jwt.verify(token, getJwtSecret()) as { sub: string; email: string; role: string }
+export function signAccessToken(payload: {
+  sub: string
+  email: string
+  role: string
+  companyId?: number | null
+}): string {
+  const expiresIn = process.env.JWT_EXPIRES_IN || '7d'
+  const body: Record<string, string> = {
+    sub: payload.sub,
+    email: payload.email,
+    role: payload.role,
+  }
+  if (payload.companyId != null && Number.isFinite(Number(payload.companyId))) {
+    body.cid = String(payload.companyId)
+  }
+  return jwt.sign(body, getJwtSecret(), { expiresIn } as jwt.SignOptions)
+}
+
+export function verifyAccessToken(token: string): AccessTokenPayload {
+  const decoded = jwt.verify(token, getJwtSecret()) as AccessTokenPayload
   return decoded
 }

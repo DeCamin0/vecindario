@@ -1,19 +1,33 @@
 import { Link } from 'react-router-dom'
+import ManagementStatsTiles from '../components/ManagementStatsTiles.jsx'
+import {
+  COMMUNITY_MGMT_NAV_DEFAULT,
+  useCommunityManagementStats,
+} from '../hooks/useCommunityManagementStats.js'
 import { useAuth } from '../context/AuthContext'
+import ManagedCommunitySwitcher from '../components/ManagedCommunitySwitcher.jsx'
+import { shouldShowManagedCommunitySwitcher } from '../utils/managedCommunitySwitcherUtils.js'
+import CommunityPoolSettingsSection from '../components/CommunityPoolSettingsSection.jsx'
 import './Admin.css'
 import './CommunityAdmin.css'
 
-const NAV_DEFAULT = { services: true, incidents: true, bookings: true }
-
-const OVERVIEW = [
-  { key: 'incidents', value: 2, label: 'Incidencias abiertas', icon: '⚠', accent: true },
-  { key: 'bookings', value: 3, label: 'Reservas hoy', icon: '📅' },
-  { key: 'pending', value: 1, label: 'Acciones pendientes', icon: '✓' },
-]
-
 export default function CommunityAdmin() {
-  const { appNavFlags, appNavFlagsReady } = useAuth()
-  const nav = appNavFlagsReady ? appNavFlags : NAV_DEFAULT
+  const {
+    appNavFlags,
+    appNavFlagsReady,
+    userRole,
+    managedCommunities,
+    accessToken,
+    communityId,
+  } = useAuth()
+  const nav = appNavFlagsReady ? appNavFlags : COMMUNITY_MGMT_NAV_DEFAULT
+  const showCommunitySwitcher = shouldShowManagedCommunitySwitcher(userRole, managedCommunities)
+
+  const { overviewStats, overviewLoading, statDisplay } = useCommunityManagementStats(
+    accessToken,
+    communityId,
+    nav,
+  )
 
   return (
     <div className="community-admin-page">
@@ -24,6 +38,12 @@ export default function CommunityAdmin() {
             <p className="community-admin-subtitle">
               Gestiona incidencias, reservas y actividad de tu comunidad
             </p>
+            {showCommunitySwitcher ? (
+              <div className="community-admin-community-switch">
+                <span className="community-admin-community-switch-label">Comunidad activa</span>
+                <ManagedCommunitySwitcher className="community-admin-community-select" />
+              </div>
+            ) : null}
           </div>
           <Link to="/" className="admin-back-link">
             Volver a la app
@@ -35,20 +55,12 @@ export default function CommunityAdmin() {
         <div className="community-admin-inner">
           <section className="community-admin-overview">
             <h2 className="community-admin-visually-hidden">Resumen</h2>
-            <div className="community-admin-stats">
-              {OVERVIEW.map((stat) => (
-                <div
-                  key={stat.key}
-                  className={`community-admin-stat card ${stat.accent ? 'community-admin-stat--accent' : ''}`}
-                >
-                  <div className="community-admin-stat-top">
-                    <span className="community-admin-stat-icon" aria-hidden="true">{stat.icon}</span>
-                    <span className="community-admin-stat-label">{stat.label}</span>
-                  </div>
-                  <span className="community-admin-stat-value">{stat.value}</span>
-                </div>
-              ))}
-            </div>
+            <ManagementStatsTiles
+              overviewStats={overviewStats}
+              overviewLoading={overviewLoading}
+              statDisplay={statDisplay}
+              nav={nav}
+            />
           </section>
 
           <section className="community-admin-section">
@@ -124,6 +136,8 @@ export default function CommunityAdmin() {
               </div>
             </div>
           </section>
+
+          <CommunityPoolSettingsSection />
         </div>
       </main>
     </div>

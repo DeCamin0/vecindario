@@ -20,6 +20,12 @@ export async function userLinkedToCommunity(
 ): Promise<boolean> {
   if (user.role === 'super_admin') return false
 
+  if (user.role === 'pool_staff') {
+    const u = normEmail(user.email)
+    if (u && normEmail(community.poolStaffEmail) === u) return true
+    return user.communityId != null && user.communityId === community.id
+  }
+
   if (user.role === 'resident') {
     if (user.communityId != null && user.communityId === community.id) return true
     const n = await prisma.communityBooking.count({
@@ -45,7 +51,7 @@ export async function userLinkedToCommunity(
 
 export function staffRoleMatchesSlot(
   user: Pick<VecindarioUser, 'role'>,
-  slot: 'president' | 'community_admin' | 'concierge',
+  slot: 'president' | 'community_admin' | 'concierge' | 'pool_staff',
 ): boolean {
   return user.role === slot
 }

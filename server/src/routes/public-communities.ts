@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 import { normalizeLoginSlugInput } from '../lib/login-slug.js'
 import { communityPortalSelectOptions } from '../lib/portal-labels.js'
+import { buildDwellingByPortalIndex } from '../lib/portal-dwelling-config.js'
+import { communityOperationalWhere, isCommunityOperationalStatus } from '../lib/community-status.js'
 
 /** Rutas públicas (sin JWT): validar código de acceso para vecinos. */
 export const publicCommunitiesRouter = Router()
@@ -46,12 +48,14 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
       appNavServicesEnabled: true,
       appNavIncidentsEnabled: true,
       appNavBookingsEnabled: true,
+      appNavPoolAccessEnabled: true,
       portalCount: true,
       portalLabels: true,
+      portalDwellingConfig: true,
     },
   })
 
-  if (!row || row.status === 'inactive') {
+  if (!row || !isCommunityOperationalStatus(row.status)) {
     res.status(404).json({ error: 'Comunidad no encontrada o inactiva' })
     return
   }
@@ -71,7 +75,9 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
     appNavServicesEnabled: row.appNavServicesEnabled,
     appNavIncidentsEnabled: row.appNavIncidentsEnabled,
     appNavBookingsEnabled: row.appNavBookingsEnabled,
+    appNavPoolAccessEnabled: row.appNavPoolAccessEnabled === true,
     portalSelectOptions: communityPortalSelectOptions(row.portalCount, row.portalLabels),
+    dwellingByPortalIndex: buildDwellingByPortalIndex(row.portalCount, row.portalDwellingConfig),
   })
 })
 
@@ -88,7 +94,7 @@ publicCommunitiesRouter.get('/community-by-code', async (req, res) => {
     select: { id: true, name: true, status: true },
   })
 
-  if (!row || row.status === 'inactive') {
+  if (!row || !isCommunityOperationalStatus(row.status)) {
     res.status(404).json({ error: 'Código no válido o comunidad inactiva' })
     return
   }
@@ -106,7 +112,7 @@ publicCommunitiesRouter.get('/community-by-slug', async (req, res) => {
   }
 
   const row = await prisma.community.findFirst({
-    where: { loginSlug: slug, status: { not: 'inactive' } },
+    where: { loginSlug: slug, ...communityOperationalWhere() },
     select: { id: true, name: true, accessCode: true, loginSlug: true, status: true },
   })
 
@@ -140,8 +146,8 @@ publicCommunitiesRouter.get('/community-portal-options', async (req, res) => {
   }
 
   const row = await prisma.community.findFirst({
-    where: { id, accessCode: code, status: { not: 'inactive' } },
-    select: { portalCount: true, portalLabels: true },
+    where: { id, accessCode: code, ...communityOperationalWhere() },
+    select: { portalCount: true, portalLabels: true, portalDwellingConfig: true },
   })
 
   if (!row) {
@@ -150,7 +156,10 @@ publicCommunitiesRouter.get('/community-portal-options', async (req, res) => {
   }
 
   const portals = communityPortalSelectOptions(row.portalCount, row.portalLabels)
-  res.json({ portals })
+  res.json({
+    portals,
+    dwellingByPortalIndex: buildDwellingByPortalIndex(row.portalCount, row.portalDwellingConfig),
+  })
 })
 
 /** Reservas confirmadas: mismo shape que GET /api/bookings; requiere communityId + accessCode (VEC). */
@@ -165,7 +174,7 @@ publicCommunitiesRouter.get('/community-bookings', async (req, res) => {
   }
 
   const comm = await prisma.community.findFirst({
-    where: { id: communityId, accessCode: code, status: { not: 'inactive' } },
+    where: { id: communityId, accessCode: code, ...communityOperationalWhere() },
     select: { id: true },
   })
   if (!comm) {

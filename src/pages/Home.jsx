@@ -1,17 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
+import ManagementStatsTiles from '../components/ManagementStatsTiles.jsx'
+import {
+  COMMUNITY_MGMT_NAV_DEFAULT,
+  useCommunityManagementStats,
+} from '../hooks/useCommunityManagementStats.js'
 import { useAuth } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { SERVICE_STATUS_LABELS } from '../constants/serviceRequests.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
+import './CommunityAdmin.css'
 import './Home.css'
 
 const ROLE_LABEL_ES = {
   resident: 'Residente',
   community_admin: 'Administrador',
+  company_admin: 'Administrador de empresa',
   president: 'Presidente',
   super_admin: 'Super administrador',
   concierge: 'Conserje',
+  pool_staff: 'Socorrista (piscina)',
 }
 
 function firstQuickLink(flags) {
@@ -48,7 +56,15 @@ function formatRecentTime(isoDate) {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
 }
 
-const HOME_NAV_DEFAULT = { services: true, incidents: true, bookings: true }
+const HOME_NAV_DEFAULT = { services: true, incidents: true, bookings: true, poolAccess: false }
+
+/** Mismos roles que /community-admin (RequireRole). */
+const HOME_MANAGEMENT_STATS_ROLES = new Set([
+  'community_admin',
+  'president',
+  'concierge',
+  'super_admin',
+])
 
 const STATUS_LABELS_ES = {
   Pending: 'Pendiente',
@@ -71,6 +87,18 @@ export default function Home() {
   const portalLabel = user?.portal?.trim() || null
   const navFlags = appNavFlagsReady ? appNavFlags : HOME_NAV_DEFAULT
   const showActivityLinks = !appNavFlagsReady || hasActivityPage(navFlags)
+  const showHomeManagementStats =
+    HOME_MANAGEMENT_STATS_ROLES.has(userRole) &&
+    accessToken &&
+    communityId != null &&
+    Number.isFinite(communityId)
+
+  const navForMgmt = appNavFlagsReady ? appNavFlags : COMMUNITY_MGMT_NAV_DEFAULT
+  const { overviewStats, overviewLoading, statDisplay } = useCommunityManagementStats(
+    showHomeManagementStats ? accessToken : null,
+    showHomeManagementStats ? communityId : null,
+    navForMgmt,
+  )
 
   const allActions = [
     {
@@ -98,7 +126,25 @@ export default function Home() {
       navKey: 'bookings',
     },
   ]
-  const actions = allActions.filter((a) => navFlags[a.navKey])
+  const poolNeighbor = userRole === 'resident' || userRole === 'president'
+  const poolStaffSummary = userRole === 'concierge' || userRole === 'community_admin'
+  const poolQuick =
+    navFlags.poolAccess && (poolNeighbor || poolStaffSummary)
+      ? [
+          {
+            to: '/pool',
+            title: poolStaffSummary && !poolNeighbor ? 'Piscina (resumen)' : 'Acceso piscina',
+            description:
+              poolStaffSummary && !poolNeighbor
+                ? 'Estado operativo y aforo en la instalación'
+                : 'Código y QR para mostrar al socorrista',
+            icon: 'pool',
+            color: 'bookings',
+            navKey: '_pool',
+          },
+        ]
+      : []
+  const actions = [...poolQuick, ...allActions.filter((a) => navFlags[a.navKey])]
 
   useEffect(() => {
     let cancelled = false
@@ -224,6 +270,10 @@ export default function Home() {
     serverActivityItems,
   ])
 
+  if (userRole === 'pool_staff') {
+    return <Navigate to="/pool-validate" replace />
+  }
+
   return (
     <div className="page-container home-page">
       <section className="welcome-section">
@@ -266,6 +316,28 @@ export default function Home() {
         <p className="welcome-subtitle">¿Qué necesitas hacer hoy?</p>
       </section>
 
+      {showHomeManagementStats ? (
+        <section
+          className="home-management-overview"
+          aria-labelledby="home-mgmt-stats-heading"
+        >
+          <h2 id="home-mgmt-stats-heading" className="section-label home-recent-section-title">
+            Resumen de tu comunidad
+          </h2>
+          <p className="home-management-overview-hint">
+            Total incidencias suma pendientes y resueltas; acciones pendientes solo las que siguen sin resolver.
+            Reservas de hoy y contador de resueltas aparte. Comunidad activa.
+          </p>
+          <ManagementStatsTiles
+            overviewStats={overviewStats}
+            overviewLoading={overviewLoading}
+            statDisplay={statDisplay}
+            nav={navForMgmt}
+            statsClassName="community-admin-stats home-management-stats"
+          />
+        </section>
+      ) : null}
+
       <section className="actions-section home-actions-section" aria-labelledby="home-actions-heading">
         <h3 id="home-actions-heading" className="section-label home-actions-heading">
           Acciones rápidas
@@ -284,6 +356,7 @@ export default function Home() {
                   {icon === 'services' && '🔧'}
                   {icon === 'incidents' && '⚠️'}
                   {icon === 'bookings' && '📅'}
+                  {icon === 'pool' && '🏊'}
                 </span>
                 <div className="action-card-content">
                   <span className="action-card-title">{title}</span>
@@ -308,7 +381,7 @@ export default function Home() {
 
       <section className="recent-section">
         <div className="section-header">
-          <h3 className="section-label">Actividad reciente</h3>
+          <h3 className="section-label home-recent-section-title">Actividad reciente</h3>
           {showActivityLinks ? (
             <Link to="/activity" className="section-link">
               Ver todo
@@ -352,6 +425,19 @@ export default function Home() {
           Accesos directos
         </h3>
         <div className="shortcuts-grid">
+          {navFlags.poolAccess &&
+          (userRole === 'resident' ||
+            userRole === 'president' ||
+            userRole === 'concierge' ||
+            userRole === 'community_admin') ? (
+            <Link to="/pool" className="shortcut-card shortcut-card--bookings">
+              <span className="shortcut-card-glow" aria-hidden="true" />
+              <span className="shortcut-icon shortcut-icon--bookings" aria-hidden="true">
+                🏊
+              </span>
+              <span className="shortcut-label">Piscina</span>
+            </Link>
+          ) : null}
           {navFlags.services ? (
             <Link to="/services" className="shortcut-card shortcut-card--primary">
               <span className="shortcut-card-glow" aria-hidden="true" />

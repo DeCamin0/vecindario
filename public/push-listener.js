@@ -3,10 +3,10 @@ self.addEventListener('push', function (event) {
   var payload = { title: 'Vecindario', body: '' }
   try {
     if (event.data) payload = event.data.json()
-  } catch (e) {
+  } catch {
     try {
       payload.body = event.data ? String(event.data.text()) : ''
-    } catch (e2) {
+    } catch {
       /* ignore */
     }
   }
@@ -15,8 +15,8 @@ self.addEventListener('push', function (event) {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: body,
-      icon: '/vecindario/icon-192.png',
-      badge: '/vecindario/icon-192.png',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       data: payload,
     }),
   )

@@ -9,6 +9,11 @@ import {
   parsePortalLabels,
 } from '../lib/portal-labels.js'
 import {
+  estimateDwellingUnitsFromPortalConfig,
+  parsePortalDwellingConfig,
+  resizePortalDwellingConfig,
+} from '../lib/portal-dwelling-config.js'
+import {
   parseInstructionEmail,
   parseOptionalInstructionEmail,
 } from '../lib/instruction-email.js'
@@ -27,160 +32,61 @@ import {
   staffRoleMatchesSlot,
   userLinkedToCommunity,
 } from '../lib/community-user-access.js'
+import { getCommunityDashboardStatsMap } from '../lib/community-dashboard-stats.js'
+import { getAdminOperationalAggregates } from '../lib/admin-operational-stats.js'
+import {
+  padelHHMMToMinutes,
+  parseBool,
+  parseCommunityAddress,
+  parseNifCif,
+  parsePadelCourtCount,
+  parsePadelHoursField,
+  parsePadelMinAdvanceHours,
+  parsePadelWallClock,
+  parsePlanExpiresOn,
+  parsePortalCount,
+  parsePresidentUnit,
+  parseResidentSlots,
+  parseSalonBookingMode,
+} from '../lib/community-create-parsers.js'
 
-const ALLOWED_STATUS = new Set(['active', 'inactive', 'demo'])
-
-function parsePortalCount(raw: unknown): number {
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n) || n < 1) return 1
-  if (n > 999) return 999
-  return n
-}
-
-function parseResidentSlots(raw: unknown): number | null {
-  if (raw === undefined || raw === null || raw === '') return null
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
-  if (!Number.isFinite(n) || n < 0) return null
-  if (n > 999_999) return 999_999
-  return n
-}
-
-function parseBool(raw: unknown, fallback: boolean): boolean {
-  if (typeof raw === 'boolean') return raw
-  if (raw === 'true' || raw === 1 || raw === '1') return true
-  if (raw === 'false' || raw === 0 || raw === '0') return false
-  return fallback
-}
-
-function parsePadelCourtCount(raw: unknown): number {
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n) || n < 0) return 0
-  if (n > 50) return 50
-  return n
-}
-
-/** Salones: franjas horarias vs día completo. */
-function parseSalonBookingMode(raw: unknown, fallback: 'slots' | 'day'): 'slots' | 'day' {
-  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
-  if (s === 'day' || s === 'full_day' || s === 'fullday') return 'day'
-  if (s === 'slots' || s === 'franjas' || s === 'hours') return 'slots'
-  return fallback
-}
-
-/** Horas 1–24 para reglas de pádel. */
-function parsePadelHoursField(raw: unknown, fallback: number): number {
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n)) return fallback
-  if (n < 1) return 1
-  if (n > 24) return 24
-  return n
-}
-
-/** Antelación mínima en horas (1–168, ej. 24 = 1 día, 48 = 2 días). */
-function parsePadelMinAdvanceHours(raw: unknown, fallback: number): number {
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n)) return fallback
-  if (n < 1) return 1
-  if (n > 168) return 168
-  return n
-}
-
-function padelHHMMToMinutes(s: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim())
-  if (!m) return null
-  const h = Number.parseInt(m[1], 10)
-  const mi = Number.parseInt(m[2], 10)
-  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null
-  return h * 60 + mi
-}
-
-/** Normaliza HH:mm para MySQL / Prisma. */
-function parsePadelWallClock(raw: unknown, fallback: string): string {
-  if (raw === undefined || raw === null) return fallback
-  const s = typeof raw === 'string' ? raw.trim() : String(raw).trim()
-  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
-  if (!m) return fallback
-  const h = Number.parseInt(m[1], 10)
-  const mi = Number.parseInt(m[2], 10)
-  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return fallback
-  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
-}
-
-/** Fecha fin de plan (DATE): YYYY-MM-DD o vacío → null. */
-function parsePlanExpiresOn(
-  raw: unknown,
-): { ok: true; value: Date | null } | { ok: false; error: string } {
-  if (raw === null || raw === undefined || raw === '') {
-    return { ok: true, value: null }
-  }
-  const s = typeof raw === 'string' ? raw.trim().slice(0, 10) : ''
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (!m) {
-    return { ok: false, error: 'planExpiresOn: usa YYYY-MM-DD o déjalo vacío.' }
-  }
-  const y = Number(m[1])
-  const mo = Number(m[2])
-  const da = Number(m[3])
-  const d = new Date(Date.UTC(y, mo - 1, da))
-  if (d.getUTCFullYear() !== y || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== da) {
-    return { ok: false, error: 'planExpiresOn: fecha no válida.' }
-  }
-  return { ok: true, value: d }
-}
-
-/** Presidente por vivienda: ambos vacíos o ambos rellenos. */
-function parsePresidentUnit(
-  portalRaw: unknown,
-  pisoRaw: unknown,
-):
-  | { ok: true; presidentPortal: string | null; presidentPiso: string | null }
-  | { ok: false; error: string } {
-  const portal =
-    portalRaw === undefined || portalRaw === null || portalRaw === ''
-      ? null
-      : typeof portalRaw === 'string'
-        ? portalRaw.trim().slice(0, 64) || null
-        : null
-  const piso =
-    pisoRaw === undefined || pisoRaw === null || pisoRaw === ''
-      ? null
-      : typeof pisoRaw === 'string'
-        ? pisoRaw.trim().slice(0, 64) || null
-        : null
-  if ((portal && !piso) || (!portal && piso)) {
-    return {
-      ok: false,
-      error: 'Presidente por vivienda: indica portal y piso, o déjalos vacíos los dos.',
-    }
-  }
-  return { ok: true, presidentPortal: portal, presidentPiso: piso }
-}
-
-/** NIF/CIF comunidad: opcional; máx. 32 caracteres. */
-function parseNifCif(raw: unknown): { value: string | null; tooLong: boolean } {
-  if (raw === undefined || raw === null) return { value: null, tooLong: false }
-  if (typeof raw !== 'string') return { value: null, tooLong: false }
-  const t = raw.trim()
-  if (!t) return { value: null, tooLong: false }
-  if (t.length > 32) return { value: null, tooLong: true }
-  return { value: t, tooLong: false }
-}
-
-/** Dirección: opcional; máx. 512 caracteres. */
-function parseCommunityAddress(raw: unknown): { value: string | null; tooLong: boolean } {
-  if (raw === undefined || raw === null) return { value: null, tooLong: false }
-  if (typeof raw !== 'string') return { value: null, tooLong: false }
-  const t = raw.trim()
-  if (!t) return { value: null, tooLong: false }
-  if (t.length > 512) return { value: null, tooLong: true }
-  return { value: t, tooLong: false }
-}
+const ALLOWED_STATUS = new Set(['active', 'inactive', 'demo', 'pending_approval'])
 
 export const adminCommunitiesRouter = Router()
 
-adminCommunitiesRouter.get('/', async (_req, res) => {
+adminCommunitiesRouter.get('/', async (req, res) => {
   const items = await prisma.community.findMany({ orderBy: { createdAt: 'desc' } })
-  res.json(items)
+  const raw = typeof req.query.includeStats === 'string' ? req.query.includeStats.trim() : ''
+  const includeStats = raw === '1' || raw.toLowerCase() === 'true'
+  if (!includeStats) {
+    res.json(items)
+    return
+  }
+  const statsMap = await getCommunityDashboardStatsMap(items.map((c) => c.id))
+  const empty = {
+    totalIncidents: 0,
+    pendingIncidents: 0,
+    resolvedIncidents: 0,
+    bookingsToday: 0,
+    pendingActions: 0,
+    neighborAccountsCount: 0,
+    estimatedDwellingCapacity: null as number | null,
+  }
+  res.json(
+    items.map((c) => {
+      const base = statsMap.get(c.id) ?? { ...empty }
+      return {
+        ...c,
+        dashboardStats: {
+          ...base,
+          estimatedDwellingCapacity: estimateDwellingUnitsFromPortalConfig(
+            c.portalDwellingConfig,
+            c.portalCount,
+          ),
+        },
+      }
+    }),
+  )
 })
 
 /** Código VEC propuesto para alta nueva (único en BD). El cliente puede editarlo o borrarlo antes de guardar. */
@@ -192,6 +98,19 @@ adminCommunitiesRouter.get('/suggest-access-code', async (_req, res) => {
     console.error('[suggest-access-code]', e)
     res.status(500).json({
       error: e instanceof Error ? e.message : 'No se pudo generar un código de acceso',
+    })
+  }
+})
+
+/** KPIs globales solo en comunidades operativas (active + demo). */
+adminCommunitiesRouter.get('/stats-aggregate', async (_req, res) => {
+  try {
+    const aggregates = await getAdminOperationalAggregates()
+    res.json(aggregates)
+  } catch (e) {
+    console.error('[stats-aggregate]', e)
+    res.status(500).json({
+      error: e instanceof Error ? e.message : 'No se pudieron calcular las estadísticas',
     })
   }
 })
@@ -251,9 +170,15 @@ adminCommunitiesRouter.post('/', async (req, res) => {
     res.status(400).json({ error: 'El email del conserje no tiene un formato válido.' })
     return
   }
+  const poolSt = parseOptionalInstructionEmail(req.body?.poolStaffEmail)
+  if (poolSt.invalidFormat) {
+    res.status(400).json({ error: 'El email del socorrista no tiene un formato válido.' })
+    return
+  }
   const presidentEmail = pres.value
   const communityAdminEmail = adm.value
   const conciergeEmail = con.value
+  const poolStaffEmail = poolSt.value
 
   const presUnit = parsePresidentUnit(req.body?.presidentPortal, req.body?.presidentPiso)
   if (!presUnit.ok) {
@@ -282,6 +207,26 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       ? req.body.status
       : 'active'
 
+  let companyId: number | null = null
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'companyId')) {
+    const raw = (req.body as Record<string, unknown>).companyId
+    if (raw === null || raw === '') {
+      companyId = null
+    } else {
+      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+      if (!Number.isInteger(n) || n < 1) {
+        res.status(400).json({ error: 'companyId inválido' })
+        return
+      }
+      const co = await prisma.company.findUnique({ where: { id: n }, select: { id: true } })
+      if (!co) {
+        res.status(400).json({ error: 'Empresa no encontrada' })
+        return
+      }
+      companyId = n
+    }
+  }
+
   let planExpiresOn: Date | null = null
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'planExpiresOn')) {
     const p = parsePlanExpiresOn((req.body as Record<string, unknown>).planExpiresOn)
@@ -298,9 +243,45 @@ adminCommunitiesRouter.post('/', async (req, res) => {
     : parsePortalLabels([], portalCount)
   const residentSlots = parseResidentSlots(req.body?.residentSlots)
   const gymAccessEnabled = parseBool(req.body?.gymAccessEnabled, false)
+  const poolAccessSystemEnabled = parseBool(req.body?.poolAccessSystemEnabled, false)
+  const poolSeasonActive = parseBool(req.body?.poolSeasonActive, false)
+  const poolHoursNoteRaw =
+    typeof req.body?.poolHoursNote === 'string' ? req.body.poolHoursNote.trim().slice(0, 255) : ''
+  const poolHoursNote = poolHoursNoteRaw || null
+  let poolMaxOccupancy: number | null = null
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'poolMaxOccupancy')) {
+    const raw = (req.body as Record<string, unknown>).poolMaxOccupancy
+    if (raw !== null && raw !== '' && raw !== undefined) {
+      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+      if (!Number.isInteger(n) || n < 1 || n > 5000) {
+        res.status(400).json({ error: 'Aforo piscina (poolMaxOccupancy): entero entre 1 y 5000 o vacío.' })
+        return
+      }
+      poolMaxOccupancy = n
+    }
+  }
+  let poolSeasonStart: Date | null = null
+  let poolSeasonEnd: Date | null = null
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'poolSeasonStart')) {
+    const p = parsePlanExpiresOn((req.body as Record<string, unknown>).poolSeasonStart)
+    if (!p.ok) {
+      res.status(400).json({ error: p.error })
+      return
+    }
+    poolSeasonStart = p.value
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'poolSeasonEnd')) {
+    const p = parsePlanExpiresOn((req.body as Record<string, unknown>).poolSeasonEnd)
+    if (!p.ok) {
+      res.status(400).json({ error: p.error })
+      return
+    }
+    poolSeasonEnd = p.value
+  }
   const appNavServicesEnabled = parseBool(req.body?.appNavServicesEnabled, true)
   const appNavIncidentsEnabled = parseBool(req.body?.appNavIncidentsEnabled, true)
   const appNavBookingsEnabled = parseBool(req.body?.appNavBookingsEnabled, true)
+  const appNavPoolAccessEnabled = parseBool(req.body?.appNavPoolAccessEnabled, false)
   const padelCourtCount = parsePadelCourtCount(req.body?.padelCourtCount)
   const customLocations = parseCustomLocations(req.body?.customLocations)
   let padelMaxHoursPerBooking = parsePadelHoursField(req.body?.padelMaxHoursPerBooking, 2)
@@ -338,15 +319,24 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       presidentPiso: presUnit.presidentPiso,
       communityAdminEmail,
       conciergeEmail,
+      poolStaffEmail,
       status,
       planExpiresOn,
       portalCount,
       portalLabels,
+      portalDwellingConfig: parsePortalDwellingConfig([], portalCount),
       residentSlots,
       gymAccessEnabled,
+      poolAccessSystemEnabled,
+      poolSeasonActive,
+      poolSeasonStart,
+      poolSeasonEnd,
+      poolHoursNote,
+      poolMaxOccupancy,
       appNavServicesEnabled,
       appNavIncidentsEnabled,
       appNavBookingsEnabled,
+      appNavPoolAccessEnabled,
       padelCourtCount,
       padelMaxHoursPerBooking,
       padelMaxHoursPerApartmentPerDay,
@@ -355,6 +345,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       padelCloseTime,
       salonBookingMode,
       customLocations,
+      companyId,
     },
   })
 
@@ -377,7 +368,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   res.status(201).json({ ...row, onboarding })
 })
 
-/** Envío manual de correos de alta (presidente / admin / conserje / resumen contacto). */
+/** Envío manual de correos de alta (presidente / admin / conserje / socorrista / resumen contacto). */
 adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) {
@@ -388,12 +379,19 @@ adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
   const invitePresident = parseBool(req.body?.invitePresident, false)
   const inviteAdmin = parseBool(req.body?.inviteAdmin, false)
   const inviteConcierge = parseBool(req.body?.inviteConcierge, false)
+  const invitePoolStaff = parseBool(req.body?.invitePoolStaff, false)
   const contactSummary = parseBool(req.body?.contactSummary, false)
 
-  if (!invitePresident && !inviteAdmin && !inviteConcierge && !contactSummary) {
+  if (
+    !invitePresident &&
+    !inviteAdmin &&
+    !inviteConcierge &&
+    !invitePoolStaff &&
+    !contactSummary
+  ) {
     res.status(400).json({
       error:
-        'Marca al menos un destinatario: presidente, administrador, conserje o resumen al email de contacto.',
+        'Marca al menos un destinatario: presidente, administrador, conserje, socorrista o resumen al email de contacto.',
     })
     return
   }
@@ -409,6 +407,7 @@ adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
       invitePresident,
       inviteAdmin,
       inviteConcierge,
+      invitePoolStaff,
       contactSummary,
     })
     res.json(result)
@@ -446,12 +445,13 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
 
   type SlotDef = {
     label: string
-    slot: 'president' | 'community_admin' | 'concierge' | 'contact'
+    slot: 'president' | 'community_admin' | 'concierge' | 'pool_staff' | 'contact'
   }
   const slotDefs: SlotDef[] = [
     { label: 'Presidente', slot: 'president' },
     { label: 'Administrador', slot: 'community_admin' },
     { label: 'Conserje', slot: 'concierge' },
+    { label: 'Socorrista (piscina)', slot: 'pool_staff' },
     { label: 'Contacto comunidad', slot: 'contact' },
   ]
 
@@ -459,6 +459,7 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
     president: community.presidentEmail,
     community_admin: community.communityAdminEmail,
     concierge: community.conciergeEmail,
+    pool_staff: community.poolStaffEmail,
     contact: community.contactEmail,
   }
 
@@ -706,10 +707,12 @@ adminCommunitiesRouter.post('/:id/impersonate', async (req, res) => {
     sub: String(target.id),
     email: target.email || '',
     role: target.role,
+    companyId: target.companyAdminCompanyId,
   })
 
   const p = target.piso?.trim()
   const po = target.portal?.trim()
+  const pt = target.puerta?.trim()
   const em = target.email?.trim()
   res.json({
     accessToken,
@@ -720,6 +723,7 @@ adminCommunitiesRouter.post('/:id/impersonate', async (req, res) => {
       role: target.role,
       ...(p ? { piso: p } : {}),
       ...(po ? { portal: po } : {}),
+      ...(pt ? { puerta: pt } : {}),
     },
     community: {
       id: community.id,
@@ -808,13 +812,21 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     loginSlug?: string | null
     communityAdminEmail?: string | null
     conciergeEmail?: string | null
+    poolStaffEmail?: string | null
     status?: string
     portalCount?: number
     residentSlots?: number | null
     gymAccessEnabled?: boolean
+    poolAccessSystemEnabled?: boolean
+    poolSeasonActive?: boolean
+    poolSeasonStart?: Date | null
+    poolSeasonEnd?: Date | null
+    poolHoursNote?: string | null
+    poolMaxOccupancy?: number | null
     appNavServicesEnabled?: boolean
     appNavIncidentsEnabled?: boolean
     appNavBookingsEnabled?: boolean
+    appNavPoolAccessEnabled?: boolean
     padelCourtCount?: number
     padelMaxHoursPerBooking?: number
     padelMaxHoursPerApartmentPerDay?: number
@@ -825,6 +837,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     customLocations?: ReturnType<typeof parseCustomLocations>
     planExpiresOn?: Date | null
     portalLabels?: string[]
+    portalDwellingConfig?: ReturnType<typeof parsePortalDwellingConfig>
+    companyId?: number | null
   } = {}
 
   if (typeof req.body?.name === 'string') {
@@ -924,6 +938,14 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     }
     data.conciergeEmail = r.value
   }
+  if (bodyHas('poolStaffEmail')) {
+    const r = parseOptionalInstructionEmail(bodyObj!.poolStaffEmail)
+    if (r.invalidFormat) {
+      res.status(400).json({ error: 'El email del socorrista no tiene un formato válido.' })
+      return
+    }
+    data.poolStaffEmail = r.value
+  }
   if (bodyHas('presidentPortal') || bodyHas('presidentPiso')) {
     const exUnit = await prisma.community.findUnique({
       where: { id },
@@ -966,6 +988,24 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   if (typeof req.body?.status === 'string' && ALLOWED_STATUS.has(req.body.status)) {
     data.status = req.body.status
   }
+  if (bodyHas('companyId')) {
+    const raw = bodyObj!.companyId
+    if (raw === null || raw === '') {
+      data.companyId = null
+    } else {
+      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+      if (!Number.isInteger(n) || n < 1) {
+        res.status(400).json({ error: 'companyId inválido' })
+        return
+      }
+      const co = await prisma.company.findUnique({ where: { id: n }, select: { id: true } })
+      if (!co) {
+        res.status(400).json({ error: 'Empresa no encontrada' })
+        return
+      }
+      data.companyId = n
+    }
+  }
   if (bodyHas('planExpiresOn')) {
     const p = parsePlanExpiresOn(bodyObj!.planExpiresOn)
     if (!p.ok) {
@@ -980,7 +1020,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   if (bodyHas('portalLabels') || 'portalCount' in req.body) {
     const meta = await prisma.community.findUnique({
       where: { id },
-      select: { portalCount: true, portalLabels: true },
+      select: { portalCount: true, portalLabels: true, portalDwellingConfig: true },
     })
     if (!meta) {
       res.status(404).json({ error: 'Not found' })
@@ -993,12 +1033,101 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       const prev = normalizePortalLabelsFromDb(meta.portalLabels, meta.portalCount)
       data.portalLabels = parsePortalLabels(prev, nextCount)
     }
+    if (!bodyHas('portalDwellingConfig')) {
+      data.portalDwellingConfig = resizePortalDwellingConfig(
+        meta.portalDwellingConfig,
+        meta.portalCount,
+        nextCount,
+      )
+    }
+  }
+
+  if (bodyHas('portalDwellingConfig')) {
+    let cnt: number
+    if (data.portalCount != null) {
+      cnt = data.portalCount
+    } else {
+      const cur = await prisma.community.findUnique({
+        where: { id },
+        select: { portalCount: true },
+      })
+      if (!cur) {
+        res.status(404).json({ error: 'Not found' })
+        return
+      }
+      cnt = cur.portalCount
+    }
+    data.portalDwellingConfig = parsePortalDwellingConfig(bodyObj!.portalDwellingConfig, cnt)
   }
   if ('residentSlots' in req.body) {
     data.residentSlots = parseResidentSlots(req.body.residentSlots)
   }
+
+  /** Cupo vecinos = suma viviendas teóricas (plantas × puertas por portal) cuando la config. está completa. */
+  const touchesPortalStructure =
+    bodyHas('portalDwellingConfig') || 'portalCount' in req.body || bodyHas('portalLabels')
+  if (touchesPortalStructure) {
+    const cur = await prisma.community.findUnique({
+      where: { id },
+      select: { portalCount: true, portalDwellingConfig: true },
+    })
+    if (cur) {
+      const nextCount = data.portalCount ?? cur.portalCount
+      const nextDwelling =
+        data.portalDwellingConfig !== undefined ? data.portalDwellingConfig : cur.portalDwellingConfig
+      const est = estimateDwellingUnitsFromPortalConfig(nextDwelling, nextCount)
+      if (est != null) {
+        data.residentSlots = est
+      }
+    }
+  }
+
   if ('gymAccessEnabled' in req.body) {
     data.gymAccessEnabled = parseBool(req.body.gymAccessEnabled, false)
+  }
+  if ('poolAccessSystemEnabled' in req.body) {
+    data.poolAccessSystemEnabled = parseBool(req.body.poolAccessSystemEnabled, false)
+  }
+  if ('poolSeasonActive' in req.body) {
+    data.poolSeasonActive = parseBool(req.body.poolSeasonActive, false)
+  }
+  if ('poolHoursNote' in req.body) {
+    const t =
+      typeof req.body.poolHoursNote === 'string' ? req.body.poolHoursNote.trim().slice(0, 255) : ''
+    data.poolHoursNote = t || null
+  }
+  if ('poolMaxOccupancy' in req.body) {
+    const raw = (req.body as Record<string, unknown>).poolMaxOccupancy
+    if (raw === null || raw === '' || raw === undefined) {
+      data.poolMaxOccupancy = null
+    } else {
+      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+      if (!Number.isInteger(n) || n < 1 || n > 5000) {
+        res.status(400).json({ error: 'Aforo piscina: entero entre 1 y 5000, o vacío para sin límite.' })
+        return
+      }
+      data.poolMaxOccupancy = n
+    }
+  }
+  if ('poolSeasonStart' in req.body || 'poolSeasonEnd' in req.body) {
+    const parsePoolDate = (raw: unknown): Date | null => {
+      if (raw === null || raw === undefined || raw === '') return null
+      const s = typeof raw === 'string' ? raw.trim().slice(0, 10) : ''
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+      if (!m) return null
+      const y = Number(m[1])
+      const mo = Number(m[2])
+      const da = Number(m[3])
+      const d = new Date(Date.UTC(y, mo - 1, da))
+      if (d.getUTCFullYear() !== y || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== da) return null
+      return d
+    }
+    if ('poolSeasonStart' in req.body) {
+      data.poolSeasonStart = parsePoolDate(req.body.poolSeasonStart)
+    }
+    if ('poolSeasonEnd' in req.body) {
+      data.poolSeasonEnd = parsePoolDate(req.body.poolSeasonEnd)
+    }
   }
   if ('appNavServicesEnabled' in req.body) {
     data.appNavServicesEnabled = parseBool(req.body.appNavServicesEnabled, true)
@@ -1008,6 +1137,9 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
   if ('appNavBookingsEnabled' in req.body) {
     data.appNavBookingsEnabled = parseBool(req.body.appNavBookingsEnabled, true)
+  }
+  if ('appNavPoolAccessEnabled' in req.body) {
+    data.appNavPoolAccessEnabled = parseBool(req.body.appNavPoolAccessEnabled, false)
   }
   if ('padelCourtCount' in req.body) {
     data.padelCourtCount = parsePadelCourtCount(req.body.padelCourtCount)
@@ -1095,12 +1227,16 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
 
   const mayTouchStaffEmails =
-    bodyHas('presidentEmail') || bodyHas('communityAdminEmail') || bodyHas('conciergeEmail')
+    bodyHas('presidentEmail') ||
+    bodyHas('communityAdminEmail') ||
+    bodyHas('conciergeEmail') ||
+    bodyHas('poolStaffEmail')
 
   let beforeStaffEmails: {
     presidentEmail: string | null
     communityAdminEmail: string | null
     conciergeEmail: string | null
+    poolStaffEmail: string | null
   } | null = null
 
   if (mayTouchStaffEmails) {
@@ -1110,6 +1246,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         presidentEmail: true,
         communityAdminEmail: true,
         conciergeEmail: true,
+        poolStaffEmail: true,
       },
     })
     if (snap) beforeStaffEmails = snap
@@ -1126,7 +1263,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         normEmail(beforeStaffEmails.presidentEmail) === normEmail(row.presidentEmail) &&
         normEmail(beforeStaffEmails.communityAdminEmail) ===
           normEmail(row.communityAdminEmail) &&
-        normEmail(beforeStaffEmails.conciergeEmail) === normEmail(row.conciergeEmail)
+        normEmail(beforeStaffEmails.conciergeEmail) === normEmail(row.conciergeEmail) &&
+        normEmail(beforeStaffEmails.poolStaffEmail) === normEmail(row.poolStaffEmail)
 
       if (!staffUnchanged) {
         try {

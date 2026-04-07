@@ -15,9 +15,19 @@ const TAB_SESSION_ISOLATED = 'vecindario_tab_isolated'
 export const VEC_IMPERSONATE_CHILD_READY = 'VEC_IMPERSONATE_CHILD_READY'
 export const VEC_IMPERSONATE_PAYLOAD = 'VEC_IMPERSONATE_PAYLOAD'
 
-const VALID_ROLES = ['resident', 'community_admin', 'president', 'super_admin', 'concierge']
+const VALID_ROLES = [
+  'resident',
+  'community_admin',
+  'company_admin',
+  'president',
+  'super_admin',
+  'concierge',
+  'pool_staff',
+]
 
-const DEFAULT_APP_NAV_FLAGS = { services: true, incidents: true, bookings: true }
+const STAFF_MANAGED_COMMUNITY_ROLES = new Set(['community_admin', 'concierge', 'president'])
+
+const DEFAULT_APP_NAV_FLAGS = { services: true, incidents: true, bookings: true, poolAccess: false }
 
 function shouldDeferStorageReads() {
   try {
@@ -27,7 +37,7 @@ function shouldDeferStorageReads() {
   }
 }
 
-function useSessionStore() {
+function isAuthTabSessionIsolated() {
   try {
     return sessionStorage.getItem(TAB_SESSION_ISOLATED) === '1'
   } catch {
@@ -37,7 +47,7 @@ function useSessionStore() {
 
 function authGet(key) {
   try {
-    return useSessionStore() ? sessionStorage.getItem(key) : localStorage.getItem(key)
+    return isAuthTabSessionIsolated() ? sessionStorage.getItem(key) : localStorage.getItem(key)
   } catch {
     return null
   }
@@ -45,7 +55,7 @@ function authGet(key) {
 
 function saveAccessToken(token) {
   try {
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       if (token) sessionStorage.setItem(ACCESS_TOKEN_KEY, token)
       else sessionStorage.removeItem(ACCESS_TOKEN_KEY)
     } else if (token) {
@@ -152,7 +162,7 @@ function loadCommunityId() {
 
 function saveCommunity(name) {
   try {
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       if (name && name.trim()) {
         sessionStorage.setItem(COMMUNITY_STORAGE_KEY, name.trim())
       } else {
@@ -168,7 +178,7 @@ function saveCommunity(name) {
 
 function saveCommunityId(id) {
   try {
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       if (id != null && Number.isFinite(Number(id))) {
         sessionStorage.setItem(COMMUNITY_ID_KEY, String(id))
       } else {
@@ -194,7 +204,7 @@ function loadCommunityAccessCode() {
 
 function saveCommunityAccessCode(code) {
   try {
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       if (code && String(code).trim()) {
         sessionStorage.setItem(
           COMMUNITY_ACCESS_CODE_KEY,
@@ -223,7 +233,7 @@ function loadUserRole() {
 
 function saveUserRole(role) {
   try {
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       if (role && VALID_ROLES.includes(role)) {
         sessionStorage.setItem(USER_ROLE_KEY, role)
       } else {
@@ -258,6 +268,8 @@ export function AuthProvider({ children }) {
   const [authReady, setAuthReady] = useState(false)
   const [appNavFlags, setAppNavFlags] = useState(DEFAULT_APP_NAV_FLAGS)
   const [appNavFlagsReady, setAppNavFlagsReady] = useState(false)
+  const [managedCommunities, setManagedCommunities] = useState([])
+  const [managedCommunitiesLoading, setManagedCommunitiesLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -283,6 +295,7 @@ export function AuthProvider({ children }) {
           services: data.appNavServicesEnabled !== false,
           incidents: data.appNavIncidentsEnabled !== false,
           bookings: data.appNavBookingsEnabled !== false,
+          poolAccess: data.appNavPoolAccessEnabled === true,
         })
         setAppNavFlagsReady(true)
       })
@@ -296,6 +309,49 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [communityId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!accessToken || !STAFF_MANAGED_COMMUNITY_ROLES.has(userRole)) {
+      setManagedCommunities([])
+      setManagedCommunitiesLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+    setManagedCommunitiesLoading(true)
+    fetch(apiUrl('/api/auth/my-managed-communities'), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return
+        const raw = data?.communities
+        const list = Array.isArray(raw)
+          ? raw
+              .filter((c) => c && Number.isFinite(Number(c.id)))
+              .map((c) => ({
+                id: Number(c.id),
+                name: typeof c.name === 'string' ? c.name : `Comunidad ${c.id}`,
+                accessCode: typeof c.accessCode === 'string' ? c.accessCode : '',
+                loginSlug:
+                  c.loginSlug != null && String(c.loginSlug).trim()
+                    ? String(c.loginSlug).trim()
+                    : null,
+              }))
+          : []
+        setManagedCommunities(list)
+      })
+      .catch(() => {
+        if (!cancelled) setManagedCommunities([])
+      })
+      .finally(() => {
+        if (!cancelled) setManagedCommunitiesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, userRole])
 
   useEffect(() => {
     let cancelled = false
@@ -316,17 +372,57 @@ export function AuthProvider({ children }) {
             data.piso != null && String(data.piso).trim() ? String(data.piso).trim() : ''
           const portalMe =
             data.portal != null && String(data.portal).trim() ? String(data.portal).trim() : ''
+          const puertaMe =
+            data.puerta != null && String(data.puerta).trim() ? String(data.puerta).trim() : ''
+          const phoneMe =
+            data.phone != null && String(data.phone).trim() ? String(data.phone).trim() : ''
+          const habMe =
+            data.habitaciones != null && String(data.habitaciones).trim()
+              ? String(data.habitaciones).trim()
+              : ''
+          const pgMe =
+            data.plazaGaraje != null && String(data.plazaGaraje).trim()
+              ? String(data.plazaGaraje).trim()
+              : ''
+          const poolOMe =
+            data.poolAccessOwner != null && String(data.poolAccessOwner).trim()
+              ? String(data.poolAccessOwner).trim()
+              : ''
+          const poolGMe =
+            data.poolAccessGuest != null && String(data.poolAccessGuest).trim()
+              ? String(data.poolAccessGuest).trim()
+              : ''
           const emailMe =
             data.email != null && String(data.email).trim() ? String(data.email).trim() : ''
           const nameMe =
             data.name?.trim() ||
             (emailMe ? emailMe.split('@')[0] : portalMe && pisoMe ? `${portalMe} · ${pisoMe}` : 'Vecino')
+          const companyMe =
+            data.company &&
+            typeof data.company === 'object' &&
+            data.company.id != null &&
+            Number.isFinite(Number(data.company.id))
+              ? {
+                  id: Number(data.company.id),
+                  name:
+                    typeof data.company.name === 'string' && data.company.name.trim()
+                      ? data.company.name.trim()
+                      : `Empresa ${data.company.id}`,
+                }
+              : null
           setUser({
             id: data.id,
             ...(emailMe ? { email: emailMe } : {}),
             name: nameMe,
             ...(pisoMe ? { piso: pisoMe } : {}),
             ...(portalMe ? { portal: portalMe } : {}),
+            ...(puertaMe ? { puerta: puertaMe } : {}),
+            ...(phoneMe ? { phone: phoneMe } : {}),
+            ...(habMe ? { habitaciones: habMe } : {}),
+            ...(pgMe ? { plazaGaraje: pgMe } : {}),
+            ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
+            ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
+            ...(companyMe ? { company: companyMe } : {}),
           })
           setUserRoleState(data.role)
           saveUserRole(data.role)
@@ -502,10 +598,19 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  /** Si el id guardado ya no está entre las comunidades gestionadas, alinear al primer resultado. */
+  useEffect(() => {
+    if (managedCommunities.length === 0) return
+    const ok = communityId != null && managedCommunities.some((c) => c.id === communityId)
+    if (ok) return
+    const first = managedCommunities[0]
+    setCommunity(first.name, { id: first.id, accessCode: first.accessCode || '' })
+  }, [managedCommunities, communityId, setCommunity])
+
   /**
    * @param {string} token
    * @param {{ id: number, email: string, name?: string | null, role: string, piso?: string | null, portal?: string | null }} userPayload
-   * @param {{ piso?: string, portal?: string }} [opts]
+   * @param {{ piso?: string, portal?: string, company?: { id: number, name: string } }} [opts]
    */
   const applyServerSession = useCallback((token, userPayload, opts) => {
     if (!VALID_ROLES.includes(userPayload.role)) return
@@ -517,6 +622,30 @@ export function AuthProvider({ children }) {
     const po = opts?.portal?.trim() || (userPayload.portal != null && String(userPayload.portal).trim()
       ? String(userPayload.portal).trim()
       : '')
+    const pt =
+      userPayload.puerta != null && String(userPayload.puerta).trim()
+        ? String(userPayload.puerta).trim()
+        : ''
+    const ph =
+      userPayload.phone != null && String(userPayload.phone).trim()
+        ? String(userPayload.phone).trim()
+        : ''
+    const hab =
+      userPayload.habitaciones != null && String(userPayload.habitaciones).trim()
+        ? String(userPayload.habitaciones).trim()
+        : ''
+    const pg =
+      userPayload.plazaGaraje != null && String(userPayload.plazaGaraje).trim()
+        ? String(userPayload.plazaGaraje).trim()
+        : ''
+    const poolO =
+      userPayload.poolAccessOwner != null && String(userPayload.poolAccessOwner).trim()
+        ? String(userPayload.poolAccessOwner).trim()
+        : ''
+    const poolG =
+      userPayload.poolAccessGuest != null && String(userPayload.poolAccessGuest).trim()
+        ? String(userPayload.poolAccessGuest).trim()
+        : ''
     const emailVal =
       userPayload.email != null && String(userPayload.email).trim()
         ? String(userPayload.email).trim()
@@ -530,6 +659,23 @@ export function AuthProvider({ children }) {
       name: nameVal,
       ...(p ? { piso: p } : {}),
       ...(po ? { portal: po } : {}),
+      ...(pt ? { puerta: pt } : {}),
+      ...(ph ? { phone: ph } : {}),
+      ...(hab ? { habitaciones: hab } : {}),
+      ...(pg ? { plazaGaraje: pg } : {}),
+      ...(poolO ? { poolAccessOwner: poolO } : {}),
+      ...(poolG ? { poolAccessGuest: poolG } : {}),
+      ...(opts?.company?.id != null && Number.isFinite(Number(opts.company.id))
+        ? {
+            company: {
+              id: Number(opts.company.id),
+              name:
+                typeof opts.company.name === 'string' && opts.company.name.trim()
+                  ? opts.company.name.trim()
+                  : `Empresa ${opts.company.id}`,
+            },
+          }
+        : {}),
     })
     setUserRoleState(userPayload.role)
     saveUserRole(userPayload.role)
@@ -548,8 +694,12 @@ export function AuthProvider({ children }) {
       const t = String(fields.portal).trim().slice(0, 64)
       if (t) body.portal = t
     }
+    if (fields.puerta !== undefined) {
+      const t = String(fields.puerta ?? '').trim().slice(0, 64)
+      body.puerta = t || null
+    }
     if (Object.keys(body).length === 0) {
-      throw new Error('Indica piso o portal')
+      throw new Error('Indica al menos un campo')
     }
     const res = await fetch(apiUrl('/api/auth/me'), {
       method: 'PATCH',
@@ -569,12 +719,18 @@ export function AuthProvider({ children }) {
       data.piso != null && String(data.piso).trim() ? String(data.piso).trim() : ''
     const portalVal =
       data.portal != null && String(data.portal).trim() ? String(data.portal).trim() : ''
+    const puertaVal =
+      data.puerta != null && String(data.puerta).trim() ? String(data.puerta).trim() : ''
+    const phoneVal =
+      data.phone != null && String(data.phone).trim() ? String(data.phone).trim() : ''
     setUser((prev) =>
       prev
         ? {
             ...prev,
             ...(pisoVal ? { piso: pisoVal } : {}),
             ...(portalVal ? { portal: portalVal } : {}),
+            ...(puertaVal ? { puerta: puertaVal } : {}),
+            ...(phoneVal ? { phone: phoneVal } : {}),
           }
         : {
             id: data.id,
@@ -590,6 +746,8 @@ export function AuthProvider({ children }) {
                   : 'Vecino'),
             ...(pisoVal ? { piso: pisoVal } : {}),
             ...(portalVal ? { portal: portalVal } : {}),
+            ...(puertaVal ? { puerta: puertaVal } : {}),
+            ...(phoneVal ? { phone: phoneVal } : {}),
           },
     )
     return data
@@ -629,7 +787,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     setUser(null)
     setAccessTokenState(null)
-    if (useSessionStore()) {
+    if (isAuthTabSessionIsolated()) {
       clearIsolatedTabSession()
       setUserRoleState('resident')
       return
@@ -650,6 +808,8 @@ export function AuthProvider({ children }) {
     authReady,
     appNavFlags,
     appNavFlagsReady,
+    managedCommunities,
+    managedCommunitiesLoading,
     login,
     applyServerSession,
     saveResidentHomePatch,

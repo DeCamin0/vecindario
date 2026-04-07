@@ -108,9 +108,49 @@ npm ci
 npm run build
 ```
 
-Urcă conținutul din `dist/` pe hosting static (sau alt Nginx) cu `base` `/vecindario/` cum e configurat în Vite.
+Urcă conținutul din `dist/` în **rădăcina** document root al vhost-ului (ex. `vecindario.decaminoservicios.com`), la fel ca DeCamino: Vite folosește `base: '/'`.
 
 ## 8. Verificare finală
 
 - `https://api.vecindario.decaminoservicios.com/health`
 - Front: login / apeluri API fără CORS errors (CORS_ORIGIN corect pe API).
+
+## 9. App Links (Android) și Universal Links (iOS) — deschidere app din browser
+
+Fără pașii de mai jos, site-ul **nu** poate deschide automat app-ul: trebuie același **domeniu** verificat și amprente de semnare corecte.
+
+### Fișiere pe hosting (rădăcina frontului, lângă `index.html`)
+
+După `npm run build`, în `dist/` există deja:
+
+- `dist/.well-known/assetlinks.json` → trebuie servit la `https://DOMEINUL-TĂU/.well-known/assetlinks.json`
+- `dist/.well-known/apple-app-site-association` → `https://DOMEINUL-TĂU/.well-known/apple-app-site-association` (fără extensie `.json`, `Content-Type` tipic `application/json`)
+
+Multe servere servesc corect dacă urci tot `dist/` inclusiv folderul ascuns `.well-known`.
+
+### `assetlinks.json` — amprente SHA-256
+
+1. Înlocuiește placeholder-ele din `public/.well-known/assetlinks.json` **înainte de build** (sau editează direct în `dist/` după build).
+2. Poți lista **mai multe** amprente în același array (ex.: cheie **debug** pentru APK de probă + cheie **Play App Signing** pentru release din magazin).
+3. **Debug (APK local):** din keystore-ul debug Android Studio:
+   - `keytool -list -v -keystore "%USERPROFILE%\.android\debug.keystore" -alias androiddebugkey -storepass android -keypass android`
+   - Caută **SHA256** — copiază fără spații sau cu `:` în formatul acceptat de Google (64 hex fără `:` e uzual).
+4. **Play Store:** Play Console → aplicația ta → **App integrity** / **App signing** → **App signing key certificate** → SHA-256.
+
+`package_name` trebuie să rămână `com.decamino.vecindario` (ca în app).
+
+### iOS — `apple-app-site-association`
+
+- Înlocuiește `APPLE_TEAM_ID` cu Team ID-ul real din Apple Developer (10 caractere).
+- `bundle` în app: `com.decamino.vecindario` (deja în `vecindario-mobile`).
+
+### App mobilă — același host
+
+La build nativ, setează `EXPO_PUBLIC_UNIVERSAL_LINK_HOSTS=domeniul.tău` (fără `https://`, poți lista mai multe separate prin virgulă). Apoi **prebuild + rebuild** APK/AAB.
+
+### Verificare
+
+- Google: [Statement List Generator / Digital Asset Links](https://developers.google.com/digital-asset-links/tools/generator) pentru domeniul tău.
+- După instalare, pe Android: **Setări → Aplicații → Deschidere implicită** pentru Vecindario și link-uri verificate.
+
+Pe web, butonul **„Abrir en la app”** folosește intent Android + schema `vecindario://` pe iOS; totuși **verificarea domeniului** rămâne obligatorie pentru comportamentul „ca la aplicațiile mari”.

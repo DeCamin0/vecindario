@@ -8,11 +8,13 @@ import {
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { buildCommunityLoginUrl } from '../utils/communityLoginUrl.js'
 import CommunityLoginQrModal from '../components/CommunityLoginQrModal.jsx'
+import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
 import './Admin.css'
 
 function statusLabel(status) {
   if (status === 'demo') return 'Demo'
   if (status === 'inactive') return 'Inactive'
+  if (status === 'pending_approval') return 'Pendiente'
   return 'Active'
 }
 
@@ -110,6 +112,21 @@ function normalizePortalLabelsFromApi(raw, portalCount) {
   return out
 }
 
+/** Borrador UI: plantas / puertas por portal (PATCH como JSON). */
+function normalizePortalDwellingDraftFromApi(raw, portalCount) {
+  const n = Math.min(999, Math.max(1, Number(portalCount) || 1))
+  const arr = Array.isArray(raw) ? raw : []
+  return Array.from({ length: n }, (_, i) => {
+    const o = arr[i]
+    if (!o || typeof o !== 'object') return { floors: '', doorsPerFloor: '', doorScheme: 'letters' }
+    const floors = typeof o.floors === 'number' && o.floors >= 1 ? String(o.floors) : ''
+    const doorsPerFloor =
+      typeof o.doorsPerFloor === 'number' && o.doorsPerFloor >= 1 ? String(o.doorsPerFloor) : ''
+    const doorScheme = o.doorScheme === 'numbers' ? 'numbers' : 'letters'
+    return { floors, doorsPerFloor, doorScheme }
+  })
+}
+
 /** Resumen en tarjeta: muestra alias o «Portal N». */
 function portalsAliasesPreview(portalCount, portalLabels) {
   const n = Number(portalCount) || 1
@@ -136,6 +153,7 @@ function roleLabelEs(role) {
     president: 'Presidente',
     community_admin: 'Administrador',
     concierge: 'Conserje',
+    pool_staff: 'Socorrista (piscina)',
     resident: 'Vecino',
     super_admin: 'Super admin',
   }
@@ -158,7 +176,7 @@ function staffFichaRowBlockedReason(row) {
   return {
     short: 'Rol o correo no alineados con la ficha',
     title:
-      'Ejemplo: este correo está en Conserje/contacto pero la cuenta es Administrador — entonces debe coincidir con «Email administrador de comunidad», o cambia el rol del usuario a Conserje. Presidente/Administrador/Conserje exigen rol en BD igual al puesto y el mismo correo en el campo correspondiente de la ficha.',
+      'Ejemplo: este correo está en Conserje/contacto pero la cuenta es Administrador — entonces debe coincidir con «Email administrador de comunidad», o cambia el rol del usuario a Conserje. Presidente/Administrador/Conserje/Socorrista exigen rol en BD igual al puesto y el mismo correo en el campo correspondiente de la ficha.',
   }
 }
 
@@ -173,13 +191,21 @@ const emptyForm = {
   presidentPiso: '',
   communityAdminEmail: '',
   conciergeEmail: '',
+  poolStaffEmail: '',
   status: 'active',
   portalCount: '1',
   residentSlots: '',
   gymAccessEnabled: false,
+  poolAccessSystemEnabled: false,
+  poolSeasonActive: false,
+  poolSeasonStart: '',
+  poolSeasonEnd: '',
+  poolHoursNote: '',
+  poolMaxOccupancy: '',
   appNavServicesEnabled: true,
   appNavIncidentsEnabled: true,
   appNavBookingsEnabled: true,
+  appNavPoolAccessEnabled: false,
   padelCourtCount: '0',
   padelMaxHoursPerBooking: '2',
   padelMaxHoursApartmentDay: '4',
@@ -191,6 +217,7 @@ const emptyForm = {
   customSpaces: [],
   /** YYYY-MM-DD o vacío = sin caducidad de plan */
   planExpiresOn: '',
+  companyId: '',
 }
 
 export default function Admin() {
@@ -209,6 +236,7 @@ export default function Admin() {
     invitePresident: false,
     inviteAdmin: false,
     inviteConcierge: false,
+    invitePoolStaff: false,
     contactSummary: false,
   })
   const [onboardingMailSending, setOnboardingMailSending] = useState(false)
@@ -220,10 +248,268 @@ export default function Admin() {
   const [tempPasswordBanner, setTempPasswordBanner] = useState('')
   const [portalsModalCommunity, setPortalsModalCommunity] = useState(null)
   const [portalsDraft, setPortalsDraft] = useState([])
+  const [portalsDwellingDraft, setPortalsDwellingDraft] = useState([])
   const [portalsSaving, setPortalsSaving] = useState(false)
   const [portalsError, setPortalsError] = useState('')
   const [qrModal, setQrModal] = useState(null)
   const [navTabSavingId, setNavTabSavingId] = useState(null)
+  const [companiesList, setCompaniesList] = useState([])
+  const [companiesLoading, setCompaniesLoading] = useState(false)
+  const [newCompanyName, setNewCompanyName] = useState('')
+  const [creatingCompany, setCreatingCompany] = useState(false)
+  const [companyAdminForm, setCompanyAdminForm] = useState({
+    open: false,
+    companyId: null,
+    email: '',
+    name: '',
+    password: '',
+  })
+  const [companyAdminBusy, setCompanyAdminBusy] = useState(false)
+  const [companyAdminFlash, setCompanyAdminFlash] = useState('')
+  const [companyPasswordFlash, setCompanyPasswordFlash] = useState('')
+  const [companyPasswordBusy, setCompanyPasswordBusy] = useState(null)
+  const [passwordPickModal, setPasswordPickModal] = useState({
+    open: false,
+    companyId: null,
+    companyName: '',
+    sendEmail: false,
+    admins: [],
+    loading: false,
+    error: '',
+  })
+  const [approvalBusyId, setApprovalBusyId] = useState(null)
+  /** KPIs globales (solo comunidades operativas); se cargan con las comunidades. */
+  const [operationalStats, setOperationalStats] = useState(null)
+
+  const pendingCommunities = useMemo(
+    () => communities.filter((c) => c.status === 'pending_approval'),
+    [communities],
+  )
+
+  /** Misma regla que el API: activa + demo cu uso; fuera pendiente de aprobación e inactiva. */
+  const operationalCommunitiesCount = useMemo(
+    () =>
+      communities.filter((c) => c.status === 'active' || c.status === 'demo').length,
+    [communities],
+  )
+
+  const companyNameById = useMemo(() => {
+    const m = new Map()
+    for (const c of companiesList) {
+      if (c?.id != null) m.set(Number(c.id), typeof c.name === 'string' ? c.name : '')
+    }
+    return m
+  }, [companiesList])
+
+  const loadCompaniesList = useCallback(async () => {
+    if (!accessToken) {
+      setCompaniesList([])
+      return
+    }
+    setCompaniesLoading(true)
+    try {
+      const res = await fetch(apiUrl('/api/admin/companies'), {
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
+      setCompaniesList(Array.isArray(d) ? d : [])
+    } catch {
+      setCompaniesList([])
+    } finally {
+      setCompaniesLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    loadCompaniesList()
+  }, [loadCompaniesList])
+
+  useEffect(() => {
+    if (!companyAdminFlash) return
+    const t = setTimeout(() => setCompanyAdminFlash(''), 15000)
+    return () => clearTimeout(t)
+  }, [companyAdminFlash])
+
+  useEffect(() => {
+    if (!companyPasswordFlash) return
+    const t = setTimeout(() => setCompanyPasswordFlash(''), 120000)
+    return () => clearTimeout(t)
+  }, [companyPasswordFlash])
+
+  const runCompanyAdminPasswordReset = async (companyId, userId, sendEmailFlag) => {
+    if (!accessToken) return
+    setError('')
+    setCompanyPasswordBusy(`${companyId}-${sendEmailFlag ? 'email' : 'show'}`)
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/companies/${companyId}/admins/${userId}/reset-password`),
+        {
+          method: 'POST',
+          headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sendEmail: sendEmailFlag }),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(d.message || d.error || `Error ${res.status}`)
+      }
+      if (sendEmailFlag) {
+        setSuccessFlash(d.message || `Correo enviado a ${d.email || ''}.`)
+      } else {
+        const pw = d.temporaryPassword
+        const em = d.email || ''
+        setCompanyPasswordFlash(
+          pw
+            ? `Nueva contraseña temporal para ${em}: ${pw} — cópiala ahora; la anterior ya no vale.`
+            : d.message || 'Contraseña actualizada.',
+        )
+      }
+    } catch (e) {
+      setError(e.message || 'No se pudo completar la acción')
+    } finally {
+      setCompanyPasswordBusy(null)
+    }
+  }
+
+  const onCompanyPasswordAction = async (co, sendEmailFlag) => {
+    if (!accessToken) return
+    const n = co.companyAdminCount ?? 0
+    if (n < 1) {
+      setError('Esta empresa no tiene administradores de empresa.')
+      return
+    }
+    if (n === 1) {
+      const res = await fetch(apiUrl(`/api/admin/companies/${co.id}/admins`), {
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.admins?.[0]?.id) {
+        setError(d.error || 'No se pudo cargar el administrador.')
+        return
+      }
+      await runCompanyAdminPasswordReset(co.id, d.admins[0].id, sendEmailFlag)
+      return
+    }
+    setPasswordPickModal({
+      open: true,
+      companyId: co.id,
+      companyName: co.name,
+      sendEmail: sendEmailFlag,
+      admins: [],
+      loading: true,
+      error: '',
+    })
+    try {
+      const res = await fetch(apiUrl(`/api/admin/companies/${co.id}/admins`), {
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
+      const list = Array.isArray(data.admins) ? data.admins : []
+      setPasswordPickModal((m) => ({
+        ...m,
+        loading: false,
+        admins: list,
+        error: list.length === 0 ? 'No hay administradores en esta empresa.' : '',
+      }))
+    } catch (e) {
+      setPasswordPickModal((m) => ({
+        ...m,
+        loading: false,
+        error: e.message || 'No se pudo cargar la lista',
+      }))
+    }
+  }
+
+  const patchCommunityStatus = async (communityId, status) => {
+    if (!accessToken) return
+    setApprovalBusyId(communityId)
+    setError('')
+    try {
+      const res = await fetch(apiUrl(`/api/admin/communities/${communityId}`), {
+        method: 'PATCH',
+        headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
+      setCommunities((prev) => prev.map((c) => (c.id === communityId ? { ...c, ...d } : c)))
+      setSuccessFlash(status === 'active' ? 'Comunidad activada.' : 'Comunidad desactivada.')
+      await loadCommunities()
+    } catch (e) {
+      setError(e.message || 'No se pudo actualizar el estado')
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
+  const createCompany = async (e) => {
+    e.preventDefault()
+    if (!accessToken) return
+    const n = newCompanyName.trim()
+    if (!n) {
+      setError('Indica el nombre de la empresa.')
+      return
+    }
+    setCreatingCompany(true)
+    setError('')
+    try {
+      const res = await fetch(apiUrl('/api/admin/companies'), {
+        method: 'POST',
+        headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: n }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
+      setNewCompanyName('')
+      setSuccessFlash(`Empresa creada: ${d.name || n}`)
+      await loadCompaniesList()
+    } catch (err) {
+      setError(err.message || 'No se pudo crear la empresa')
+    } finally {
+      setCreatingCompany(false)
+    }
+  }
+
+  const submitCompanyAdmin = async (e) => {
+    e.preventDefault()
+    if (!accessToken || !companyAdminForm.companyId) return
+    const email = companyAdminForm.email.trim().toLowerCase()
+    if (!email) {
+      setError('Email obligatorio para el administrador de empresa.')
+      return
+    }
+    setCompanyAdminBusy(true)
+    setError('')
+    try {
+      const body = {
+        email,
+        name: companyAdminForm.name.trim() || undefined,
+        ...(companyAdminForm.password.trim().length >= 8
+          ? { password: companyAdminForm.password.trim() }
+          : {}),
+      }
+      const res = await fetch(apiUrl(`/api/admin/companies/${companyAdminForm.companyId}/admins`), {
+        method: 'POST',
+        headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+      setCompanyAdminFlash(
+        d.temporaryPassword
+          ? `Usuario creado. Contraseña temporal: ${d.temporaryPassword} (cópiala ahora).`
+          : 'Administrador de empresa creado.',
+      )
+      setCompanyAdminForm({ open: false, companyId: null, email: '', name: '', password: '' })
+      await loadCompaniesList()
+    } catch (err) {
+      setError(err.message || 'No se pudo crear el administrador')
+    } finally {
+      setCompanyAdminBusy(false)
+    }
+  }
 
   const patchCommunityNavTabs = async (community, payload) => {
     if (!accessToken || !community?.id) return
@@ -262,21 +548,40 @@ export default function Admin() {
     }
   }, [])
 
-  const plannedResidentsTotal = useMemo(
-    () => communities.reduce((sum, c) => sum + (Number(c.residentSlots) > 0 ? Number(c.residentSlots) : 0), 0),
-    [communities],
-  )
+  /** Agrupa comunidades por email de administrador de comunidad (ficha). */
+  const administratorsDirectory = useMemo(() => {
+    const map = new Map()
+    for (const c of communities) {
+      const em = String(c.communityAdminEmail || '')
+        .trim()
+        .toLowerCase()
+      if (!em) continue
+      if (!map.has(em)) map.set(em, [])
+      map.get(em).push({
+        id: c.id,
+        name: c.name,
+        status: c.status || 'active',
+      })
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([email, rows]) => ({
+        email,
+        communities: [...rows].sort((x, y) => String(x.name).localeCompare(String(y.name))),
+      }))
+  }, [communities])
 
   const loadCommunities = useCallback(async () => {
     if (!accessToken) {
       setCommunities([])
+      setOperationalStats(null)
       setLoading(false)
       return
     }
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/admin/communities'), {
+      const res = await fetch(apiUrl('/api/admin/communities?includeStats=1'), {
         headers: jsonAuthHeaders(accessToken),
       })
       if (!res.ok) {
@@ -292,9 +597,27 @@ export default function Admin() {
       }
       const data = await res.json()
       setCommunities(Array.isArray(data) ? data : [])
+      try {
+        const aggRes = await fetch(apiUrl('/api/admin/communities/stats-aggregate'), {
+          headers: jsonAuthHeaders(accessToken),
+        })
+        const agg = await aggRes.json().catch(() => ({}))
+        if (aggRes.ok) {
+          setOperationalStats({
+            plannedResidentSlots: Number(agg.plannedResidentSlots) || 0,
+            openIncidents: Number(agg.openIncidents) || 0,
+            activeBookings: Number(agg.activeBookings) || 0,
+          })
+        } else {
+          setOperationalStats(null)
+        }
+      } catch {
+        setOperationalStats(null)
+      }
     } catch (e) {
       setError(e.message || 'No se pudieron cargar las comunidades')
       setCommunities([])
+      setOperationalStats(null)
     } finally {
       setLoading(false)
     }
@@ -359,13 +682,21 @@ export default function Admin() {
       presidentPiso: c.presidentPiso || '',
       communityAdminEmail: c.communityAdminEmail || '',
       conciergeEmail: c.conciergeEmail || '',
+      poolStaffEmail: c.poolStaffEmail || '',
       status: c.status || 'active',
       portalCount: String(c.portalCount ?? 1),
       residentSlots: c.residentSlots != null ? String(c.residentSlots) : '',
       gymAccessEnabled: Boolean(c.gymAccessEnabled),
+      poolAccessSystemEnabled: Boolean(c.poolAccessSystemEnabled),
+      poolSeasonActive: Boolean(c.poolSeasonActive),
+      poolSeasonStart: planExpiresOnForInput(c.poolSeasonStart),
+      poolSeasonEnd: planExpiresOnForInput(c.poolSeasonEnd),
+      poolHoursNote: c.poolHoursNote != null ? String(c.poolHoursNote) : '',
+      poolMaxOccupancy: c.poolMaxOccupancy != null ? String(c.poolMaxOccupancy) : '',
       appNavServicesEnabled: c.appNavServicesEnabled !== false,
       appNavIncidentsEnabled: c.appNavIncidentsEnabled !== false,
       appNavBookingsEnabled: c.appNavBookingsEnabled !== false,
+      appNavPoolAccessEnabled: c.appNavPoolAccessEnabled === true,
       padelCourtCount: String(c.padelCourtCount ?? 0),
       padelMaxHoursPerBooking: String(c.padelMaxHoursPerBooking ?? 2),
       padelMaxHoursApartmentDay: String(c.padelMaxHoursPerApartmentPerDay ?? 4),
@@ -375,6 +706,7 @@ export default function Admin() {
       salonBookingMode: c.salonBookingMode === 'day' ? 'day' : 'slots',
       customSpaces: normalizeCustomSpacesFromApi(c.customLocations),
       planExpiresOn: planExpiresOnForInput(c.planExpiresOn),
+      companyId: c.companyId != null ? String(c.companyId) : '',
     })
     setModalOpen(true)
   }
@@ -389,12 +721,42 @@ export default function Admin() {
     setPortalsError('')
     setPortalsModalCommunity(c)
     setPortalsDraft(normalizePortalLabelsFromApi(c.portalLabels, c.portalCount))
+    setPortalsDwellingDraft(normalizePortalDwellingDraftFromApi(c.portalDwellingConfig, c.portalCount))
   }
 
   const closePortalsModal = () => {
     setPortalsModalCommunity(null)
     setPortalsDraft([])
+    setPortalsDwellingDraft([])
     setPortalsError('')
+  }
+
+  /** Copia plantas / puertas por planta / etiquetas del primer portal con datos al resto (no toca alias). */
+  const replicatePortalDwellingToAll = () => {
+    const draft = portalsDwellingDraft
+    let src = -1
+    for (let i = 0; i < draft.length; i += 1) {
+      const d = draft[i] || {}
+      const hasFloors = String(d.floors ?? '').trim() !== ''
+      const hasDoors = String(d.doorsPerFloor ?? '').trim() !== ''
+      const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
+      if (hasFloors || hasDoors || scheme === 'numbers') {
+        src = i
+        break
+      }
+    }
+    if (src < 0) {
+      setPortalsError(
+        'Indica plantas o puertas por planta en al menos un portal (o elige «Números» en etiquetas) para poder replicar.',
+      )
+      return
+    }
+    setPortalsError('')
+    const t = draft[src] || {}
+    const floors = String(t.floors ?? '').trim()
+    const doorsPerFloor = String(t.doorsPerFloor ?? '').trim()
+    const doorScheme = t.doorScheme === 'numbers' ? 'numbers' : 'letters'
+    setPortalsDwellingDraft((prev) => prev.map(() => ({ floors, doorsPerFloor, doorScheme })))
   }
 
   const savePortalsModal = async () => {
@@ -402,14 +764,29 @@ export default function Admin() {
     setPortalsSaving(true)
     setPortalsError('')
     try {
+      const portalDwellingConfig = portalsDwellingDraft.map((d) => {
+        const f = parseInt(String(d.floors ?? '').trim(), 10)
+        const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
+        if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) {
+          return {}
+        }
+        const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
+        if (scheme === 'letters' && dp > 26) return {}
+        return { floors: f, doorsPerFloor: dp, doorScheme: scheme }
+      })
       const res = await fetch(apiUrl(`/api/admin/communities/${portalsModalCommunity.id}`), {
         method: 'PATCH',
         headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portalLabels: portalsDraft }),
+        body: JSON.stringify({ portalLabels: portalsDraft, portalDwellingConfig }),
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
-      setSuccessFlash('Nombres de portales guardados.')
+      const autoCupo = d.residentSlots != null && Number(d.residentSlots) > 0
+      setSuccessFlash(
+        autoCupo
+          ? `Portales guardados. «Nº vecinos» (cupo) actualizado automáticamente a ${d.residentSlots} (igual que en alta masiva: suma plantas × puertas por portal).`
+          : 'Portales y estructura de plantas/puertas guardados. Completa todos los portales para fijar el cupo automáticamente.',
+      )
       closePortalsModal()
       await loadCommunities()
     } catch (e) {
@@ -501,6 +878,18 @@ export default function Admin() {
         return
       }
 
+      const poolCapRaw = form.poolMaxOccupancy.trim()
+      let poolMaxOccupancy = null
+      if (poolCapRaw !== '') {
+        const pc = Number.parseInt(poolCapRaw, 10)
+        if (!Number.isInteger(pc) || pc < 1 || pc > 5000) {
+          setError('Aforo piscina (instalación): entero entre 1 y 5000, o vacío para sin límite.')
+          setSaving(false)
+          return
+        }
+        poolMaxOccupancy = pc
+      }
+
       const customLocations = form.customSpaces
         .filter((s) => s.name.trim())
         .map((s) => {
@@ -514,6 +903,18 @@ export default function Admin() {
         ? apiUrl(`/api/admin/communities/${editingId}`)
         : apiUrl('/api/admin/communities')
 
+      const rawCo = String(form.companyId ?? '').trim()
+      let companyIdPayload = null
+      if (rawCo !== '') {
+        const n = Number.parseInt(rawCo, 10)
+        if (!Number.isInteger(n) || n < 1) {
+          setError('ID de empresa inválido (o déjalo vacío).')
+          setSaving(false)
+          return
+        }
+        companyIdPayload = n
+      }
+
       const common = {
         name,
         nifCif: nifCif || null,
@@ -525,13 +926,22 @@ export default function Admin() {
         presidentPiso: form.presidentPiso.trim() || null,
         communityAdminEmail: form.communityAdminEmail.trim(),
         conciergeEmail: form.conciergeEmail.trim(),
+        poolStaffEmail: form.poolStaffEmail.trim(),
         status: form.status,
+        companyId: companyIdPayload,
         portalCount,
         residentSlots,
         gymAccessEnabled: form.gymAccessEnabled,
+        poolAccessSystemEnabled: form.poolAccessSystemEnabled,
+        poolSeasonActive: form.poolSeasonActive,
+        poolSeasonStart: form.poolSeasonStart.trim() || null,
+        poolSeasonEnd: form.poolSeasonEnd.trim() || null,
+        poolHoursNote: form.poolHoursNote.trim() || null,
+        poolMaxOccupancy,
         appNavServicesEnabled: form.appNavServicesEnabled,
         appNavIncidentsEnabled: form.appNavIncidentsEnabled,
         appNavBookingsEnabled: form.appNavBookingsEnabled,
+        appNavPoolAccessEnabled: form.appNavPoolAccessEnabled,
         padelCourtCount,
         padelMaxHoursPerBooking,
         padelMaxHoursPerApartmentPerDay,
@@ -571,7 +981,7 @@ export default function Admin() {
         let msg = 'Cambios guardados.'
         if (d.onboarding) {
           msg +=
-            ' Emails de presidente / administrador / conserje sincronizados con cuentas (sin enviar correos automáticos).'
+            ' Emails de presidente / administrador / conserje / socorrista sincronizados con cuentas (sin enviar correos automáticos).'
           if (d.onboarding.devPasswords?.length) {
             msg += ` · Contraseñas nuevas (cópialas): ${d.onboarding.devPasswords.map((x) => `${x.email} → ${x.password}`).join(' · ')}`
           }
@@ -584,10 +994,11 @@ export default function Admin() {
             president: 'presidente',
             community_admin: 'administrador',
             concierge: 'conserje',
+            pool_staff: 'socorrista',
           }
           msg += ` · Cuentas que ya no figuran en la ficha: pasadas a vecino — ${d.staffDemoted.map((x) => `${x.email} (era ${roleEs[x.previousRole] || x.previousRole})`).join('; ')}`
         }
-        msg += ` · Guardado en servidor: presidente ${formatPresidentOnCard(d)}, admin ${d.communityAdminEmail?.trim() || '—'}, conserje ${d.conciergeEmail?.trim() || '—'}.`
+        msg += ` · Guardado en servidor: presidente ${formatPresidentOnCard(d)}, admin ${d.communityAdminEmail?.trim() || '—'}, conserje ${d.conciergeEmail?.trim() || '—'}, socorrista ${d.poolStaffEmail?.trim() || '—'}.`
         setSuccessFlash(msg)
       }
       closeModal()
@@ -605,6 +1016,7 @@ export default function Admin() {
       invitePresident: false,
       inviteAdmin: false,
       inviteConcierge: false,
+      invitePoolStaff: false,
       contactSummary: false,
     })
     setOnboardingMailOpen(true)
@@ -813,31 +1225,50 @@ export default function Admin() {
   const stats = [
     {
       key: 'communities',
-      value: communities.length,
-      label: 'Total comunidades',
-      trend: null,
+      value: operationalCommunitiesCount,
+      label: 'Comunidades operativas',
+      trend:
+        communities.length > operationalCommunitiesCount
+          ? `${communities.length} fichas en total (solo activas y demo cuentan arriba)`
+          : null,
       icon: '🏘️',
     },
     {
       key: 'residents',
-      value: plannedResidentsTotal > 0 ? plannedResidentsTotal : '—',
+      value:
+        operationalStats == null
+          ? '—'
+          : operationalStats.plannedResidentSlots > 0
+            ? operationalStats.plannedResidentSlots
+            : '—',
       label: 'Cupo vecinos (planificado)',
-      trend: plannedResidentsTotal > 0 ? 'Suma por comunidad' : 'Indica «Nº vecinos» al crear',
+      trend:
+        operationalStats == null
+          ? 'Cargando…'
+          : operationalStats.plannedResidentSlots > 0
+            ? 'Suma en comunidades activas y demo: Nº vecinos en ficha o, si falta, estimado por portales'
+            : 'Ninguna comunidad operativa tiene cupo (ni Nº vecinos ni portales completos para estimar)',
       icon: '👤',
     },
     {
       key: 'incidents',
-      value: '—',
+      value: operationalStats == null ? '—' : operationalStats.openIncidents,
       label: 'Incidencias abiertas',
-      trend: 'Próximamente',
+      trend:
+        operationalStats == null
+          ? 'Cargando…'
+          : 'Pendientes en comunidades operativas',
       icon: '⚠️',
       accent: true,
     },
     {
       key: 'bookings',
-      value: '—',
+      value: operationalStats == null ? '—' : operationalStats.activeBookings,
       label: 'Reservas activas',
-      trend: 'Próximamente',
+      trend:
+        operationalStats == null
+          ? 'Cargando…'
+          : 'Confirmadas desde hoy (zona Europe/Madrid)',
       icon: '📅',
     },
   ]
@@ -898,6 +1329,269 @@ export default function Admin() {
             ))}
           </section>
 
+          {pendingCommunities.length > 0 ? (
+            <section className="admin-section">
+              <div className="admin-section-head">
+                <h2 className="admin-section-title">Comunidades pendientes de aprobación</h2>
+              </div>
+              <p className="admin-directory-intro">
+                Creadas por administradores de empresa. Actívalas cuando estén listas para uso (VEC, vecinos,
+                etc.).
+              </p>
+              <div className="admin-communities">
+                {pendingCommunities.map((c) => (
+                  <article key={c.id} className="admin-community-row card">
+                    <div className="admin-community-info">
+                      <div className="admin-community-head">
+                        <h3 className="admin-community-name">{c.name}</h3>
+                        <span className="admin-community-status admin-community-status--pending_approval">
+                          Pendiente
+                        </span>
+                      </div>
+                      <div className="admin-community-details">
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">ID</span>
+                          {c.id}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">Empresa</span>
+                          {c.companyId != null
+                            ? companyNameById.get(Number(c.companyId)) || `id ${c.companyId}`
+                            : '—'}
+                        </span>
+                        <span className="admin-community-detail admin-community-detail--block">
+                          <span className="admin-community-detail-label">Contacto</span>
+                          {c.contactEmail || '—'}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">NIF/CIF</span>
+                          {c.nifCif || '—'}
+                        </span>
+                        <span className="admin-community-detail admin-community-detail--block">
+                          <span className="admin-community-detail-label">Dirección</span>
+                          <span className="admin-address-preview">{c.address?.trim() || '—'}</span>
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">VEC</span>
+                          <code>{c.accessCode || '—'}</code>
+                        </span>
+                        <span className="admin-community-detail admin-community-detail--block">
+                          <span className="admin-community-detail-label">Portales</span>
+                          <span>
+                            {c.portalCount ?? 1} — {portalsAliasesPreview(c.portalCount, c.portalLabels)}
+                          </span>
+                        </span>
+                      </div>
+                      {c.dashboardStats ? (
+                        <CommunityDashboardStats
+                          stats={c.dashboardStats}
+                          residentSlots={c.residentSlots}
+                        />
+                      ) : null}
+                    </div>
+                    <div className="admin-community-row-actions">
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--sm"
+                        disabled={approvalBusyId === c.id}
+                        onClick={() => void patchCommunityStatus(c.id, 'active')}
+                      >
+                        {approvalBusyId === c.id ? '…' : 'Activar comunidad'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        disabled={approvalBusyId === c.id}
+                        onClick={() => void patchCommunityStatus(c.id, 'inactive')}
+                      >
+                        Desactivar comunidad
+                      </button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(c)}>
+                        Editar ficha
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="admin-section">
+            <div className="admin-section-head">
+              <h2 className="admin-section-title">Empresas y administradores de empresa</h2>
+            </div>
+            <p className="admin-directory-intro">
+              Crea una empresa y luego añade uno o varios correos con rol{' '}
+              <strong>administrador de empresa</strong> (cada uno es un usuario distinto con acceso al panel
+              de la firma). Las comunidades que creen quedarán pendientes hasta que las actives aquí.
+            </p>
+            {companyAdminFlash && (
+              <p className="admin-banner-success" role="status">
+                {companyAdminFlash}
+              </p>
+            )}
+            {companyPasswordFlash && (
+              <p className="admin-banner-success" role="alert">
+                {companyPasswordFlash}
+              </p>
+            )}
+            <form className="card admin-new-company" onSubmit={createCompany}>
+              <div className="admin-new-company__body">
+                <div className="admin-new-company__intro">
+                  <h3 className="admin-new-company__title">Nueva empresa</h3>
+                  <p className="admin-new-company__subtitle">
+                    Añade el nombre comercial de la firma. Después podrás vincular comunidades y crear
+                    administradores de empresa.
+                  </p>
+                </div>
+                <div className="admin-new-company__field">
+                  <label className="admin-label" htmlFor="new-company-name">
+                    Nombre comercial
+                  </label>
+                  <div className="admin-new-company__row">
+                    <input
+                      id="new-company-name"
+                      className="admin-input admin-new-company__input"
+                      value={newCompanyName}
+                      onChange={(e) => setNewCompanyName(e.target.value)}
+                      placeholder="Ej. Mi empresa de gestión S.L."
+                      disabled={companiesLoading}
+                      autoComplete="organization"
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn--primary admin-new-company__submit"
+                      disabled={creatingCompany || companiesLoading}
+                    >
+                      {creatingCompany ? 'Creando…' : 'Crear empresa'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
+            {companiesLoading ? (
+              <p className="admin-empty-hint">Cargando empresas…</p>
+            ) : companiesList.length === 0 ? (
+              <p className="admin-empty-hint">No hay empresas. Crea la primera arriba.</p>
+            ) : (
+              <div className="admin-directory-grid">
+                {companiesList.map((co) => (
+                  <article key={co.id} className="admin-directory-card card">
+                    <div className="admin-directory-card-head">
+                      <span className="admin-directory-email">{co.name}</span>
+                      <span className="admin-directory-count">
+                        {co.communityCount ?? 0} com. · {co.companyAdminCount ?? 0} adm.
+                      </span>
+                    </div>
+                    <div className="admin-company-admins-block">
+                      <span className="admin-company-admins-block__label">Correos con acceso</span>
+                      {Array.isArray(co.companyAdmins) && co.companyAdmins.length > 0 ? (
+                        <ul className="admin-company-admins-block__list">
+                          {co.companyAdmins.map((a) => (
+                            <li key={a.id} className="admin-company-admins-block__item">
+                              <span className="admin-company-admins-block__email">
+                                {a.email || `— (usuario id ${a.id})`}
+                              </span>
+                              {a.name ? (
+                                <span className="admin-company-admins-block__name">{a.name}</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="admin-company-admins-block__empty">
+                          Ningún administrador todavía. Pulsa «Añadir administrador de empresa».
+                        </p>
+                      )}
+                    </div>
+                    <div className="admin-company-card-actions">
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm admin-company-card-actions__main"
+                        onClick={() =>
+                          setCompanyAdminForm({
+                            open: true,
+                            companyId: co.id,
+                            email: '',
+                            name: '',
+                            password: '',
+                          })
+                        }
+                      >
+                        Añadir administrador de empresa
+                      </button>
+                      <div className="admin-company-card-actions__password">
+                        <span className="admin-company-card-actions__password-label">Acceso administrador</span>
+                        <div className="admin-company-card-actions__password-btns">
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            disabled={
+                              (co.companyAdminCount ?? 0) < 1 ||
+                              companyPasswordBusy === `${co.id}-show`
+                            }
+                            title="No se puede leer la contraseña antigua (está cifrada). Se genera una nueva y se muestra aquí una sola vez; la anterior deja de valer."
+                            onClick={() => void onCompanyPasswordAction(co, false)}
+                          >
+                            Ver contraseña
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            disabled={
+                              (co.companyAdminCount ?? 0) < 1 ||
+                              companyPasswordBusy === `${co.id}-email`
+                            }
+                            title="Genera una nueva contraseña temporal y la envía por correo al administrador (requiere SMTP en el servidor)."
+                            onClick={() => void onCompanyPasswordAction(co, true)}
+                          >
+                            Enviar contraseña por correo
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {!loading && administratorsDirectory.length > 0 ? (
+            <section className="admin-section">
+              <div className="admin-section-head">
+                <h2 className="admin-section-title">Administradores (por correo en ficha)</h2>
+              </div>
+              <p className="admin-directory-intro">
+                Mismo criterio que la app: un correo puede administrar varias comunidades; aquí ves el
+                reparto.
+              </p>
+              <div className="admin-directory-grid">
+                {administratorsDirectory.map(({ email, communities: rows }) => (
+                  <article key={email} className="admin-directory-card card">
+                    <div className="admin-directory-card-head">
+                      <span className="admin-directory-email">{email}</span>
+                      <span className="admin-directory-count">
+                        {rows.length} comunidad{rows.length === 1 ? '' : 'es'}
+                      </span>
+                    </div>
+                    <ul className="admin-directory-list">
+                      {rows.map((row) => (
+                        <li key={row.id} className="admin-directory-list-item">
+                          <span className="admin-directory-comm-name">{row.name}</span>
+                          <span
+                            className={`admin-directory-status admin-directory-status--${row.status || 'active'}`}
+                          >
+                            {statusLabel(row.status)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <section className="admin-section">
             <div className="admin-section-head">
               <h2 className="admin-section-title">Comunidades</h2>
@@ -931,6 +1625,12 @@ export default function Admin() {
                         <span className="admin-community-detail">
                           <span className="admin-community-detail-label">ID</span>
                           {community.id}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">Empresa</span>
+                          {community.companyId != null
+                            ? companyNameById.get(Number(community.companyId)) || `id ${community.companyId}`
+                            : '—'}
                         </span>
                         <span className="admin-community-detail">
                           <span className="admin-community-detail-label">NIF/CIF</span>
@@ -998,6 +1698,7 @@ export default function Admin() {
                             <span>Presidente: {formatPresidentOnCard(community)}</span>
                             <span>Admin: {community.communityAdminEmail || '—'}</span>
                             <span>Conserje: {community.conciergeEmail || '—'}</span>
+                            <span>Socorrista: {community.poolStaffEmail || '—'}</span>
                           </span>
                         </span>
                         <span className="admin-community-detail admin-community-detail--block">
@@ -1016,6 +1717,16 @@ export default function Admin() {
                         <span className="admin-community-detail">
                           <span className="admin-community-detail-label">Gimnasio</span>
                           {community.gymAccessEnabled ? 'Control activo' : 'No'}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">Piscina</span>
+                          {community.poolAccessSystemEnabled
+                            ? `Sí${community.poolSeasonActive ? ' · temporada activa' : ''}${
+                                community.poolMaxOccupancy != null
+                                  ? ` · aforo instalación ${community.poolMaxOccupancy}`
+                                  : ''
+                              }`
+                            : 'No'}
                         </span>
                         <span className="admin-community-detail">
                           <span className="admin-community-detail-label">Pádel</span>
@@ -1073,12 +1784,31 @@ export default function Admin() {
                             />
                             <span>Reservas</span>
                           </label>
+                          <label className="admin-nav-tab-check">
+                            <input
+                              type="checkbox"
+                              checked={community.appNavPoolAccessEnabled === true}
+                              disabled={navTabSavingId === community.id}
+                              onChange={(e) =>
+                                patchCommunityNavTabs(community, {
+                                  appNavPoolAccessEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Acceso piscina</span>
+                          </label>
                         </div>
                         <p className="admin-field-hint admin-field-hint--block" style={{ marginTop: '0.35rem' }}>
                           Solo se muestran en la app las pestañas marcadas; el acceso directo por URL también se
                           bloquea.
                         </p>
                       </div>
+                      {community.dashboardStats ? (
+                        <CommunityDashboardStats
+                          stats={community.dashboardStats}
+                          residentSlots={community.residentSlots}
+                        />
+                      ) : null}
                     </div>
                     <div className="admin-community-row-actions">
                       <button
@@ -1393,19 +2123,37 @@ export default function Admin() {
             </h2>
             <p className="admin-field-hint admin-field-hint--block">
               <strong>{portalsDraft.length}</strong> portal(es) según la ficha. Pon un alias por acceso (ej.{' '}
-              <em>34</em>, <em>36</em> o <em>P1</em>, <em>P2</em>). Para cambiar el número total, usa «Edit» en la
-              comunidad y vuelve a abrir esta ventana.
+              <em>34</em>, <em>36</em> o <em>P1</em>, <em>P2</em>). Opcionalmente, bajo cada portal define cuántas
+              plantas hay, cuántas puertas por planta y si las puertas van en <strong>letras</strong> (A, B, C…) o{' '}
+              <strong>números</strong> (1, 2, 3…). Eso genera listas en el alta de vecinos y en el login. Para cambiar
+              el número total de portales, usa «Edit» en la comunidad.
             </p>
             {portalsError && (
               <p className="admin-banner-error" role="alert">
                 {portalsError}
               </p>
             )}
+            {portalsDraft.length > 1 ? (
+              <div className="admin-portals-replicate">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={portalsSaving}
+                  onClick={replicatePortalDwellingToAll}
+                >
+                  Misma estructura en todos los portales
+                </button>
+                <p className="admin-portals-replicate-hint">
+                  Copia <strong>plantas</strong>, <strong>puertas por planta</strong> y <strong>etiquetas</strong> desde el
+                  primer portal que tenga alguno de esos datos. Los alias (32, 34…) no cambian.
+                </p>
+              </div>
+            ) : null}
             <div className="admin-portals-fields">
               {portalsDraft.map((val, i) => (
                 <div key={`portal-${portalsModalCommunity.id}-${i}`} className="admin-modal-field">
                   <label className="admin-label" htmlFor={`portal-alias-${portalsModalCommunity.id}-${i}`}>
-                    Portal {i + 1}
+                    Portal {i + 1} — alias
                   </label>
                   <input
                     id={`portal-alias-${portalsModalCommunity.id}-${i}`}
@@ -1423,6 +2171,70 @@ export default function Admin() {
                       })
                     }}
                   />
+                  <div className="admin-portal-dwelling">
+                    <p className="admin-portal-dwelling-hint">
+                      Estructura (opcional): deja vacío plantas o puertas para solo texto libre en la app.
+                    </p>
+                    <label className="admin-label" htmlFor={`portal-floors-${portalsModalCommunity.id}-${i}`}>
+                      Plantas (pisos)
+                    </label>
+                    <input
+                      id={`portal-floors-${portalsModalCommunity.id}-${i}`}
+                      type="number"
+                      min={1}
+                      max={50}
+                      className="admin-input"
+                      placeholder="Ej. 5"
+                      value={portalsDwellingDraft[i]?.floors ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPortalsDwellingDraft((prev) => {
+                          const next = [...prev]
+                          next[i] = { ...(next[i] || {}), floors: v }
+                          return next
+                        })
+                      }}
+                    />
+                    <label className="admin-label" htmlFor={`portal-doors-${portalsModalCommunity.id}-${i}`}>
+                      Puertas por planta
+                    </label>
+                    <input
+                      id={`portal-doors-${portalsModalCommunity.id}-${i}`}
+                      type="number"
+                      min={1}
+                      max={26}
+                      className="admin-input"
+                      placeholder="Ej. 4"
+                      value={portalsDwellingDraft[i]?.doorsPerFloor ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPortalsDwellingDraft((prev) => {
+                          const next = [...prev]
+                          next[i] = { ...(next[i] || {}), doorsPerFloor: v }
+                          return next
+                        })
+                      }}
+                    />
+                    <label className="admin-label" htmlFor={`portal-scheme-${portalsModalCommunity.id}-${i}`}>
+                      Etiquetas de puerta
+                    </label>
+                    <select
+                      id={`portal-scheme-${portalsModalCommunity.id}-${i}`}
+                      className="admin-input"
+                      value={portalsDwellingDraft[i]?.doorScheme ?? 'letters'}
+                      onChange={(e) => {
+                        const v = e.target.value === 'numbers' ? 'numbers' : 'letters'
+                        setPortalsDwellingDraft((prev) => {
+                          const next = [...prev]
+                          next[i] = { ...(next[i] || {}), doorScheme: v }
+                          return next
+                        })
+                      }}
+                    >
+                      <option value="letters">Letras (A, B, C…)</option>
+                      <option value="numbers">Números (1, 2, 3…)</option>
+                    </select>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1511,6 +2323,22 @@ export default function Admin() {
                 <label className="admin-checkbox-label">
                   <input
                     type="checkbox"
+                    checked={onboardingMailSel.invitePoolStaff}
+                    onChange={(e) =>
+                      setOnboardingMailSel((s) => ({ ...s, invitePoolStaff: e.target.checked }))
+                    }
+                    disabled={!onboardingMailCommunity.poolStaffEmail?.trim()}
+                  />
+                  <span>
+                    Socorrista (piscina){' '}
+                    <span className="admin-onboarding-mail-addr">
+                      ({onboardingMailCommunity.poolStaffEmail?.trim() || 'sin email'})
+                    </span>
+                  </span>
+                </label>
+                <label className="admin-checkbox-label">
+                  <input
+                    type="checkbox"
                     checked={onboardingMailSel.contactSummary}
                     onChange={(e) =>
                       setOnboardingMailSel((s) => ({ ...s, contactSummary: e.target.checked }))
@@ -1538,6 +2366,7 @@ export default function Admin() {
                       onboardingMailSel.invitePresident ||
                       onboardingMailSel.inviteAdmin ||
                       onboardingMailSel.inviteConcierge ||
+                      onboardingMailSel.invitePoolStaff ||
                       onboardingMailSel.contactSummary
                     )
                   }
@@ -1611,7 +2440,7 @@ export default function Admin() {
                 <p className="admin-field-hint">
                   URL pública aproximada:{' '}
                   <code className="admin-code-break">
-                    …/vecindario/c/
+                    …/c/
                     <strong>{form.loginSlug.trim() || 'tu-slug'}</strong>
                     /login
                   </code>
@@ -1780,9 +2609,96 @@ export default function Admin() {
                   <p className="admin-field-hint">Puedes cambiarlo después al editar la comunidad.</p>
                 </div>
                 <fieldset className="admin-modal-fieldset">
+                  <legend className="admin-fieldset-legend">Piscina — acceso vecinos (MVP)</legend>
+                  <p className="admin-field-hint admin-field-hint--block">
+                    Activa el sistema de códigos/QR y la temporada. Los vecinos ven «Acceso piscina»; el socorrista
+                    valida con su rol.
+                  </p>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.poolAccessSystemEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, poolAccessSystemEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Sistema de acceso piscina activo</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.poolSeasonActive}
+                        onChange={(e) => setForm((f) => ({ ...f, poolSeasonActive: e.target.checked }))}
+                      />
+                      <span>Temporada de piscina activa</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field">
+                    <label className="admin-label" htmlFor="comm-pool-start">
+                      Inicio temporada (opcional, YYYY-MM-DD)
+                    </label>
+                    <input
+                      id="comm-pool-start"
+                      type="date"
+                      className="admin-input"
+                      value={form.poolSeasonStart}
+                      onChange={(e) => setForm((f) => ({ ...f, poolSeasonStart: e.target.value }))}
+                    />
+                  </div>
+                  <div className="admin-modal-field">
+                    <label className="admin-label" htmlFor="comm-pool-end">
+                      Fin temporada (opcional)
+                    </label>
+                    <input
+                      id="comm-pool-end"
+                      type="date"
+                      className="admin-input"
+                      value={form.poolSeasonEnd}
+                      onChange={(e) => setForm((f) => ({ ...f, poolSeasonEnd: e.target.value }))}
+                    />
+                  </div>
+                  <div className="admin-modal-field">
+                    <label className="admin-label" htmlFor="comm-pool-hours">
+                      Horario (texto libre, ej. 10:00–20:00)
+                    </label>
+                    <input
+                      id="comm-pool-hours"
+                      type="text"
+                      className="admin-input"
+                      maxLength={255}
+                      value={form.poolHoursNote}
+                      onChange={(e) => setForm((f) => ({ ...f, poolHoursNote: e.target.value }))}
+                      placeholder="Ej. L–D 10:00–20:00"
+                    />
+                  </div>
+                  <div className="admin-modal-field">
+                    <label className="admin-label" htmlFor="comm-pool-max-occ">
+                      Aforo máximo en instalación (opcional)
+                    </label>
+                    <input
+                      id="comm-pool-max-occ"
+                      type="number"
+                      className="admin-input"
+                      min={1}
+                      max={5000}
+                      inputMode="numeric"
+                      value={form.poolMaxOccupancy}
+                      onChange={(e) => setForm((f) => ({ ...f, poolMaxOccupancy: e.target.value }))}
+                      placeholder="Vacío = sin límite"
+                    />
+                    <p className="admin-field-hint">
+                      Tope de personas en piscina a la vez (el socorrista no podrá superarlo al registrar entradas).
+                    </p>
+                  </div>
+                </fieldset>
+                <fieldset className="admin-modal-fieldset">
                   <legend className="admin-fieldset-legend">Pestañas en la app vecinos</legend>
                   <p className="admin-field-hint admin-field-hint--block">
-                    Activa o desactiva Servicios, Incidencias y Reservas por comunidad (despliegue progresivo).
+                    Activa o desactiva las pestañas visibles en la app vecinos (despliegue progresivo). «Acceso
+                    piscina» solo muestra el enlace; el sistema de códigos se configura aparte.
                   </p>
                   <div className="admin-modal-field admin-modal-field--checkbox">
                     <label className="admin-checkbox-label">
@@ -1818,6 +2734,18 @@ export default function Admin() {
                         }
                       />
                       <span>Pestaña Reservas</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.appNavPoolAccessEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, appNavPoolAccessEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Pestaña Acceso piscina</span>
                     </label>
                   </div>
                 </fieldset>
@@ -1991,6 +2919,24 @@ export default function Admin() {
                     email que el contacto de la comunidad.
                   </p>
                 </div>
+                <div className="admin-modal-field">
+                  <label className="admin-label" htmlFor="comm-pool-staff-email">
+                    Email socorrista / piscina (opcional)
+                  </label>
+                  <input
+                    id="comm-pool-staff-email"
+                    type="email"
+                    className="admin-input"
+                    value={form.poolStaffEmail}
+                    onChange={(e) => setForm((f) => ({ ...f, poolStaffEmail: e.target.value }))}
+                    placeholder="socorrista@ejemplo.es"
+                    autoComplete="email"
+                  />
+                  <p className="admin-field-hint">
+                    Opcional. Mismo criterio que el conserje: rol <strong>Piscina</strong>, VEC y este correo en
+                    la ficha. Alta automática al guardar (sin correo hasta que uses «Enviar correos de alta»).
+                  </p>
+                </div>
               </fieldset>
               <div className="admin-modal-field">
                 <label className="admin-label" htmlFor="comm-plan-expires">
@@ -2020,7 +2966,27 @@ export default function Admin() {
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                   <option value="demo">Demo</option>
+                  <option value="pending_approval">Pendiente de aprobación</option>
                 </select>
+              </div>
+              <div className="admin-modal-field">
+                <label className="admin-label" htmlFor="comm-company-id">Empresa (opcional)</label>
+                <select
+                  id="comm-company-id"
+                  className="admin-input admin-select"
+                  value={form.companyId}
+                  onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+                >
+                  <option value="">— Sin empresa —</option>
+                  {companiesList.map((co) => (
+                    <option key={co.id} value={String(co.id)}>
+                      {co.name} (id {co.id})
+                    </option>
+                  ))}
+                </select>
+                <p className="admin-field-hint">
+                  Vincula la comunidad a una empresa para que sus administradores de empresa la gestionen.
+                </p>
               </div>
               <div className="admin-modal-actions">
                 <button type="button" className="btn btn--ghost" onClick={closeModal}>
@@ -2034,6 +3000,171 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {companyAdminForm.open && companyAdminForm.companyId != null ? (
+        <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ca-admin-title">
+          <div className="admin-modal card">
+            <div className="admin-modal-head">
+              <h2 id="ca-admin-title" className="admin-modal-title">
+                Nuevo administrador de empresa
+              </h2>
+              <button
+                type="button"
+                className="admin-modal-close"
+                aria-label="Cerrar"
+                onClick={() =>
+                  setCompanyAdminForm({
+                    open: false,
+                    companyId: null,
+                    email: '',
+                    name: '',
+                    password: '',
+                  })
+                }
+              >
+                ×
+              </button>
+            </div>
+            <form className="admin-modal-body" onSubmit={submitCompanyAdmin}>
+              <p className="admin-field-hint">
+                Empresa id {companyAdminForm.companyId}. Si no indicas contraseña, se generará una temporal en
+                la respuesta.
+              </p>
+              <div className="admin-modal-field">
+                <label className="admin-label" htmlFor="ca-adm-email">Email *</label>
+                <input
+                  id="ca-adm-email"
+                  type="email"
+                  className="admin-input"
+                  value={companyAdminForm.email}
+                  onChange={(e) =>
+                    setCompanyAdminForm((f) => ({ ...f, email: e.target.value }))
+                  }
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="admin-modal-field">
+                <label className="admin-label" htmlFor="ca-adm-name">Nombre (opcional)</label>
+                <input
+                  id="ca-adm-name"
+                  type="text"
+                  className="admin-input"
+                  value={companyAdminForm.name}
+                  onChange={(e) =>
+                    setCompanyAdminForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="admin-modal-field">
+                <label className="admin-label" htmlFor="ca-adm-pw">Contraseña (opcional, mín. 8 caracteres)</label>
+                <input
+                  id="ca-adm-pw"
+                  type="password"
+                  className="admin-input"
+                  value={companyAdminForm.password}
+                  onChange={(e) =>
+                    setCompanyAdminForm((f) => ({ ...f, password: e.target.value }))
+                  }
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="admin-modal-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() =>
+                    setCompanyAdminForm({
+                      open: false,
+                      companyId: null,
+                      email: '',
+                      name: '',
+                      password: '',
+                    })
+                  }
+                >
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn--primary" disabled={companyAdminBusy}>
+                  {companyAdminBusy ? 'Creando…' : 'Crear administrador'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {passwordPickModal.open && passwordPickModal.companyId != null ? (
+        <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pw-pick-title">
+          <div className="admin-modal card">
+            <div className="admin-modal-head">
+              <h2 id="pw-pick-title" className="admin-modal-title">
+                {passwordPickModal.sendEmail
+                  ? 'Enviar contraseña por correo'
+                  : 'Ver contraseña nueva'}
+              </h2>
+              <button
+                type="button"
+                className="admin-modal-close"
+                aria-label="Cerrar"
+                onClick={() =>
+                  setPasswordPickModal({
+                    open: false,
+                    companyId: null,
+                    companyName: '',
+                    sendEmail: false,
+                    admins: [],
+                    loading: false,
+                    error: '',
+                  })
+                }
+              >
+                ×
+              </button>
+            </div>
+            <div className="admin-modal-body">
+              <p className="admin-field-hint">
+                Empresa: <strong>{passwordPickModal.companyName}</strong>. Elige el administrador de empresa.
+              </p>
+              {passwordPickModal.loading ? (
+                <p className="admin-empty-hint">Cargando…</p>
+              ) : passwordPickModal.error ? (
+                <p className="admin-banner-error" role="alert">
+                  {passwordPickModal.error}
+                </p>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {passwordPickModal.admins.map((a) => (
+                    <li key={a.id} style={{ marginBottom: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        onClick={() => {
+                          const cid = passwordPickModal.companyId
+                          const send = passwordPickModal.sendEmail
+                          setPasswordPickModal({
+                            open: false,
+                            companyId: null,
+                            companyName: '',
+                            sendEmail: false,
+                            admins: [],
+                            loading: false,
+                            error: '',
+                          })
+                          void runCompanyAdminPasswordReset(cid, a.id, send)
+                        }}
+                      >
+                        {a.email || `Usuario ${a.id}`}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {qrModal?.url ? (
         <CommunityLoginQrModal

@@ -10,7 +10,7 @@ import {
 
 export type OnboardingInvitation = {
   email: string
-  role: 'president' | 'community_admin' | 'concierge'
+  role: 'president' | 'community_admin' | 'concierge' | 'pool_staff'
   userCreated: boolean
   emailSent: boolean
   note?: string
@@ -30,6 +30,7 @@ export type OnboardingMailSelection = {
   invitePresident: boolean
   inviteAdmin: boolean
   inviteConcierge: boolean
+  invitePoolStaff: boolean
   contactSummary: boolean
 }
 
@@ -46,13 +47,13 @@ function generateTempPassword(): string {
 }
 
 function appLoginUrl(): string {
-  const base = (process.env.APP_PUBLIC_URL || 'http://localhost:5173/vecindario').replace(/\/$/, '')
+  const base = (process.env.APP_PUBLIC_URL || 'http://localhost:5175').replace(/\/$/, '')
   return `${base}/login`
 }
 
 type InviteTask = {
   email: string
-  role: 'president' | 'community_admin' | 'concierge'
+  role: 'president' | 'community_admin' | 'concierge' | 'pool_staff'
   dualCaption: boolean
 }
 
@@ -60,13 +61,22 @@ export function buildInviteTasks(
   presidentEmail: string | null,
   communityAdminEmail: string | null,
   conciergeEmail: string | null,
+  poolStaffEmail: string | null,
 ): InviteTask[] {
   const p = normEmail(presidentEmail)
   const a = normEmail(communityAdminEmail)
   const c = normEmail(conciergeEmail)
+  const ps = normEmail(poolStaffEmail)
   if (p && a && p === a) {
     const out: InviteTask[] = [{ email: p, role: 'community_admin', dualCaption: true }]
-    if (c && c !== p) out.push({ email: c, role: 'concierge', dualCaption: false })
+    const seen = new Set(out.map((t) => t.email))
+    if (c && !seen.has(c)) {
+      out.push({ email: c, role: 'concierge', dualCaption: false })
+      seen.add(c)
+    }
+    if (ps && !seen.has(ps)) {
+      out.push({ email: ps, role: 'pool_staff', dualCaption: false })
+    }
     return out
   }
   const out: InviteTask[] = []
@@ -75,6 +85,10 @@ export function buildInviteTasks(
   const seen = new Set(out.map((t) => t.email))
   if (c && !seen.has(c)) {
     out.push({ email: c, role: 'concierge', dualCaption: false })
+    seen.add(c)
+  }
+  if (ps && !seen.has(ps)) {
+    out.push({ email: ps, role: 'pool_staff', dualCaption: false })
   }
   return out
 }
@@ -85,6 +99,7 @@ function filterTasksBySelection(tasks: InviteTask[], sel: OnboardingMailSelectio
     if (t.role === 'president') return sel.invitePresident
     if (t.role === 'community_admin') return sel.inviteAdmin
     if (t.role === 'concierge') return sel.inviteConcierge
+    if (t.role === 'pool_staff') return sel.invitePoolStaff
     return false
   })
 }
@@ -93,7 +108,7 @@ async function sendOfficialInviteEmail(params: {
   to: string
   communityName: string
   accessCode: string | null
-  role: 'president' | 'community_admin' | 'concierge'
+  role: 'president' | 'community_admin' | 'concierge' | 'pool_staff'
   dualCaption: boolean
   passwordPlain: string | null
   existingAccount: boolean
@@ -107,7 +122,9 @@ async function sendOfficialInviteEmail(params: {
       ? 'presidente'
       : role === 'concierge'
         ? 'conserje / portería'
-        : 'administrador de comunidad'
+        : role === 'pool_staff'
+          ? 'socorrista (acceso piscina)'
+          : 'administrador de comunidad'
 
   const { subject, html, text } = buildOfficialInviteEmailContent({
     toEmail: to,
@@ -152,7 +169,9 @@ function roleEsLine(t: InviteTask): string {
       ? 'presidente'
       : t.role === 'concierge'
         ? 'conserje'
-        : 'administrador'
+        : t.role === 'pool_staff'
+          ? 'socorrista (piscina)'
+          : 'administrador'
 }
 
 type ProcessResult = {
@@ -187,6 +206,7 @@ async function processOneInviteTask(
         passwordHash,
         role,
         name: null,
+        ...(role === 'pool_staff' ? { communityId: community.id } : {}),
       },
     })
     userCreated = true
@@ -202,6 +222,13 @@ async function processOneInviteTask(
   } else if (existing.role === 'concierge' && role === 'concierge') {
     existingAccount = true
     note = 'Cuenta ya existente (conserje); misma contraseña que antes.'
+  } else if (existing.role === 'pool_staff' && role === 'pool_staff') {
+    existingAccount = true
+    note = 'Cuenta ya existente (socorrista); misma contraseña que antes.'
+    await prisma.vecindarioUser.update({
+      where: { id: existing.id },
+      data: { communityId: community.id },
+    })
   } else {
     existingAccount = true
     note = 'Cuenta ya existente (presidente/admin); misma contraseña que antes.'
@@ -275,6 +302,7 @@ export async function runCommunityOnboarding(
     community.presidentEmail,
     community.communityAdminEmail,
     community.conciergeEmail,
+    community.poolStaffEmail,
   )
   const contactNorm = normEmail(community.contactEmail)
   const invitedNormEmails = new Set(tasks.map((t) => t.email))
@@ -356,6 +384,7 @@ export async function sendCommunityOnboardingEmails(
     community.presidentEmail,
     community.communityAdminEmail,
     community.conciergeEmail,
+    community.poolStaffEmail,
   )
   const selectedTasks = filterTasksBySelection(allTasks, selection)
 
@@ -392,6 +421,7 @@ export async function sendCommunityOnboardingEmails(
         community.presidentEmail,
         community.communityAdminEmail,
         community.conciergeEmail,
+        community.poolStaffEmail,
       )
       const invitedLines = linesSource.map((t) => {
         const inv = invitations.find((i) => i.email === t.email)

@@ -1,0 +1,539 @@
+.pool-access-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2.5rem;
+}
+
+.pool-access-head {
+  margin-bottom: 1.25rem;
+}
+
+.pool-access-title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: var(--text-heading, #0f172a);
+}
+
+.pool-access-sub {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted, #64748b);
+  font-size: 0.95rem;
+}
+
+.pool-access-status {
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+  text-align: left;
+  border-radius: 14px;
+}
+
+.pool-access-status--ok {
+  border: 2px solid rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.pool-access-status--off {
+  border: 2px solid rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.pool-access-status--quotas {
+  border: 2px solid rgba(217, 119, 6, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.pool-access-status-label {
+  display: block;
+  font-weight: 800;
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+}
+
+.pool-access-status-detail {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.pool-access-hours {
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+}
+
+.pool-access-card {
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.pool-access-h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.pool-access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+}
+
+.pool-access-k {
+  display: inline-block;
+  min-width: 9.5rem;
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.pool-access-code-card {
+  border: 2px solid rgba(37, 99, 235, 0.2);
+}
+
+.pool-access-hint {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.pool-access-code-big {
+  font-size: 2.75rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-align: center;
+  padding: 0.75rem 0;
+  color: var(--color-primary, #2563eb);
+  font-variant-numeric: tabular-nums;
+}
+
+.pool-access-expires {
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--text-muted, #64748b);
+  margin: 0 0 1rem;
+}
+
+.pool-access-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.pool-access-qr {
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.pool-access-payload.mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  word-break: break-all;
+  color: var(--text-muted, #64748b);
+  margin: 0 0 1rem;
+}
+
+.pool-access-gen {
+  width: 100%;
+  min-height: 48px;
+  font-weight: 700;
+}
+
+.pool-access-muted {
+  color: var(--text-muted, #64748b);
+}
+
+.pool-access-error {
+  color: #b91c1c;
+  font-size: 0.92rem;
+  margin-bottom: 0.75rem;
+}
+
+.pool-access-btn {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-bg-elevated, #fff);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pool-access-foot {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.pool-access-foot a {
+  font-weight: 600;
+  color: var(--color-primary, #2563eb);
+}
+
+.pool-access-occ-cap {
+  font-size: 0.55em;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+}
+
+/* QR fijo autoregistro — misma URL que en Gestión; visible también para conserje/admin en /pool */
+.pool-access-staff-self-qr-card {
+  text-align: left;
+}
+
+.pool-access-staff-self-qr-url {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted, #64748b);
+}
+
+.pool-access-staff-self-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.pool-access-staff-self-qr-img {
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: #fff;
+}
+
+.pool-access-staff-self-qr-foot {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.pool-self-checkin-page .pool-self-refresh {
+  margin-bottom: 0.75rem;
+}
+
+.pool-self-url {
+  font-size: 0.8rem;
+  word-break: break-all;
+  margin: 0;
+}
+
+.pool-self-open {
+  border: 2px solid rgba(37, 99, 235, 0.35);
+}
+
+/* Validación socorrista */
+.pool-validate-form {
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.pool-validate-input {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  font-size: 1.05rem;
+  min-height: 48px;
+}
+
+.pool-validate-submit {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.pool-validate-result {
+  padding: 1.35rem 1.25rem;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.pool-validate-result--ok {
+  border: 3px solid rgba(34, 197, 94, 0.65);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.pool-validate-result--bad {
+  border: 3px solid rgba(220, 38, 38, 0.55);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.pool-validate-verdict {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.pool-validate-reason {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+
+.pool-validate-details {
+  margin-top: 0.5rem;
+}
+
+.pool-validate-success {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  font-size: 0.95rem;
+  color: var(--text-heading, #0f172a);
+}
+
+.pool-occ-banner {
+  margin-bottom: 1rem;
+  padding: 1.1rem 1.25rem;
+  text-align: left;
+}
+
+.pool-occ-banner--loading {
+  min-height: 5.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.pool-occ-loading-msg {
+  margin: 0;
+}
+
+.pool-occ-title {
+  font-weight: 800;
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.pool-occ-numbers {
+  font-size: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.pool-occ-empty {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.pool-occ-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pool-occ-session-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Historial piscina (socorrista) */
+.pool-history-card {
+  margin-bottom: 1rem;
+  padding: 1.1rem 1.25rem;
+  text-align: left;
+}
+
+.pool-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.pool-history-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.pool-history-intro {
+  margin: 0 0 0.75rem;
+}
+
+.pool-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.pool-history-row {
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-bg-elevated, #fff);
+  font-size: 0.88rem;
+}
+
+.pool-history-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  margin-bottom: 0.25rem;
+}
+
+.pool-history-resident {
+  font-weight: 700;
+  color: var(--text-heading, #0f172a);
+}
+
+.pool-history-dwelling {
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+}
+
+.pool-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-heading, #0f172a);
+}
+
+.pool-history-foot {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+}
+
+.pool-history-badge {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pool-history-badge--in {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--color-primary, #2563eb);
+  border: 1px solid rgba(37, 99, 235, 0.35);
+}
+
+.pool-validate-occ-inline {
+  text-align: center;
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.pool-validate-warn {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  font-size: 0.9rem;
+}
+
+.pool-admit-block {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+/* Escáner QR (validación piscina) */
+.pool-qr-scan-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.pool-qr-scan-panel {
+  width: 100%;
+  max-width: 400px;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.pool-qr-scan-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.pool-qr-scan-hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted, #64748b);
+}
+
+.pool-qr-scan-viewport {
+  width: 100%;
+  min-height: 280px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  margin-bottom: 1rem;
+}
+
+.pool-qr-scan-viewport video {
+  border-radius: 12px;
+}
+
+.pool-qr-scan-cancel {
+  width: 100%;
+  min-height: 48px;
+}
+
+.pool-validate-code-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (min-width: 480px) {
+  .pool-validate-code-row {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+
+  .pool-validate-code-row .pool-validate-input {
+    flex: 1;
+    margin-bottom: 0;
+  }
+
+  .pool-validate-code-row .btn--scan {
+    flex-shrink: 0;
+    min-height: 48px;
+    white-space: nowrap;
+  }
+}

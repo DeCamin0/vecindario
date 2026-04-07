@@ -17,17 +17,24 @@ import Admin from './pages/Admin'
 import AdminServices from './pages/AdminServices'
 import CommunityAdmin from './pages/CommunityAdmin'
 import CommunityResidents from './pages/CommunityResidents'
+import CompanyAdminDashboard from './pages/CompanyAdminDashboard'
 import RequireRole from './components/RequireRole'
 import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
 import CompletePiso from './pages/CompletePiso'
 import OpenAppLanding from './pages/OpenAppLanding'
 import PWAUpdateBanner from './components/PWAUpdateBanner'
+import PoolAccessPage from './pages/PoolAccessPage'
+import PoolSelfCheckinPage from './pages/PoolSelfCheckinPage'
+import PoolValidatePage from './pages/PoolValidatePage'
 import './App.css'
+
+const routerBasename =
+  import.meta.env.BASE_URL === '/' ? undefined : import.meta.env.BASE_URL.replace(/\/$/, '')
 
 function App() {
   return (
-    <BrowserRouter basename="/vecindario">
+    <BrowserRouter basename={routerBasename}>
       <AuthProvider>
         <NotificationsProvider>
         <ActivityProvider>
@@ -41,6 +48,14 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/completar-piso" element={<CompletePiso />} />
           <Route path="/admin" element={<RequireRole role="super_admin"><Admin /></RequireRole>} />
+          <Route
+            path="/company-admin"
+            element={
+              <RequireRole role="company_admin">
+                <CompanyAdminDashboard />
+              </RequireRole>
+            }
+          />
           <Route
             path="/admin/services"
             element={
@@ -113,6 +128,23 @@ function App() {
             />
             <Route path="activity" element={<Activity />} />
             <Route path="profile" element={<Profile />} />
+            <Route
+              path="pool"
+              element={
+                <RequireCommunityNavTab tab="poolAccess">
+                  <PoolAccessPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="pool-self-checkin"
+              element={
+                <RequireCommunityNavTab tab="poolAccess">
+                  <PoolSelfCheckinPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route path="pool-validate" element={<PoolValidatePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

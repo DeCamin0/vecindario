@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/require-auth.js'
 import { juntaRoleForResident } from '../lib/community-board-junta.js'
 import { userLinkedToCommunity } from '../lib/community-user-access.js'
 import { residentMatchesPresidentUnit } from '../lib/president-by-unit.js'
+import { isCommunityOperationalStatus } from '../lib/community-status.js'
 
 export const communityBookingsRouter = Router()
 
@@ -19,7 +20,7 @@ function assertUserMayAccessCommunity(
   user: VecindarioUser,
   comm: Community | null,
 ): boolean {
-  if (!comm || comm.status === 'inactive') return false
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   const e = normEmail(user.email)
   if (user.role === 'super_admin') return true
   if (user.role === 'community_admin' && normEmail(comm.communityAdminEmail) === e) return true
@@ -41,7 +42,7 @@ async function userMayUseCommunityMemberBookingsFeatures(
   user: VecindarioUser,
   comm: Community | null,
 ): Promise<boolean> {
-  if (!comm || comm.status === 'inactive') return false
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   if (assertUserMayAccessCommunity(user, comm)) return true
   if (user.communityId != null && user.communityId === comm.id) return true
   return userLinkedToCommunity(
@@ -200,15 +201,25 @@ communityBookingsRouter.get('/neighbors', requireAuth, async (req, res) => {
       communityId,
       role: { in: ['resident', 'president'] },
     },
-    select: { id: true, email: true, name: true, piso: true, portal: true, role: true },
-    orderBy: [{ portal: 'asc' }, { piso: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      piso: true,
+      portal: true,
+      puerta: true,
+      role: true,
+    },
+    orderBy: [{ portal: 'asc' }, { piso: 'asc' }, { puerta: 'asc' }, { id: 'asc' }],
   })
 
   res.json({
     neighbors: rows.map((r) => {
       const portal = r.portal?.trim() || ''
       const piso = r.piso?.trim() || ''
-      const unit = portal && piso ? `Portal ${portal} · Piso ${piso}` : portal || piso || '—'
+      const puerta = r.puerta?.trim() || ''
+      const unitCore = portal && piso ? `Portal ${portal} · Piso ${piso}` : portal || piso || ''
+      const unit = puerta ? `${unitCore} · Puerta ${puerta}` : unitCore || '—'
       const mail = r.email?.trim() || ''
       return {
         id: r.id,
@@ -216,6 +227,7 @@ communityBookingsRouter.get('/neighbors', requireAuth, async (req, res) => {
         name: r.name?.trim() || null,
         piso: piso || null,
         portal: portal || null,
+        puerta: puerta || null,
         role: r.role,
         label: mail ? `${unit} · ${mail}` : `${unit}${r.name ? ` · ${r.name}` : ''}`,
       }
