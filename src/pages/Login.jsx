@@ -7,6 +7,7 @@ import { pisoPuertaChoicesForPortal } from '../utils/dwellingPortalChoices.js'
 import DeveloperCredit from '../components/DeveloperCredit'
 import MobileAppDownloadBanner from '../components/MobileAppDownloadBanner'
 import { BRAND_LOGO_PNG } from '../syncBrandFavicon.js'
+import { getSignInPath } from '../utils/signInWebPath'
 import './AuthPages.css'
 
 /** Roles con código VEC (sin super admin — va aparte). */
@@ -145,7 +146,11 @@ function Login() {
           return
         }
         const code = String(data.accessCode).trim().toUpperCase()
-        setCommunity(data.name, { id: data.id, accessCode: code })
+        setCommunity(data.name, {
+          id: data.id,
+          accessCode: code,
+          loginSlug: data.loginSlug ?? loginSlugFromRoute,
+        })
         setVecCode(code)
         setVecError('')
       })
@@ -212,7 +217,11 @@ function Login() {
         setVecError('Respuesta inválida del servidor')
         return
       }
-      setCommunity(data.name, { id: data.id, accessCode: raw.trim().toUpperCase() })
+      setCommunity(data.name, {
+        id: data.id,
+        accessCode: raw.trim().toUpperCase(),
+        loginSlug: data.loginSlug,
+      })
       setVecError('')
     } catch {
       setVecError('No se pudo comprobar el código')
@@ -364,9 +373,13 @@ function Login() {
           setCommunity(data.community.name, {
             id: data.community.id,
             accessCode: acFromServer || vecForLogin || communityAccessCode?.trim().toUpperCase() || '',
+            loginSlug: data.community.loginSlug,
           })
         }
-        applyServerSession(data.accessToken, data.user, { company: data.company })
+        applyServerSession(data.accessToken, data.user, {
+          company: data.company,
+          communityFromLogin: data.community,
+        })
         const serverRole = data.user.role
         if (serverRole === 'president' || serverRole === 'community_admin') {
           navigate(postLoginSlugQuery ? `/community-admin${postLoginSlugQuery}` : '/community-admin', {
@@ -422,7 +435,10 @@ function Login() {
         setError('Respuesta inválida del servidor')
         return
       }
-      applyServerSession(data.accessToken, data.user, { company: data.company })
+      applyServerSession(data.accessToken, data.user, {
+        company: data.company,
+        communityFromLogin: data.community,
+      })
       if (data.community?.name != null && data.community?.id != null) {
         const acFromServer =
           data.community.accessCode != null && String(data.community.accessCode).trim()
@@ -431,6 +447,7 @@ function Login() {
         setCommunity(data.community.name, {
           id: data.community.id,
           accessCode: acFromServer || vecForStaff,
+          loginSlug: data.community.loginSlug,
         })
       }
       const serverRole = data.user.role
@@ -590,7 +607,7 @@ function Login() {
               <p className="auth-error" role="alert">
                 {slugRouteError}. Puedes comprobar el código VEC abajo o{' '}
                 <Link
-                  to="/login"
+                  to={getSignInPath({ forceGeneric: true })}
                   className="auth-link"
                   onClick={() => {
                     setCommunity(null)
@@ -613,7 +630,7 @@ function Login() {
                 <span className="auth-vec-ok-hint auth-vec-ok-hint--block">
                   {' '}
                   <Link
-                    to="/login"
+                    to={getSignInPath({ forceGeneric: true })}
                     className="auth-link"
                     onClick={() => {
                       setCommunity(null)
@@ -909,7 +926,7 @@ function Login() {
                   type="button"
                   className="btn btn--secondary auth-login-super-btn"
                   onClick={() => {
-                    navigate('/login')
+                    navigate(getSignInPath({ forceGeneric: true }))
                     setLoginMode('super_admin')
                     setVecCode('')
                     setVecError('')
@@ -931,7 +948,7 @@ function Login() {
                   className="btn btn--secondary auth-login-super-btn"
                   style={{ marginTop: '0.5rem' }}
                   onClick={() => {
-                    navigate('/login')
+                    navigate(getSignInPath({ forceGeneric: true }))
                     setLoginMode('company_admin')
                     setVecCode('')
                     setVecError('')
@@ -953,7 +970,10 @@ function Login() {
 
             {loginMode === 'community' && (
               <p className="auth-footer auth-footer--login">
-                ¿No tienes cuenta? <Link to="/register" className="auth-link">Crear cuenta</Link>
+                ¿Interesado en Vecindario?{' '}
+                <Link to="/solicitar-oferta" className="auth-link">
+                  Solicitar oferta
+                </Link>
               </p>
             )}
           </div>

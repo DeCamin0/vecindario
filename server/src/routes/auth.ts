@@ -18,6 +18,34 @@ function normEmail(s: string | null | undefined): string | null {
   return t || null
 }
 
+/** Slug de enlace /c/{slug}/login para el cliente (null si no hay). */
+function normLoginSlugOut(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const s = String(raw).trim().toLowerCase()
+  return s || null
+}
+
+type CommunityClientPayload = {
+  id: number
+  name: string
+  accessCode: string
+  loginSlug: string | null
+}
+
+function communityClientFromRow(row: {
+  id: number
+  name: string
+  accessCode?: string | null
+  loginSlug?: string | null
+}): CommunityClientPayload {
+  return {
+    id: row.id,
+    name: row.name,
+    accessCode: (row.accessCode ?? '').trim(),
+    loginSlug: normLoginSlugOut(row.loginSlug),
+  }
+}
+
 /** Login diagnostics: off in production unless DEBUG_VECINDARIO_LOGIN=1. Never logs password or accessCode value. */
 function debugLogin(msg: string, data?: Record<string, unknown>) {
   const on =
@@ -110,7 +138,14 @@ authRouter.post('/login', async (req, res) => {
   if (residentKeyLogin) {
     const comm = await prisma.community.findFirst({
       where: { accessCode, ...communityOperationalWhere() },
-      select: { id: true, name: true, presidentPortal: true, presidentPiso: true },
+      select: {
+        id: true,
+        name: true,
+        presidentPortal: true,
+        presidentPiso: true,
+        accessCode: true,
+        loginSlug: true,
+      },
     })
     if (!comm) {
       debugLogin('reject resident_key: comunidad no encontrada o inactive')
@@ -164,7 +199,7 @@ authRouter.post('/login', async (req, res) => {
     res.json({
       accessToken,
       user: userJsonOut(userOut),
-      community: { id: comm.id, name: comm.name, accessCode },
+      community: communityClientFromRow(comm),
     })
     return
   }
@@ -199,7 +234,7 @@ authRouter.post('/login', async (req, res) => {
     accessCodeInBody: Boolean(accessCode),
   })
 
-  let communityForClient: { id: number; name: string; accessCode: string } | undefined
+  let communityForClient: CommunityClientPayload | undefined
 
   if (user.role === 'community_admin') {
     /* Nunca usar accessCode del body: evita VEC erróneo (clientes viejos, proxies) y errores «debes indicar VEC». */
@@ -212,6 +247,7 @@ authRouter.post('/login', async (req, res) => {
         id: true,
         name: true,
         accessCode: true,
+        loginSlug: true,
         communityAdminEmail: true,
       },
     })
@@ -231,12 +267,7 @@ authRouter.post('/login', async (req, res) => {
     }
     matched.sort((a, b) => a.id - b.id)
     const first = matched[0]!
-    const ac = (first.accessCode ?? '').trim()
-    communityForClient = {
-      id: first.id,
-      name: first.name,
-      accessCode: ac,
-    }
+    communityForClient = communityClientFromRow(first)
     debugLogin('branch community_admin: comunidad elegida (primera por id)', {
       userId: user.id,
       matchedCount: matched.length,
@@ -254,6 +285,7 @@ authRouter.post('/login', async (req, res) => {
           id: true,
           name: true,
           accessCode: true,
+          loginSlug: true,
           presidentEmail: true,
         },
       })
@@ -270,12 +302,7 @@ authRouter.post('/login', async (req, res) => {
       }
       presMatched.sort((a, b) => a.id - b.id)
       const presFirst = presMatched[0]!
-      const presAc = (presFirst.accessCode ?? '').trim()
-      communityForClient = {
-        id: presFirst.id,
-        name: presFirst.name,
-        accessCode: presAc,
-      }
+      communityForClient = communityClientFromRow(presFirst)
       debugLogin('branch president: sin VEC en body, primera comunidad por presidentEmail', {
         userId: user.id,
         communityId: presFirst.id,
@@ -289,6 +316,7 @@ authRouter.post('/login', async (req, res) => {
           name: true,
           status: true,
           accessCode: true,
+          loginSlug: true,
           presidentEmail: true,
         },
       })
@@ -312,11 +340,7 @@ authRouter.post('/login', async (req, res) => {
         return
       }
 
-      communityForClient = {
-        id: comm.id,
-        name: comm.name,
-        accessCode: (comm.accessCode ?? '').trim(),
-      }
+      communityForClient = communityClientFromRow(comm)
       debugLogin('branch president: con VEC en body', { userId: user.id, communityId: comm.id })
     }
   } else if (user.role === 'concierge') {
@@ -340,6 +364,7 @@ authRouter.post('/login', async (req, res) => {
         name: true,
         status: true,
         accessCode: true,
+        loginSlug: true,
         conciergeEmail: true,
       },
     })
@@ -363,11 +388,7 @@ authRouter.post('/login', async (req, res) => {
       return
     }
 
-    communityForClient = {
-      id: comm.id,
-      name: comm.name,
-      accessCode: (comm.accessCode ?? '').trim(),
-    }
+    communityForClient = communityClientFromRow(comm)
     debugLogin('branch concierge: comunidad resuelta por VEC', { userId: user.id, communityId: comm.id })
   } else if (user.role === 'pool_staff') {
     if (!accessCode) {
@@ -386,6 +407,7 @@ authRouter.post('/login', async (req, res) => {
         name: true,
         status: true,
         accessCode: true,
+        loginSlug: true,
         poolStaffEmail: true,
       },
     })
@@ -416,11 +438,7 @@ authRouter.post('/login', async (req, res) => {
       })
     }
 
-    communityForClient = {
-      id: comm.id,
-      name: comm.name,
-      accessCode: (comm.accessCode ?? '').trim(),
-    }
+    communityForClient = communityClientFromRow(comm)
     debugLogin('branch pool_staff: comunidad por VEC', { userId: user.id, communityId: comm.id })
   } else if (user.role === 'company_admin') {
     const cid = user.companyAdminCompanyId
@@ -696,7 +714,19 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     })
     return
   }
-  res.json(base)
+
+  let communityForMe: CommunityClientPayload | undefined
+  if (user.communityId != null) {
+    const commRow = await prisma.community.findUnique({
+      where: { id: user.communityId },
+      select: { id: true, name: true, accessCode: true, loginSlug: true },
+    })
+    if (commRow) {
+      communityForMe = communityClientFromRow(commRow)
+    }
+  }
+
+  res.json(communityForMe ? { ...base, community: communityForMe } : base)
 })
 
 /**

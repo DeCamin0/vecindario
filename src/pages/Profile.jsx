@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { APP_VERSION } from '../config/version'
+import { getSignInPath } from '../utils/signInWebPath'
 import './Profile.css'
 
 const menuItems = [
@@ -23,7 +24,7 @@ export default function Profile() {
 
   const handleLogout = () => {
     logout()
-    navigate('/login', { replace: true })
+    navigate(getSignInPath(), { replace: true })
   }
 
   return (

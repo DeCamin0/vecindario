@@ -195,15 +195,15 @@ companyCommunitiesRouter.post('/', async (req, res) => {
   const appNavPoolAccessEnabled = parseBool(body?.appNavPoolAccessEnabled, false)
   const padelCourtCount = parsePadelCourtCount(body?.padelCourtCount)
   const customLocations = parseCustomLocations(body?.customLocations)
-  let padelMaxHoursPerBooking = parsePadelHoursField(body?.padelMaxHoursPerBooking, 2)
+  const padelMaxHoursPerBooking = parsePadelHoursField(body?.padelMaxHoursPerBooking, 2)
   let padelMaxHoursPerApartmentPerDay = parsePadelHoursField(body?.padelMaxHoursPerApartmentPerDay, 4)
   if (padelMaxHoursPerApartmentPerDay < padelMaxHoursPerBooking) {
     padelMaxHoursPerApartmentPerDay = padelMaxHoursPerBooking
   }
   const padelMinAdvanceHours = parsePadelMinAdvanceHours(body?.padelMinAdvanceHours, 24)
   const salonBookingMode = parseSalonBookingMode(body?.salonBookingMode, 'slots')
-  let padelOpenTime = parsePadelWallClock(body?.padelOpenTime, '08:00')
-  let padelCloseTime = parsePadelWallClock(body?.padelCloseTime, '22:00')
+  const padelOpenTime = parsePadelWallClock(body?.padelOpenTime, '08:00')
+  const padelCloseTime = parsePadelWallClock(body?.padelCloseTime, '22:00')
   const openM = padelHHMMToMinutes(padelOpenTime)
   const closeM = padelHHMMToMinutes(padelCloseTime)
   if (openM !== null && closeM !== null && openM >= closeM) {

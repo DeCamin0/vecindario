@@ -284,7 +284,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   const appNavPoolAccessEnabled = parseBool(req.body?.appNavPoolAccessEnabled, false)
   const padelCourtCount = parsePadelCourtCount(req.body?.padelCourtCount)
   const customLocations = parseCustomLocations(req.body?.customLocations)
-  let padelMaxHoursPerBooking = parsePadelHoursField(req.body?.padelMaxHoursPerBooking, 2)
+  const padelMaxHoursPerBooking = parsePadelHoursField(req.body?.padelMaxHoursPerBooking, 2)
   let padelMaxHoursPerApartmentPerDay = parsePadelHoursField(
     req.body?.padelMaxHoursPerApartmentPerDay,
     4,
@@ -295,8 +295,8 @@ adminCommunitiesRouter.post('/', async (req, res) => {
 
   const padelMinAdvanceHours = parsePadelMinAdvanceHours(req.body?.padelMinAdvanceHours, 24)
   const salonBookingMode = parseSalonBookingMode(req.body?.salonBookingMode, 'slots')
-  let padelOpenTime = parsePadelWallClock(req.body?.padelOpenTime, '08:00')
-  let padelCloseTime = parsePadelWallClock(req.body?.padelCloseTime, '22:00')
+  const padelOpenTime = parsePadelWallClock(req.body?.padelOpenTime, '08:00')
+  const padelCloseTime = parsePadelWallClock(req.body?.padelCloseTime, '22:00')
   const openM = padelHHMMToMinutes(padelOpenTime)
   const closeM = padelHHMMToMinutes(padelCloseTime)
   if (openM !== null && closeM !== null && openM >= closeM) {

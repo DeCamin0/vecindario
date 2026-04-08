@@ -4,6 +4,7 @@ import { useAuth, roleRequiresPiso, hasResidentHomeComplete } from '../context/A
 import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js'
 import DeveloperCredit from '../components/DeveloperCredit'
 import MobileAppDownloadBanner from '../components/MobileAppDownloadBanner'
+import { getSignInPath } from '../utils/signInWebPath'
 import './AuthPages.css'
 
 export default function CompletePiso() {
@@ -48,7 +49,7 @@ export default function CompletePiso() {
   if (!authReady) return null
 
   if (!accessToken) {
-    return <Navigate to="/login" replace />
+    return <Navigate to={getSignInPath()} replace />
   }
   if (!roleRequiresPiso(userRole)) {
     return <Navigate to="/" replace />
@@ -167,7 +168,7 @@ export default function CompletePiso() {
             Cerrar sesión
           </button>
           {' · '}
-          <Link to="/login" className="auth-link">
+          <Link to={getSignInPath()} className="auth-link">
             Volver al login
           </Link>
         </p>

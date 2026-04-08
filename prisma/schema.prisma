@@ -425,3 +425,31 @@ model VecindarioWebPushSubscription {
   @@index([userId], map: "vwps_user_idx")
   @@map("vecindario_web_push_subscriptions")
 }
+
+/// Solicitud de oferta comercial (sustituye el registro libre de vecino sin flujo de comunidad).
+model VecindarioQuoteRequest {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  contactName  String  @map("contact_name") @db.VarChar(255)
+  contactEmail String  @map("contact_email") @db.VarChar(255)
+  contactPhone String? @map("contact_phone") @db.VarChar(64)
+
+  communityName    String  @map("community_name") @db.VarChar(255)
+  communityAddress String? @map("community_address") @db.VarChar(512)
+  /// Aprox. viviendas / puertas (texto libre).
+  dwellingApprox String? @map("dwelling_approx") @db.VarChar(64)
+  message        String? @db.Text
+
+  wantServices   Boolean @default(true) @map("want_services")
+  wantIncidents  Boolean @default(true) @map("want_incidents")
+  wantBookings   Boolean @default(true) @map("want_bookings")
+  wantPoolAccess Boolean @default(false) @map("want_pool_access")
+
+  /// new | reviewed | contacted | closed
+  status String @default("new") @db.VarChar(32)
+
+  @@index([createdAt], map: "vqr_created_idx")
+  @@map("vecindario_quote_requests")
+}

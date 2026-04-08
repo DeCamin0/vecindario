@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { SERVICE_STATUS_LABELS } from '../constants/serviceRequests.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
+import { getSignInPath } from '../utils/signInWebPath'
 import './Activity.css'
 
 const STATUS_LABELS = {
@@ -204,7 +205,7 @@ export default function Activity() {
             {!accessToken || communityId == null ? (
               <div className="activity-empty card">
                 <p className="activity-empty-text">Inicia sesión para ver tus solicitudes.</p>
-                <Link to="/login" className="activity-empty-cta btn btn--primary">
+                <Link to={getSignInPath()} className="activity-empty-cta btn btn--primary">
                   Ir a iniciar sesión
                 </Link>
               </div>
@@ -261,7 +262,7 @@ export default function Activity() {
                   <span className="activity-empty-icon">⚠️</span>
                 </div>
                 <p className="activity-empty-text">Inicia sesión para ver tus incidencias.</p>
-                <Link to="/login" className="activity-empty-cta btn btn--primary">
+                <Link to={getSignInPath()} className="activity-empty-cta btn btn--primary">
                   Ir a iniciar sesión
                 </Link>
               </div>
@@ -323,7 +324,7 @@ export default function Activity() {
                   <span className="activity-empty-icon">📅</span>
                 </div>
                 <p className="activity-empty-text">Inicia sesión con tu comunidad para ver tu historial de reservas.</p>
-                <Link to="/login" className="activity-empty-cta btn btn--primary">
+                <Link to={getSignInPath()} className="activity-empty-cta btn btn--primary">
                   Ir a iniciar sesión
                 </Link>
               </div>

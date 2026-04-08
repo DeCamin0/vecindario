@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "lint": "cd .. && npx eslint server",
     "dev": "tsx watch src/index.ts",
     "server:dev": "tsx watch src/index.ts",
     "build": "tsc",

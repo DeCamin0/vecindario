@@ -4,7 +4,8 @@ import { NotificationsProvider } from './context/NotificationsContext'
 import { ActivityProvider } from './context/ActivityContext'
 import AppLayout from './layouts/AppLayout'
 import Login from './pages/Login'
-import Register from './pages/Register'
+import QuoteRequestPage from './pages/QuoteRequestPage'
+import AdminQuoteRequests from './pages/AdminQuoteRequests'
 import Home from './pages/Home'
 import ServicesListPage from './pages/services/ServicesListPage'
 import ServiceRequestNewPage from './pages/services/ServiceRequestNewPage'
@@ -23,7 +24,9 @@ import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
 import CompletePiso from './pages/CompletePiso'
 import OpenAppLanding from './pages/OpenAppLanding'
+import AppBootstrap from './bootstrap/AppBootstrap'
 import PWAUpdateBanner from './components/PWAUpdateBanner'
+import { getSignInPath } from './utils/signInWebPath'
 import PoolAccessPage from './pages/PoolAccessPage'
 import PoolSelfCheckinPage from './pages/PoolSelfCheckinPage'
 import PoolValidatePage from './pages/PoolValidatePage'
@@ -41,11 +44,13 @@ function App() {
         {/* Registro SW en todas las rutas (/admin, /login, …), no solo dentro de AppLayout */}
         <PWAUpdateBanner />
         <Routes>
-          <Route path="/access" element={<Navigate to="/login" replace />} />
+          <Route path="/app" element={<AppBootstrap />} />
+          <Route path="/access" element={<Navigate to={getSignInPath()} replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/c/:loginSlug/login" element={<Login />} />
           <Route path="/open-app" element={<OpenAppLanding />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/solicitar-oferta" element={<QuoteRequestPage />} />
+          <Route path="/register" element={<Navigate to="/solicitar-oferta" replace />} />
           <Route path="/completar-piso" element={<CompletePiso />} />
           <Route path="/admin" element={<RequireRole role="super_admin"><Admin /></RequireRole>} />
           <Route
@@ -61,6 +66,14 @@ function App() {
             element={
               <RequireRole role="super_admin">
                 <AdminServices />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/admin/solicitudes-oferta"
+            element={
+              <RequireRole role="super_admin">
+                <AdminQuoteRequests />
               </RequireRole>
             }
           />

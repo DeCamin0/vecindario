@@ -31,7 +31,13 @@ export default function ManagedCommunitySwitcher({ className = '' }) {
       onChange={(e) => {
         const id = Number(e.target.value)
         const c = managedCommunities.find((x) => x.id === id)
-        if (c) setCommunity(c.name, { id: c.id, accessCode: c.accessCode || '' })
+        if (c) {
+          setCommunity(c.name, {
+            id: c.id,
+            accessCode: c.accessCode || '',
+            loginSlug: c.loginSlug,
+          })
+        }
       }}
     >
       {managedCommunities.map((c) => (

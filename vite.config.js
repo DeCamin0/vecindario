@@ -38,7 +38,7 @@ export default defineConfig({
         name: 'Vecindario',
         short_name: 'Vecindario',
         description: 'Community services, incidents and bookings',
-        start_url: '/',
+        start_url: '/app',
         scope: '/',
         display: 'standalone',
         background_color: '#e8edf5',

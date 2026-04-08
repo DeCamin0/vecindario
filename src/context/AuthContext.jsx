@@ -1,6 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { apiUrl } from '../config/api.js'
+import {
+  LAST_LOGIN_SLUG_STORAGE_KEY,
+  clearLastLoginSlug,
+  setLastLoginSlug,
+} from '../utils/lastLoginSlug.js'
 
 const COMMUNITY_STORAGE_KEY = 'vecindario-community'
 const COMMUNITY_ID_KEY = 'vecindario-community-id'
@@ -28,6 +33,14 @@ const VALID_ROLES = [
 const STAFF_MANAGED_COMMUNITY_ROLES = new Set(['community_admin', 'concierge', 'president'])
 
 const DEFAULT_APP_NAV_FLAGS = { services: true, incidents: true, bookings: true, poolAccess: false }
+
+/** loginSlug del API (login / me) → storage para PWA y getSignInPath. */
+function syncLoginSlugFromServerCommunity(community) {
+  if (!community || typeof community !== 'object') return
+  const raw = community.loginSlug
+  const s = raw != null && String(raw).trim() ? String(raw).trim().toLowerCase() : ''
+  if (s) setLastLoginSlug(s)
+}
 
 function shouldDeferStorageReads() {
   try {
@@ -72,6 +85,7 @@ const AUTH_PERSISTENCE_KEYS = [
   COMMUNITY_ACCESS_CODE_KEY,
   USER_ROLE_KEY,
   ACCESS_TOKEN_KEY,
+  LAST_LOGIN_SLUG_STORAGE_KEY,
 ]
 
 function clearIsolatedTabSession() {
@@ -426,6 +440,11 @@ export function AuthProvider({ children }) {
           })
           setUserRoleState(data.role)
           saveUserRole(data.role)
+          if (data.role === 'super_admin' || data.role === 'company_admin') {
+            clearLastLoginSlug()
+          } else {
+            syncLoginSlugFromServerCommunity(data.community)
+          }
         })
 
     /**
@@ -565,7 +584,7 @@ export function AuthProvider({ children }) {
 
   /**
    * @param {string | null | undefined} name
-   * @param {{ id?: number | null, accessCode?: string | null }} [opts] — API VEC / login con código
+   * @param {{ id?: number | null, accessCode?: string | null, loginSlug?: string | null }} [opts] — API VEC / login / selector
    */
   const setCommunity = useCallback((name, opts) => {
     const value = name?.trim() || null
@@ -576,6 +595,7 @@ export function AuthProvider({ children }) {
       saveCommunityId(null)
       setCommunityAccessCodeState(null)
       saveCommunityAccessCode(null)
+      clearLastLoginSlug()
       return
     }
     if (opts && opts.id != null) {
@@ -596,6 +616,9 @@ export function AuthProvider({ children }) {
         saveCommunityAccessCode(null)
       }
     }
+    if (opts && opts.loginSlug != null && String(opts.loginSlug).trim()) {
+      setLastLoginSlug(String(opts.loginSlug).trim().toLowerCase())
+    }
   }, [])
 
   /** Si el id guardado ya no está entre las comunidades gestionadas, alinear al primer resultado. */
@@ -604,13 +627,17 @@ export function AuthProvider({ children }) {
     const ok = communityId != null && managedCommunities.some((c) => c.id === communityId)
     if (ok) return
     const first = managedCommunities[0]
-    setCommunity(first.name, { id: first.id, accessCode: first.accessCode || '' })
+    setCommunity(first.name, {
+      id: first.id,
+      accessCode: first.accessCode || '',
+      loginSlug: first.loginSlug,
+    })
   }, [managedCommunities, communityId, setCommunity])
 
   /**
    * @param {string} token
    * @param {{ id: number, email: string, name?: string | null, role: string, piso?: string | null, portal?: string | null }} userPayload
-   * @param {{ piso?: string, portal?: string, company?: { id: number, name: string } }} [opts]
+   * @param {{ piso?: string, portal?: string, company?: { id: number, name: string }, communityFromLogin?: { loginSlug?: string | null } }} [opts]
    */
   const applyServerSession = useCallback((token, userPayload, opts) => {
     if (!VALID_ROLES.includes(userPayload.role)) return
@@ -679,6 +706,11 @@ export function AuthProvider({ children }) {
     })
     setUserRoleState(userPayload.role)
     saveUserRole(userPayload.role)
+    if (userPayload.role === 'super_admin' || userPayload.role === 'company_admin') {
+      clearLastLoginSlug()
+    } else {
+      syncLoginSlugFromServerCommunity(opts?.communityFromLogin)
+    }
   }, [])
 
   /** PATCH /me: envía solo las claves que quieras actualizar (piso y/o portal, no vacíos). */

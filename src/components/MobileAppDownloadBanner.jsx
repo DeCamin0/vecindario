@@ -6,7 +6,7 @@ import {
   isProbablyStandalonePWA,
 } from '../utils/devicePlatform'
 import { getPreferredStoreUrl } from '../config/mobileAppStores'
-import { buildOpenInNativeAppHrefFromWindow } from '../utils/nativeAppOpen'
+import { resolveNativeOpenHref } from '../utils/resolveNativeOpenHref'
 import './MobileAppDownloadBanner.css'
 
 const DISMISS_KEY = 'vecindario-mobile-app-banner-dismiss'
@@ -24,7 +24,7 @@ export default function MobileAppDownloadBanner() {
   })
 
   const openInAppHref =
-    typeof window !== 'undefined' ? buildOpenInNativeAppHrefFromWindow(window) : '#'
+    typeof window !== 'undefined' ? resolveNativeOpenHref({ win: window }) : '#'
 
   if (!show) return null
 

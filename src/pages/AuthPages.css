@@ -1,4 +1,4 @@
-/* Shared layout for Login, Register */
+/* Shared layout for Login, quote request, etc. */
 
 .auth-screen {
   min-height: 100vh;
@@ -994,4 +994,53 @@
   .auth-screen--login .auth-login-super-hint {
     color: #64748b;
   }
+}
+
+/* Solicitar oferta (QuoteRequestPage) */
+.auth-card--quote-request {
+  max-width: 520px;
+}
+
+.auth-section-title {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.auth-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.auth-hint--tight {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.auth-check-row {
+  margin-bottom: var(--space-2);
+}
+
+.auth-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  cursor: pointer;
+  color: var(--text-heading);
+}
+
+.auth-check input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--color-primary);
+}
+
+.auth-textarea {
+  resize: vertical;
+  min-height: 5rem;
+  font-family: inherit;
 }

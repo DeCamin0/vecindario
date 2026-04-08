@@ -10,6 +10,7 @@ import {
 } from '../utils/dwellingPortalChoices.js'
 import './Admin.css'
 import './CommunityAdmin.css'
+import { getSignInPath } from '../utils/signInWebPath.js'
 
 const JUNTA_OPTIONS = [
   { value: 'none', label: 'Sin cargo' },
@@ -467,7 +468,7 @@ export default function CommunityResidents() {
   }
 
   if (!accessToken) {
-    navigate('/login', { replace: true })
+    navigate(getSignInPath(), { replace: true })
     return null
   }
 

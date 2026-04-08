@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { handlePublicQuoteRequestPost } from './quote-request-public.js'
 import { normalizeLoginSlugInput } from '../lib/login-slug.js'
 import { communityPortalSelectOptions } from '../lib/portal-labels.js'
 import { buildDwellingByPortalIndex } from '../lib/portal-dwelling-config.js'
@@ -91,7 +92,7 @@ publicCommunitiesRouter.get('/community-by-code', async (req, res) => {
 
   const row = await prisma.community.findFirst({
     where: { accessCode: code },
-    select: { id: true, name: true, status: true },
+    select: { id: true, name: true, status: true, loginSlug: true },
   })
 
   if (!row || !isCommunityOperationalStatus(row.status)) {
@@ -99,7 +100,12 @@ publicCommunitiesRouter.get('/community-by-code', async (req, res) => {
     return
   }
 
-  res.json({ id: row.id, name: row.name, status: row.status })
+  res.json({
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    loginSlug: row.loginSlug?.trim() ? row.loginSlug.trim().toLowerCase() : null,
+  })
 })
 
 /** Resolución por slug de acceso: /c/{slug}/login — devuelve VEC para portal y login existentes. */
@@ -205,3 +211,5 @@ publicCommunitiesRouter.get('/community-bookings', async (req, res) => {
     })),
   )
 })
+
+publicCommunitiesRouter.post('/quote-request', handlePublicQuoteRequestPost)

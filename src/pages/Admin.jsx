@@ -1285,6 +1285,9 @@ export default function Admin() {
           </div>
           <div className="admin-dashboard-header-actions">
             <span className="admin-badge" aria-label="Super administrador">Super administrador</span>
+            <Link to="/admin/solicitudes-oferta" className="btn btn--ghost">
+              Solicitudes de oferta
+            </Link>
             <Link to="/admin/services" className="btn btn--ghost">
               Solicitudes de servicio
             </Link>

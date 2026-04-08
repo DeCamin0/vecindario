@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getSignInPath } from '../utils/signInWebPath'
 
 /**
  * Renders children only if the current user has one of the required roles.
@@ -21,7 +22,12 @@ export default function RequireRole({ role, children }) {
     (Array.isArray(role) &&
       (role.includes('super_admin') || role.includes('company_admin')))
   if (needsJwt && !accessToken) {
-    return <Navigate to="/login" replace />
+    return (
+      <Navigate
+        to={getSignInPath({ forceGeneric: true })}
+        replace
+      />
+    )
   }
 
   return children

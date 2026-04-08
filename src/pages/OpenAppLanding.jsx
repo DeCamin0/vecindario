@@ -1,11 +1,11 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMemo } from 'react'
-import { getPublicAppOrigin } from '../utils/communityLoginUrl'
-import { buildAndroidIntentOpenUrl } from '../utils/nativeAppOpen'
 import {
   getStorePlatform,
   isMobileUserAgent,
 } from '../utils/devicePlatform'
+import { resolveNativeOpenHref } from '../utils/resolveNativeOpenHref'
+import { getSignInPath } from '../utils/signInWebPath'
 import { getAndroidStoreUrl, getIosStoreUrl } from '../config/mobileAppStores'
 import DeveloperCredit from '../components/DeveloperCredit'
 import { BRAND_LOGO_PNG } from '../syncBrandFavicon.js'
@@ -14,22 +14,7 @@ import './OpenAppLanding.css'
 function webLoginPath(slug) {
   const s = String(slug || '').trim().toLowerCase()
   if (s) return `/c/${encodeURIComponent(s)}/login`
-  return '/login'
-}
-
-function nativeAppDeepLink(slug) {
-  const s = String(slug || '').trim().toLowerCase()
-  if (s) return `vecindario://c/${encodeURIComponent(s)}/login`
-  return 'vecindario://open'
-}
-
-function absoluteWebLoginUrl(slug) {
-  const s = String(slug || '').trim().toLowerCase()
-  const base = import.meta.env.BASE_URL || '/'
-  const root = base.endsWith('/') ? base.slice(0, -1) : base
-  const path = s ? `${root}/c/${encodeURIComponent(s)}/login` : `${root}/login`
-  const o = getPublicAppOrigin()
-  return o ? `${o}${path}` : path
+  return getSignInPath()
 }
 
 /**
@@ -50,16 +35,33 @@ export default function OpenAppLanding() {
   const isMobile = typeof window !== 'undefined' && isMobileUserAgent()
 
   const webPath = webLoginPath(slug)
-  const appSchemeHref = nativeAppDeepLink(slug)
-  const universalHttps = absoluteWebLoginUrl(slug)
+
+  const universalHttps = useMemo(() => {
+    if (typeof window === 'undefined') return ''
+    return resolveNativeOpenHref({
+      slug: slug || undefined,
+      mode: 'https',
+      win: window,
+    })
+  }, [slug])
+
   const androidIntentHref = useMemo(() => {
-    try {
-      const u = new URL(universalHttps)
-      return buildAndroidIntentOpenUrl(u.origin, u.pathname, u.search || '')
-    } catch {
-      return '#'
-    }
-  }, [universalHttps])
+    if (typeof window === 'undefined') return '#'
+    return resolveNativeOpenHref({
+      slug: slug || undefined,
+      mode: 'recommended',
+      win: window,
+    })
+  }, [slug])
+
+  const appSchemeHref = useMemo(() => {
+    if (typeof window === 'undefined') return '#'
+    return resolveNativeOpenHref({
+      slug: slug || undefined,
+      mode: 'scheme',
+      win: window,
+    })
+  }, [slug])
 
   return (
     <div className="open-app-page">
@@ -100,7 +102,7 @@ export default function OpenAppLanding() {
               </a>
             ) : null}
             {isMobile && platform === 'ios' ? (
-              <a className="btn btn--primary btn--block" href={appSchemeHref}>
+              <a className="btn btn--primary btn--block" href={universalHttps}>
                 Abrir en la app (iOS)
               </a>
             ) : null}
@@ -145,7 +147,7 @@ export default function OpenAppLanding() {
           </div>
 
           <p className="open-app-card__foot">
-            <Link to="/login" className="auth-link">
+            <Link to={getSignInPath({ forceGeneric: true })} className="auth-link">
               Volver al acceso general
             </Link>
           </p>

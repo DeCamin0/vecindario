@@ -12,6 +12,7 @@ import {
 import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
 import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
 import { buildCompanyCommunityCreateBody } from '../utils/companyCommunityCreateBody.js'
+import { getSignInPath } from '../utils/signInWebPath.js'
 import './Admin.css'
 
 function statusBadge(status) {
@@ -180,7 +181,7 @@ export default function CompanyAdminDashboard() {
               className="btn btn--ghost"
               onClick={() => {
                 logout()
-                navigate('/login', { replace: true })
+                navigate(getSignInPath({ forceGeneric: true }), { replace: true })
               }}
             >
               Cerrar sesión

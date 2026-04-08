@@ -20,6 +20,7 @@ import { requireSuperAdmin } from './middleware/require-super-admin.js'
 import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
 import { poolAccessRouter } from './routes/pool-access.js'
+import { adminQuoteRequestsRouter } from './routes/quote-requests-admin.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
@@ -54,6 +55,7 @@ app.use('/api/community', communityResidentsRouter)
 app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireSuperAdmin, adminCommunitiesRouter)
 app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)
+app.use('/api/admin/quote-requests', ...requireSuperAdmin, adminQuoteRequestsRouter)
 app.use('/api/company/communities', ...requireCompanyAdmin, companyCommunitiesRouter)
 
 const port = Number(process.env.PORT || 4001)

@@ -1,12 +1,55 @@
 /**
  * Enlaces para abrir la app nativa desde la PWA (sin “detección mágica” del navegador).
  * - Android: URL intent (Chrome) fuerza el paquete y hace fallback a HTTPS si no hay app.
- * - iOS: esquema custom vecindario:// (Universal Links requieren toque en contexto externo).
+ * - iOS: sin app en App Store, vecindario:// rompe Safari (“dirección no válida”). Usamos HTTPS
+ *   de la página actual; cuando exista app iOS con Universal Links, el mismo enlace puede abrirla.
  */
-import { getPublicAppOrigin } from './communityLoginUrl'
-import { getStorePlatform } from './devicePlatform'
 
 export const VECINDARIO_ANDROID_PACKAGE = 'com.decamino.vecindario'
+
+/** Quitar BASE_URL de Vite (ej. /vecindario) para comparar rutas lógicas. */
+export function stripAppBasePath(pathname) {
+  const base =
+    typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL
+      ? String(import.meta.env.BASE_URL)
+      : '/'
+  const root = base === '/' ? '' : base.replace(/\/$/, '')
+  const p = pathname.startsWith('/') ? pathname : `/${pathname}`
+  if (!root) return p
+  if (p === root) return '/'
+  if (p.startsWith(`${root}/`)) {
+    const rest = p.slice(root.length)
+    return rest.startsWith('/') ? rest : `/${rest}`
+  }
+  return p
+}
+
+/**
+ * El manifest Android solo declara App Links para /c/… y /pool-self-checkin.
+ * Para /login, /open-app, /, etc., un intent https no coincide con ninguna activity
+ * y Chrome usa browser_fallback_url → parece “recarga”. Ahí usamos scheme vecindario://.
+ */
+function androidPathUsesHttpsAppLink(strippedPathname, search = '') {
+  const pq = `${strippedPathname || ''}${search || ''}`
+  if (strippedPathname.startsWith('/c/')) return true
+  if (pq.includes('pool-self-checkin')) return true
+  return false
+}
+
+/**
+ * intent://…#Intent;scheme=vecindario;… → abre la app Expo (scheme fijo en app.config).
+ */
+function buildAndroidIntentFromVecindarioScheme(vecindarioHref, httpsFallbackFull) {
+  const fallback = encodeURIComponent(httpsFallbackFull)
+  try {
+    const u = new URL(vecindarioHref)
+    if (u.protocol !== 'vecindario:') return '#'
+    const auth = `${u.hostname}${u.pathname || ''}${u.search || ''}`
+    return `intent://${auth}#Intent;scheme=vecindario;package=${VECINDARIO_ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`
+  } catch {
+    return '#'
+  }
+}
 
 /**
  * @param {string} originHttps - ej. https://vecindario.decaminoservicios.com
@@ -25,9 +68,16 @@ export function buildAndroidIntentOpenUrl(originHttps, pathname, search = '') {
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`
   const pathQuery = `${path}${search || ''}`
   const fullHttps = `${base}${pathQuery}`
-  const intentAuthority = `${host}${pathQuery}`
   const fallback = encodeURIComponent(fullHttps)
-  return `intent://${intentAuthority}#Intent;scheme=https;package=${VECINDARIO_ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`
+  const stripped = stripAppBasePath(path)
+
+  if (androidPathUsesHttpsAppLink(stripped, search)) {
+    const intentAuthority = `${host}${pathQuery}`
+    return `intent://${intentAuthority}#Intent;scheme=https;package=${VECINDARIO_ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`
+  }
+
+  const schemeHref = buildVecindarioSchemeHref(stripped, search)
+  return buildAndroidIntentFromVecindarioScheme(schemeHref, fullHttps)
 }
 
 /**
@@ -47,22 +97,4 @@ export function buildVecindarioSchemeHref(pathname, search = '') {
   }
   if (pq.startsWith('/login')) return 'vecindario://login'
   return 'vecindario://open'
-}
-
-/**
- * href recomendado para “Abrir en la app” en móvil (desde la URL actual).
- */
-export function buildOpenInNativeAppHrefFromWindow(w = typeof window !== 'undefined' ? window : null) {
-  if (!w?.location) return '#'
-  const origin = getPublicAppOrigin() || w.location.origin
-  const pathname = w.location.pathname
-  const search = w.location.search || ''
-  const platform = getStorePlatform()
-  if (platform === 'android') {
-    return buildAndroidIntentOpenUrl(origin, pathname, search)
-  }
-  if (platform === 'ios') {
-    return buildVecindarioSchemeHref(pathname, search)
-  }
-  return `${origin}${pathname}${search}`
 }

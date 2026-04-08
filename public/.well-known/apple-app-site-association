@@ -8,7 +8,7 @@
           "/c/*/login",
           "/c/*",
           "/login",
-          "/register",
+          "/solicitar-oferta",
           "/open-app",
           "/open-app/*",
           "/pool-self-checkin",

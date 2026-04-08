@@ -1,1 +1,15 @@
 /* Global app styles (add as needed) */
+
+.app-bootstrap-loading {
+  min-height: 40vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  color: var(--color-muted, #64748b);
+  font-size: 0.95rem;
+}
+
+.app-bootstrap-loading__text {
+  margin: 0;
+}
