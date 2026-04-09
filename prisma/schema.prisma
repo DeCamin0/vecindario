@@ -149,6 +149,8 @@ model Community {
   customLocations  Json    @default("[]") @map("custom_locations")
   /// App vecinos: mostrar pestaña Servicios (solicitudes).
   appNavServicesEnabled  Boolean @default(true) @map("app_nav_services_enabled")
+  /// Por categoría (plumber, electrician, …): "active" o "soon" en JSON; {} = todas disponibles.
+  serviceRequestCategoryModesJson Json @default("{}") @map("service_request_category_modes_json")
   /// App vecinos: pestaña Incidencias.
   appNavIncidentsEnabled Boolean @default(true) @map("app_nav_incidents_enabled")
   /// App vecinos: pestaña Reservas.
@@ -338,8 +340,10 @@ model CommunityServiceRequest {
   requester        VecindarioUser @relation("ServiceRequestRequester", fields: [requesterUserId], references: [id], onDelete: Restrict)
   categoryId       String         @map("category_id") @db.VarChar(64)
   categoryLabel    String         @map("category_label") @db.VarChar(128)
-  /// Ej. cleaning_general — solo si categoryId = cleaning.
+  /// Ej. cleaning_general, plumber_leak_repair, renovation_kitchen… según categoryId.
   serviceSubtype   String?        @map("service_subtype") @db.VarChar(64)
+  /// Solo relevante si categoryId = renovation (vecino marca si hace falta visita).
+  needsTechnicalVisit Boolean     @default(false) @map("needs_technical_visit")
   description      String         @db.Text
   preferredDate    DateTime?      @map("preferred_date") @db.Date
   /// JSON: [{ "mime": "image/jpeg", "base64": "..." }, …] — misma idea que incidencias.

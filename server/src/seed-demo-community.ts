@@ -247,7 +247,14 @@ async function main() {
       description:
         'Solicitud de ejemplo: limpieza puntual del portal y escalera (datos ficticios).',
       preferredDate: bookingDate,
-      photosJson: [],
+      needsTechnicalVisit: false,
+      photosJson: [
+        {
+          mime: 'image/png',
+          base64:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        },
+      ],
       status: 'price_sent',
       priceAmount: new Prisma.Decimal('120.00'),
       priceAmountMax: new Prisma.Decimal('180.00'),

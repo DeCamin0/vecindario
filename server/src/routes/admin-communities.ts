@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { Router } from 'express'
+import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma.js'
 import { generateUniqueAccessCode } from '../lib/access-code.js'
@@ -49,6 +50,7 @@ import {
   parseResidentSlots,
   parseSalonBookingMode,
 } from '../lib/community-create-parsers.js'
+import { parseServiceRequestCategoryModesBody } from '../lib/service-request-category-modes.js'
 
 const ALLOWED_STATUS = new Set(['active', 'inactive', 'demo', 'pending_approval'])
 
@@ -282,6 +284,17 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   const appNavIncidentsEnabled = parseBool(req.body?.appNavIncidentsEnabled, true)
   const appNavBookingsEnabled = parseBool(req.body?.appNavBookingsEnabled, true)
   const appNavPoolAccessEnabled = parseBool(req.body?.appNavPoolAccessEnabled, false)
+  let serviceRequestCategoryModesJson: Prisma.InputJsonValue = {}
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'serviceRequestCategoryModes')) {
+    const pm = parseServiceRequestCategoryModesBody(
+      (req.body as Record<string, unknown>).serviceRequestCategoryModes,
+    )
+    if (!pm.ok) {
+      res.status(400).json({ error: pm.error })
+      return
+    }
+    serviceRequestCategoryModesJson = pm.value
+  }
   const padelCourtCount = parsePadelCourtCount(req.body?.padelCourtCount)
   const customLocations = parseCustomLocations(req.body?.customLocations)
   const padelMaxHoursPerBooking = parsePadelHoursField(req.body?.padelMaxHoursPerBooking, 2)
@@ -337,6 +350,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       appNavIncidentsEnabled,
       appNavBookingsEnabled,
       appNavPoolAccessEnabled,
+      serviceRequestCategoryModesJson,
       padelCourtCount,
       padelMaxHoursPerBooking,
       padelMaxHoursPerApartmentPerDay,
@@ -827,6 +841,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     appNavIncidentsEnabled?: boolean
     appNavBookingsEnabled?: boolean
     appNavPoolAccessEnabled?: boolean
+    serviceRequestCategoryModesJson?: Prisma.InputJsonValue
     padelCourtCount?: number
     padelMaxHoursPerBooking?: number
     padelMaxHoursPerApartmentPerDay?: number
@@ -1140,6 +1155,16 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
   if ('appNavPoolAccessEnabled' in req.body) {
     data.appNavPoolAccessEnabled = parseBool(req.body.appNavPoolAccessEnabled, false)
+  }
+  if ('serviceRequestCategoryModes' in req.body) {
+    const pm = parseServiceRequestCategoryModesBody(
+      (req.body as Record<string, unknown>).serviceRequestCategoryModes,
+    )
+    if (!pm.ok) {
+      res.status(400).json({ error: pm.error })
+      return
+    }
+    data.serviceRequestCategoryModesJson = pm.value
   }
   if ('padelCourtCount' in req.body) {
     data.padelCourtCount = parsePadelCourtCount(req.body.padelCourtCount)

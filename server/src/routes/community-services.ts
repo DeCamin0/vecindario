@@ -10,6 +10,10 @@ import {
   userMayPostServiceQuoteMessage,
 } from '../lib/community-services-access.js'
 import { serviceNotifications, logNotifyErr } from '../lib/service-notifications.js'
+import {
+  isServiceCategorySelectable,
+  normalizeServiceCategoryModes,
+} from '../lib/service-request-category-modes.js'
 
 export const communityServicesRouter = Router()
 
@@ -39,15 +43,40 @@ const CLEANING_SUBTYPE_LABELS: Record<string, string> = {
   cleaning_one_off: 'Limpieza puntual',
 }
 
+const PLUMBER_SUBTYPE_LABELS: Record<string, string> = {
+  plumber_leak_repair: 'Reparación de fugas',
+  plumber_unblock: 'Desatascos',
+  plumber_tap_install: 'Instalación de grifos',
+  plumber_toilet_install: 'Instalación de sanitarios',
+  plumber_pressure: 'Problemas de presión',
+  plumber_cistern: 'Reparación de cisterna',
+  plumber_urgent: 'Averías urgentes',
+}
+
+const RENOVATION_SUBTYPE_LABELS: Record<string, string> = {
+  renovation_full_home: 'Reforma completa vivienda',
+  renovation_kitchen: 'Reforma cocina',
+  renovation_bathroom: 'Reforma baño',
+  renovation_paint: 'Pintura general',
+  renovation_floors: 'Cambio de suelos',
+  renovation_partial: 'Reforma parcial',
+  renovation_misc: 'Arreglos varios',
+}
+
 const CLEANING_SUBTYPE_IDS = new Set(Object.keys(CLEANING_SUBTYPE_LABELS))
+const PLUMBER_SUBTYPE_IDS = new Set(Object.keys(PLUMBER_SUBTYPE_LABELS))
+const RENOVATION_SUBTYPE_IDS = new Set(Object.keys(RENOVATION_SUBTYPE_LABELS))
 
 function serviceSubtypeLabel(categoryId: string, subtype: string | null | undefined): string | null {
   if (!subtype) return null
   if (categoryId === 'cleaning') return CLEANING_SUBTYPE_LABELS[subtype] ?? null
+  if (categoryId === 'plumber') return PLUMBER_SUBTYPE_LABELS[subtype] ?? null
+  if (categoryId === 'renovation') return RENOVATION_SUBTYPE_LABELS[subtype] ?? null
   return null
 }
 
-const MAX_PHOTOS = 4
+const MAX_PHOTOS = 5
+const MIN_PHOTOS = 1
 const MAX_PHOTO_BASE64_CHARS = 2_000_000
 const MAX_QUOTE_MESSAGE_CHARS = 4000
 
@@ -96,6 +125,7 @@ type ServiceRequestRow = {
   categoryId: string
   categoryLabel: string
   serviceSubtype: string | null
+  needsTechnicalVisit: boolean
   description: string
   preferredDate: Date | null
   photosJson: unknown
@@ -166,6 +196,7 @@ function mapRowList(row: ServiceRequestRow, opts: { isSuper: boolean; viewerUser
     categoryLabel: row.categoryLabel,
     serviceSubtype: row.serviceSubtype ?? null,
     serviceSubtypeLabel: serviceSubtypeLabel(row.categoryId, row.serviceSubtype),
+    needsTechnicalVisit: row.needsTechnicalVisit === true,
     description: row.description,
     preferredDate: row.preferredDate ? row.preferredDate.toISOString().slice(0, 10) : null,
     status: row.status,
@@ -440,8 +471,8 @@ communityServicesRouter.post('/', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'categoryId no válido' })
     return
   }
-  if (!description || description.length > 8000) {
-    res.status(400).json({ error: 'Descripción obligatoria (máx. 8000 caracteres)' })
+  if (description.length > 8000) {
+    res.status(400).json({ error: 'La descripción no puede superar 8000 caracteres.' })
     return
   }
 
@@ -454,7 +485,23 @@ communityServicesRouter.post('/', requireAuth, async (req, res) => {
       return
     }
     serviceSubtype = subtypeRaw
+  } else if (categoryId === 'plumber') {
+    if (!PLUMBER_SUBTYPE_IDS.has(subtypeRaw)) {
+      res.status(400).json({ error: 'Elige un tipo de trabajo de fontanería.' })
+      return
+    }
+    serviceSubtype = subtypeRaw
+  } else if (categoryId === 'renovation') {
+    if (!RENOVATION_SUBTYPE_IDS.has(subtypeRaw)) {
+      res.status(400).json({ error: 'Elige un tipo de reforma.' })
+      return
+    }
+    serviceSubtype = subtypeRaw
   }
+
+  const needsTechnicalVisit =
+    categoryId === 'renovation' &&
+    (req.body?.needsTechnicalVisit === true || req.body?.needsTechnicalVisit === 'true')
 
   let preferredDate: Date | null = null
   if (preferredDateRaw != null && String(preferredDateRaw).trim() !== '') {
@@ -477,7 +524,21 @@ communityServicesRouter.post('/', requireAuth, async (req, res) => {
     return
   }
 
+  const categoryModes = normalizeServiceCategoryModes(comm.serviceRequestCategoryModesJson)
+  if (!isServiceCategorySelectable(categoryModes, categoryId)) {
+    res.status(400).json({
+      error: 'Este tipo de servicio no está disponible aún en tu comunidad.',
+    })
+    return
+  }
+
   const photos = parsePhotosInput(req.body?.photos)
+  if (photos.length < MIN_PHOTOS) {
+    res.status(400).json({
+      error: 'Debes añadir al menos una foto para continuar',
+    })
+    return
+  }
   const photosJson = photos.map((p) => ({ mime: p.mime, base64: p.base64 }))
 
   const created = await svc.communityServiceRequest.create({
@@ -487,6 +548,7 @@ communityServicesRouter.post('/', requireAuth, async (req, res) => {
       categoryId,
       categoryLabel: CATEGORY_LABELS_ES[categoryId] ?? categoryId,
       serviceSubtype,
+      needsTechnicalVisit,
       description,
       preferredDate,
       photosJson,

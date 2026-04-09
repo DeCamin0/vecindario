@@ -5,6 +5,7 @@ import { normalizeLoginSlugInput } from '../lib/login-slug.js'
 import { communityPortalSelectOptions } from '../lib/portal-labels.js'
 import { buildDwellingByPortalIndex } from '../lib/portal-dwelling-config.js'
 import { communityOperationalWhere, isCommunityOperationalStatus } from '../lib/community-status.js'
+import { normalizeServiceCategoryModes } from '../lib/service-request-category-modes.js'
 
 /** Rutas públicas (sin JWT): validar código de acceso para vecinos. */
 export const publicCommunitiesRouter = Router()
@@ -50,6 +51,7 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
       appNavIncidentsEnabled: true,
       appNavBookingsEnabled: true,
       appNavPoolAccessEnabled: true,
+      serviceRequestCategoryModesJson: true,
       portalCount: true,
       portalLabels: true,
       portalDwellingConfig: true,
@@ -77,6 +79,7 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
     appNavIncidentsEnabled: row.appNavIncidentsEnabled,
     appNavBookingsEnabled: row.appNavBookingsEnabled,
     appNavPoolAccessEnabled: row.appNavPoolAccessEnabled === true,
+    serviceRequestCategoryModes: normalizeServiceCategoryModes(row.serviceRequestCategoryModesJson),
     portalSelectOptions: communityPortalSelectOptions(row.portalCount, row.portalLabels),
     dwellingByPortalIndex: buildDwellingByPortalIndex(row.portalCount, row.portalDwellingConfig),
   })
