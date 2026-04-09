@@ -85,6 +85,10 @@ function Login() {
   const [slugRouteError, setSlugRouteError] = useState('')
   /** Super admin / admin de empresa: flujos aparte (solo email + contraseña, sin VEC). */
   const [loginMode, setLoginMode] = useState('community')
+  const [demoMeta, setDemoMeta] = useState(null)
+  const [demoPickerOpen, setDemoPickerOpen] = useState(false)
+  const [demoPreset, setDemoPreset] = useState('')
+  const [demoBusy, setDemoBusy] = useState(false)
 
   const codeForPortals = (communityAccessCode?.trim() || vecCode.trim() || '').toUpperCase() || ''
   const fetchPortals =
@@ -165,6 +169,26 @@ function Login() {
     }
   }, [loginSlugFromRoute, setCommunity])
 
+  useEffect(() => {
+    let cancelled = false
+    fetch(apiUrl('/api/auth/demo-explore-meta'))
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => {
+        if (cancelled) return
+        if (data?.enabled && Array.isArray(data.presets)) {
+          setDemoMeta({ enabled: true, slug: data.slug, presets: data.presets })
+        } else {
+          setDemoMeta({ enabled: false })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDemoMeta({ enabled: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const taglineCommunity = useMemo(() => {
     if (slugCommunityReady && role === 'resident') {
       return 'Acceso directo: comunidad por enlace. Portal, piso y contraseña (el VEC ya está vinculado).'
@@ -227,6 +251,73 @@ function Login() {
       setVecError('No se pudo comprobar el código')
     } finally {
       setVecChecking(false)
+    }
+  }
+
+  const runDemoExplore = async () => {
+    if (!demoPreset) {
+      setError('Elige un perfil de demostración')
+      return
+    }
+    setDemoBusy(true)
+    setError('')
+    try {
+      const res = await fetch(apiUrl('/api/auth/demo-explore'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: demoPreset }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.message || data.error || 'No se pudo entrar en la demo')
+        return
+      }
+      if (!data.accessToken || !data.user) {
+        setError('Respuesta inválida del servidor')
+        return
+      }
+      const slugQ =
+        data.community?.loginSlug != null && String(data.community.loginSlug).trim()
+          ? `?c=${encodeURIComponent(String(data.community.loginSlug).trim().toLowerCase())}`
+          : fromSlugRoute && loginSlugFromRoute
+            ? postLoginSlugQuery
+            : ''
+      if (data.community?.name != null && data.community?.id != null) {
+        const ac =
+          data.community.accessCode != null && String(data.community.accessCode).trim()
+            ? String(data.community.accessCode).trim().toUpperCase()
+            : ''
+        setCommunity(data.community.name, {
+          id: data.community.id,
+          accessCode: ac,
+          loginSlug: data.community.loginSlug,
+        })
+      }
+      if (data.user.role === 'company_admin') {
+        applyServerSession(data.accessToken, data.user, { company: data.company })
+        navigate('/company-admin', { replace: true })
+        setDemoPickerOpen(false)
+        return
+      }
+      applyServerSession(data.accessToken, data.user, {
+        company: data.company,
+        communityFromLogin: data.community,
+      })
+      const serverRole = data.user.role
+      if (serverRole === 'president' || serverRole === 'community_admin') {
+        navigate(slugQ ? `/community-admin${slugQ}` : '/community-admin', { replace: true })
+      } else if (serverRole === 'concierge') {
+        navigate(slugQ ? `/${slugQ}` : '/', { replace: true })
+      } else if (serverRole === 'pool_staff') {
+        navigate(slugQ ? `/pool-validate${slugQ}` : '/pool-validate', { replace: true })
+      } else {
+        navigate(slugQ ? `/${slugQ}` : '/', { replace: true })
+      }
+      setDemoPickerOpen(false)
+    } catch {
+      setError('No se pudo conectar con el servidor')
+    } finally {
+      setDemoBusy(false)
     }
   }
 
@@ -534,6 +625,25 @@ function Login() {
                   : taglineCommunity}
               </p>
             </div>
+
+            {loginMode === 'community' && demoMeta?.enabled ? (
+              <div className="auth-demo-explore">
+                <p className="auth-demo-explore__intro">
+                  ¿Quieres ver la app por dentro? Entra con datos de demostración (sin contraseña).
+                </p>
+                <button
+                  type="button"
+                  className="btn btn--secondary auth-demo-explore__btn"
+                  onClick={() => {
+                    setDemoPickerOpen(true)
+                    setDemoPreset('')
+                    setError('')
+                  }}
+                >
+                  Explorar demo
+                </button>
+              </div>
+            ) : null}
 
         <form onSubmit={handleSubmit} className="auth-form">
           {(loginMode === 'super_admin' || loginMode === 'company_admin') && (
@@ -976,6 +1086,68 @@ function Login() {
                 </Link>
               </p>
             )}
+
+            {demoPickerOpen && demoMeta?.enabled ? (
+              <div className="auth-demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+                <button
+                  type="button"
+                  className="auth-demo-modal__backdrop"
+                  aria-label="Cerrar"
+                  disabled={demoBusy}
+                  onClick={() => {
+                    if (!demoBusy) setDemoPickerOpen(false)
+                  }}
+                />
+                <div className="auth-demo-modal__panel card">
+                  <h2 id="demo-modal-title" className="auth-demo-modal__title">
+                    Explorar la app (demo)
+                  </h2>
+                  <p className="auth-demo-modal__note">
+                    Datos ficticios. No uses esta sesión para información real.
+                  </p>
+                  <label className="auth-label" htmlFor="demo-preset-select">
+                    ¿Cómo quieres entrar?
+                  </label>
+                  <select
+                    id="demo-preset-select"
+                    className="auth-input"
+                    value={demoPreset}
+                    onChange={(e) => setDemoPreset(e.target.value)}
+                    disabled={demoBusy}
+                  >
+                    <option value="">— Elige un perfil —</option>
+                    {demoMeta.presets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  {demoPreset && demoMeta.presets.find((p) => p.id === demoPreset)?.hint ? (
+                    <p className="auth-demo-modal__hint">
+                      {demoMeta.presets.find((p) => p.id === demoPreset)?.hint}
+                    </p>
+                  ) : null}
+                  <div className="auth-demo-modal__actions">
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={demoBusy}
+                      onClick={() => setDemoPickerOpen(false)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      disabled={demoBusy || !demoPreset}
+                      onClick={() => void runDemoExplore()}
+                    >
+                      {demoBusy ? 'Entrando…' : 'Entrar'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="auth-login-credit-wrap">
             <DeveloperCredit />

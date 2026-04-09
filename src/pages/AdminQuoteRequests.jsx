@@ -36,7 +36,11 @@ export default function AdminQuoteRequests() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.message || data.error || 'No se pudo cargar')
+        setError(
+          data.message ||
+            data.error ||
+            `No se pudo cargar (HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''})`,
+        )
         setRows([])
         return
       }

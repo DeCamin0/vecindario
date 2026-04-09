@@ -9,6 +9,12 @@ import {
   parsePuertaField,
 } from '../lib/resident-dwelling-fields.js'
 import { communityOperationalWhere, isCommunityOperationalStatus } from '../lib/community-status.js'
+import {
+  DEMO_COMMUNITY_SLUG,
+  DEMO_EXPLORE_UI,
+  DEMO_SEED_USER_SPECS,
+  isDemoExplorePreset,
+} from '../lib/demo-explore-presets.js'
 
 export const authRouter = Router()
 
@@ -960,4 +966,200 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       poolAccessGuest: updated.poolAccessGuest,
     }),
   )
+})
+
+function demoExploreUserAllowed(
+  user: {
+    role: string
+    email: string | null
+    communityId: number | null
+    companyAdminCompanyId: number | null
+  },
+  demo: {
+    id: number
+    companyId: number | null
+    communityAdminEmail: string | null
+    presidentEmail: string | null
+    conciergeEmail: string | null
+    poolStaffEmail: string | null
+  },
+): boolean {
+  if (user.role === 'company_admin') {
+    return demo.companyId != null && user.companyAdminCompanyId === demo.companyId
+  }
+  if (user.communityId !== demo.id) return false
+  const em = normEmail(user.email)
+  if (user.role === 'community_admin') return normEmail(demo.communityAdminEmail) === em
+  if (user.role === 'president') return normEmail(demo.presidentEmail) === em
+  if (user.role === 'concierge') return normEmail(demo.conciergeEmail) === em
+  if (user.role === 'pool_staff') return normEmail(demo.poolStaffEmail) === em
+  if (user.role === 'resident') return true
+  return false
+}
+
+/** Metadatos para mostrar el botón «Explorar demo» (sin credenciales en el cliente). */
+authRouter.get('/demo-explore-meta', async (_req, res) => {
+  if (process.env.VECINDARIO_DEMO_EXPLORER !== '1') {
+    res.json({ enabled: false })
+    return
+  }
+  const demo = await prisma.community.findFirst({
+    where: { loginSlug: DEMO_COMMUNITY_SLUG, ...communityOperationalWhere() },
+    select: { id: true },
+  })
+  if (!demo) {
+    res.json({ enabled: false })
+    return
+  }
+  res.json({
+    enabled: true,
+    slug: DEMO_COMMUNITY_SLUG,
+    presets: DEMO_EXPLORE_UI,
+  })
+})
+
+/**
+ * Entrar como usuario de la comunidad demo (sin contraseña en el cliente).
+ * Requiere VECINDARIO_DEMO_EXPLORER=1 y seed demo (`npm run seed:demo`).
+ */
+authRouter.post('/demo-explore', async (req, res) => {
+  if (process.env.VECINDARIO_DEMO_EXPLORER !== '1') {
+    res.status(404).json({ error: 'Not found' })
+    return
+  }
+  const presetRaw = typeof req.body?.preset === 'string' ? req.body.preset.trim() : ''
+  if (!isDemoExplorePreset(presetRaw)) {
+    res.status(400).json({ error: 'Preset no válido' })
+    return
+  }
+  const spec = DEMO_SEED_USER_SPECS.find((x) => x.preset === presetRaw)!
+  const email = spec.email
+
+  const demoComm = await prisma.community.findFirst({
+    where: { loginSlug: DEMO_COMMUNITY_SLUG, ...communityOperationalWhere() },
+    select: {
+      id: true,
+      name: true,
+      accessCode: true,
+      loginSlug: true,
+      presidentPortal: true,
+      presidentPiso: true,
+      presidentEmail: true,
+      communityAdminEmail: true,
+      conciergeEmail: true,
+      poolStaffEmail: true,
+      companyId: true,
+    },
+  })
+  if (!demoComm) {
+    res.status(503).json({ error: 'Demo no disponible' })
+    return
+  }
+
+  const user = await prisma.vecindarioUser.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      piso: true,
+      portal: true,
+      puerta: true,
+      phone: true,
+      habitaciones: true,
+      plazaGaraje: true,
+      poolAccessOwner: true,
+      poolAccessGuest: true,
+      communityId: true,
+      companyAdminCompanyId: true,
+    },
+  })
+  if (!user || user.role !== spec.role) {
+    res.status(503).json({
+      error: 'Demo no configurada',
+      message: 'Ejecuta npm run seed:demo en el servidor.',
+    })
+    return
+  }
+
+  if (!demoExploreUserAllowed(user, demoComm)) {
+    res.status(403).json({ error: 'Cuenta demo no vinculada a la comunidad demo' })
+    return
+  }
+
+  type UserOut = {
+    id: number
+    email: string | null
+    name: string | null
+    role: string
+    piso: string | null
+    portal: string | null
+    puerta: string | null
+    phone: string | null
+    habitaciones: string | null
+    plazaGaraje: string | null
+    poolAccessOwner: string | null
+    poolAccessGuest: string | null
+  }
+
+  const userOut: UserOut = {
+    id: user.id,
+    email: user.email?.trim() || null,
+    name: user.name,
+    role: user.role,
+    piso: user.piso?.trim() || null,
+    portal: user.portal?.trim() || null,
+    puerta: user.puerta?.trim() || null,
+    phone: user.phone?.trim() || null,
+    habitaciones: user.habitaciones?.trim() || null,
+    plazaGaraje: user.plazaGaraje?.trim() || null,
+    poolAccessOwner: user.poolAccessOwner?.trim() || null,
+    poolAccessGuest: user.poolAccessGuest?.trim() || null,
+  }
+
+  if (user.role === 'resident' && user.communityId != null) {
+    const commRes = await prisma.community.findUnique({
+      where: { id: user.communityId },
+      select: { id: true, presidentPortal: true, presidentPiso: true },
+    })
+    userOut.role = effectiveRoleForCommunity(
+      {
+        role: 'resident',
+        communityId: user.communityId,
+        portal: userOut.portal,
+        piso: userOut.piso,
+      },
+      commRes,
+    )
+  }
+
+  let communityForClient: CommunityClientPayload | undefined
+  if (user.role !== 'company_admin') {
+    communityForClient = communityClientFromRow(demoComm)
+  }
+
+  let companyForClient: { id: number; name: string } | undefined
+  if (user.role === 'company_admin' && user.companyAdminCompanyId != null) {
+    const co = await prisma.company.findUnique({
+      where: { id: user.companyAdminCompanyId },
+      select: { id: true, name: true },
+    })
+    if (co) companyForClient = { id: co.id, name: co.name }
+  }
+
+  const accessToken = signAccessToken({
+    sub: String(userOut.id),
+    email: userOut.email || '',
+    role: userOut.role,
+    companyId: user.companyAdminCompanyId,
+  })
+
+  res.json({
+    accessToken,
+    user: userJsonOut(userOut),
+    ...(communityForClient ? { community: communityForClient } : {}),
+    ...(companyForClient ? { company: companyForClient } : {}),
+    demoExplore: true,
+  })
 })

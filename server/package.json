@@ -16,6 +16,7 @@
     "db:migrate": "cd .. && prisma migrate deploy",
     "db:migrate:dev": "cd .. && prisma migrate dev",
     "seed": "tsx src/seed-super-admin.ts",
+    "seed:demo": "tsx src/seed-demo-community.ts",
     "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts"
   },
   "dependencies": {
