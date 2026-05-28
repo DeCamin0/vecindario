@@ -2,6 +2,12 @@ import type { Community, VecindarioUser } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 import { normEmail, userLinkedToCommunity } from '../lib/community-user-access.js'
+import {
+  listConciergeEmails,
+  normalizeConciergeEmailsForDb,
+  parseConciergeEmailsFromBody,
+  parseConciergeEntries,
+} from '../lib/concierge-emails.js'
 import { signAccessToken } from '../lib/jwt.js'
 import { generateUniqueAccessCode } from '../lib/access-code.js'
 import {
@@ -149,11 +155,31 @@ companyCommunitiesRouter.post('/', async (req, res) => {
     })
     return
   }
-  const con = parseOptionalInstructionEmail(body?.conciergeEmail)
-  if (con.invalidFormat) {
-    res.status(400).json({ error: 'El email del conserje no tiene un formato válido.' })
+  const conciergeParsed = parseConciergeEmailsFromBody({
+    ...(Array.isArray(body?.conciergeStaff)
+      ? { conciergeStaff: body.conciergeStaff }
+      : {
+          conciergeEmails: Array.isArray(body?.conciergeEmails)
+            ? body.conciergeEmails
+            : [],
+        }),
+    conciergeSubstituteEmail:
+      Object.prototype.hasOwnProperty.call(body ?? {}, 'conciergeSubstituteEmail')
+        ? body.conciergeSubstituteEmail
+        : '',
+    ...(Object.prototype.hasOwnProperty.call(body ?? {}, 'conciergeSubstituteName')
+      ? { conciergeSubstituteName: body.conciergeSubstituteName }
+      : {}),
+  })
+  if (!conciergeParsed.ok) {
+    res.status(400).json({ error: conciergeParsed.error })
     return
   }
+  const conciergeNorm = normalizeConciergeEmailsForDb(
+    conciergeParsed.staff,
+    conciergeParsed.substitute ?? '',
+    conciergeParsed.substituteName,
+  )
   const poolSt = parseOptionalInstructionEmail(body?.poolStaffEmail)
   if (poolSt.invalidFormat) {
     res.status(400).json({ error: 'El email del socorrista no tiene un formato válido.' })
@@ -193,6 +219,8 @@ companyCommunitiesRouter.post('/', async (req, res) => {
   const appNavIncidentsEnabled = parseBool(body?.appNavIncidentsEnabled, true)
   const appNavBookingsEnabled = parseBool(body?.appNavBookingsEnabled, true)
   const appNavPoolAccessEnabled = parseBool(body?.appNavPoolAccessEnabled, false)
+  const appNavPaqueteriaEnabled = parseBool(body?.appNavPaqueteriaEnabled, false)
+  const appNavCuadernoDiarioEnabled = parseBool(body?.appNavCuadernoDiarioEnabled, false)
   const padelCourtCount = parsePadelCourtCount(body?.padelCourtCount)
   const customLocations = parseCustomLocations(body?.customLocations)
   const padelMaxHoursPerBooking = parsePadelHoursField(body?.padelMaxHoursPerBooking, 2)
@@ -231,8 +259,13 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       boardVicePortal: viceUnit.boardVicePortal,
       boardVicePiso: viceUnit.boardVicePiso,
       ...(boardVocalsJson !== undefined ? { boardVocalsJson } : {}),
-      communityAdminEmail: adm.value,
-      conciergeEmail: con.value,
+      communityAdminEmail: null,
+      communityAdminName: null,
+      conciergeEmail: conciergeNorm.conciergeEmail,
+      conciergeEmail2: conciergeNorm.conciergeEmail2,
+      conciergeEmailsJson: conciergeNorm.conciergeEmailsJson,
+      conciergeSubstituteEmail: conciergeNorm.conciergeSubstituteEmail,
+      conciergeSubstituteName: conciergeNorm.conciergeSubstituteName,
       poolStaffEmail: poolSt.value,
       status: 'pending_approval',
       companyId,
@@ -246,6 +279,8 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       appNavIncidentsEnabled,
       appNavBookingsEnabled,
       appNavPoolAccessEnabled,
+      appNavPaqueteriaEnabled,
+      appNavCuadernoDiarioEnabled,
       padelCourtCount,
       padelMaxHoursPerBooking,
       padelMaxHoursPerApartmentPerDay,
@@ -314,23 +349,84 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
     }
     data.presidentEmail = pres.value
   }
-  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'communityAdminEmail')) {
-    const adm = parseOptionalInstructionEmail(req.body?.communityAdminEmail)
-    if (adm.invalidFormat) {
-      res.status(400).json({
-        error: 'El email del administrador de comunidad no tiene un formato válido.',
-      })
-      return
-    }
-    data.communityAdminEmail = adm.value
+  if (
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'communityAdminEmail') ||
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'communityAdminName')
+  ) {
+    res.status(400).json({
+      error: 'Administrador de ficha no permitido',
+      message:
+        'Las comunidades de una empresa de administración se gestionan con los administradores de empresa, no con un correo de administrador en la ficha.',
+    })
+    return
   }
-  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeEmail')) {
-    const con = parseOptionalInstructionEmail(req.body?.conciergeEmail)
-    if (con.invalidFormat) {
-      res.status(400).json({ error: 'El email del conserje no tiene un formato válido.' })
+  const hasStaffBody =
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeStaff') ||
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeEmails')
+  const hasSubBody = Object.prototype.hasOwnProperty.call(
+    req.body ?? {},
+    'conciergeSubstituteEmail',
+  )
+  const hasSubNameBody = Object.prototype.hasOwnProperty.call(
+    req.body ?? {},
+    'conciergeSubstituteName',
+  )
+  if (hasStaffBody || hasSubBody || hasSubNameBody) {
+    const parsed = parseConciergeEmailsFromBody({
+      ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeStaff')
+        ? { conciergeStaff: (req.body as Record<string, unknown>).conciergeStaff }
+        : Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeEmails')
+          ? { conciergeEmails: (req.body as Record<string, unknown>).conciergeEmails }
+          : {}),
+      ...(hasSubBody
+        ? {
+            conciergeSubstituteEmail: (req.body as Record<string, unknown>)
+              .conciergeSubstituteEmail,
+          }
+        : {}),
+      ...(hasSubNameBody
+        ? {
+            conciergeSubstituteName: (req.body as Record<string, unknown>)
+              .conciergeSubstituteName,
+          }
+        : {}),
+    })
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error })
       return
     }
-    data.conciergeEmail = con.value
+    const snap = await prisma.community.findFirst({
+      where: { id, companyId },
+      select: {
+        conciergeEmail: true,
+        conciergeEmail2: true,
+        conciergeEmailsJson: true,
+        conciergeSubstituteEmail: true,
+        conciergeSubstituteName: true,
+      },
+    })
+    const staffForNorm = hasStaffBody
+      ? parsed.staff
+      : snap
+        ? parseConciergeEntries(snap)
+        : []
+    const substituteForNorm = hasSubBody
+      ? (parsed.substitute ?? null)
+      : (snap?.conciergeSubstituteEmail ?? null)
+    let substituteNameForNorm = hasSubNameBody
+      ? (parsed.substituteName ?? null)
+      : (snap?.conciergeSubstituteName ?? null)
+    if (hasSubBody && !substituteForNorm) substituteNameForNorm = null
+    const norm = normalizeConciergeEmailsForDb(
+      staffForNorm,
+      substituteForNorm ?? '',
+      substituteNameForNorm,
+    )
+    data.conciergeEmailsJson = norm.conciergeEmailsJson
+    data.conciergeEmail = norm.conciergeEmail
+    data.conciergeEmail2 = norm.conciergeEmail2
+    data.conciergeSubstituteEmail = norm.conciergeSubstituteEmail
+    data.conciergeSubstituteName = norm.conciergeSubstituteName
   }
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'poolStaffEmail')) {
     const poolSt = parseOptionalInstructionEmail(req.body?.poolStaffEmail)
@@ -378,10 +474,14 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
     )
   }
 
-  const touchedPortals =
-    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'portalCount') ||
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'residentSlots')) {
+    data.residentSlots = parseResidentSlots(req.body.residentSlots)
+  }
+
+  const autoCupoFromPortalsEditor =
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'portalDwellingConfig') ||
     Object.prototype.hasOwnProperty.call(req.body ?? {}, 'portalLabels')
-  if (touchedPortals) {
+  if (autoCupoFromPortalsEditor) {
     const nextCount =
       typeof data.portalCount === 'number' ? data.portalCount : existing.portalCount
     const nextDwelling =
@@ -416,25 +516,34 @@ const STAFF_MANAGEMENT_SLOTS: ReadonlyArray<{
   { emailField: 'conciergeEmail', role: 'concierge' },
 ]
 
+async function findStaffUserByEmail(role: VecindarioUser['role'], emailRaw: string): Promise<VecindarioUser | null> {
+  const t = emailRaw.trim()
+  if (!t) return null
+  const needle = normEmail(t)
+  if (!needle) return null
+  const emailsTry = [...new Set([t, needle])]
+  let user = await prisma.vecindarioUser.findFirst({
+    where: { role, email: { in: emailsTry } },
+  })
+  if (!user) {
+    const more = await prisma.vecindarioUser.findMany({ where: { role } })
+    user = more.find((u) => normEmail(u.email) === needle) ?? null
+  }
+  return user
+}
+
 async function pickStaffUserForCommunityManagement(
   community: Community,
 ): Promise<VecindarioUser | null> {
   for (const { emailField, role } of STAFF_MANAGEMENT_SLOTS) {
     const raw = community[emailField]
     if (typeof raw !== 'string') continue
-    const t = raw.trim()
-    if (!t) continue
-    const needle = normEmail(t)
-    if (!needle) continue
-
-    const emailsTry = [...new Set([t, needle])]
-    let user = await prisma.vecindarioUser.findFirst({
-      where: { role, email: { in: emailsTry } },
-    })
-    if (!user) {
-      const more = await prisma.vecindarioUser.findMany({ where: { role } })
-      user = more.find((u) => normEmail(u.email) === needle) ?? null
-    }
+    const user = await findStaffUserByEmail(role, raw)
+    if (!user) continue
+    if (await userLinkedToCommunity(user, community)) return user
+  }
+  for (const ce of listConciergeEmails(community)) {
+    const user = await findStaffUserByEmail('concierge', ce)
     if (!user) continue
     if (await userLinkedToCommunity(user, community)) return user
   }
@@ -477,12 +586,27 @@ companyCommunitiesRouter.post('/:id/staff-session', async (req, res) => {
     return
   }
 
-  const target = await pickStaffUserForCommunityManagement(community)
+  /** Gestión de comunidades de la empresa: el administrador de empresa entra con su propio rol (no impersona conserje/presidente). */
+  const self = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+  })
+  let target: VecindarioUser | null = null
+  let actingAsCompanyAdmin = false
+  if (
+    self?.role === 'company_admin' &&
+    self.companyAdminCompanyId != null &&
+    self.companyAdminCompanyId === companyId
+  ) {
+    target = self
+    actingAsCompanyAdmin = true
+  } else {
+    target = await pickStaffUserForCommunityManagement(community)
+  }
   if (!target) {
     res.status(404).json({
       error: 'Sin cuenta de gestión',
       message:
-        'No hay una cuenta de usuario vinculada como administrador de comunidad, presidente o conserje en la ficha. El super administrador debe dar de alta esos correos con el rol correspondiente en esta comunidad.',
+        'No hay una cuenta de gestión vinculada a esta comunidad. Como administrador de empresa debes tener sesión de empresa; si no, define presidente o conserje en la ficha.',
     })
     return
   }
@@ -491,7 +615,7 @@ companyCommunitiesRouter.post('/:id/staff-session', async (req, res) => {
     sub: String(target.id),
     email: target.email || '',
     role: target.role,
-    companyId: target.companyAdminCompanyId,
+    companyId: actingAsCompanyAdmin ? companyId : target.companyAdminCompanyId,
   })
 
   const p = target.piso?.trim()

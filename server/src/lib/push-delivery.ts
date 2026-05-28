@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import webpush from 'web-push'
 import { prisma } from './prisma.js'
+import { getUserNotificationPrefs } from './notification-prefs.js'
 
 const EXPO_URL = 'https://exp.host/--/api/v2/push/send'
 
@@ -35,7 +36,7 @@ export const pushDelivery = {
     userIds: number[],
     title: string,
     body: string,
-    data?: { serviceRequestId?: number },
+    data?: { serviceRequestId?: number; parcelId?: number },
   ) {
     const ids = [...new Set(userIds)].filter((id) => Number.isInteger(id) && id >= 1)
     await Promise.all(ids.map((uid) => this.sendToUser(uid, title, body, data)))
@@ -45,15 +46,22 @@ export const pushDelivery = {
     userId: number,
     title: string,
     body: string,
-    data?: { serviceRequestId?: number },
+    data?: { serviceRequestId?: number; parcelId?: number },
   ) {
+    const prefs = await getUserNotificationPrefs(userId)
+    if (!prefs) return
     const payload = JSON.stringify({
       title,
       body,
       serviceRequestId: data?.serviceRequestId,
+      parcelId: data?.parcelId,
     })
-    await sendExpo(userId, title, body, data)
-    await sendWebPush(userId, payload)
+    if (prefs.notifyMobilePush) {
+      await sendExpo(userId, title, body, data)
+    }
+    if (prefs.notifyWebPush) {
+      await sendWebPush(userId, payload)
+    }
   },
 }
 
@@ -61,22 +69,22 @@ async function sendExpo(
   userId: number,
   title: string,
   body: string,
-  data?: { serviceRequestId?: number },
+  data?: { serviceRequestId?: number; parcelId?: number },
 ) {
   const rows = await pushDb.vecindarioExpoPushToken.findMany({
     where: { userId },
   })
   if (!rows.length) return
+  const expoData: Record<string, string> = {}
+  if (data?.serviceRequestId != null) expoData.serviceRequestId = String(data.serviceRequestId)
+  if (data?.parcelId != null) expoData.parcelId = String(data.parcelId)
   const messages = rows.map((r) => ({
     to: r.token,
     sound: 'default' as const,
     priority: 'high' as const,
     title,
     body,
-    data:
-      data?.serviceRequestId != null
-        ? { serviceRequestId: String(data.serviceRequestId) }
-        : ({} as Record<string, string>),
+    data: expoData,
   }))
   try {
     const res = await fetch(EXPO_URL, {

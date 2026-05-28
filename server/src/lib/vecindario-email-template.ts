@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { vecindarioPublicBaseUrl } from './public-app-url.js'
 
 export function escapeHtml(s: string): string {
   return s
@@ -28,8 +29,8 @@ export function getEmailLogoSrc(): string | null {
   if (custom) return custom
 
   const logoFile = (process.env.EMAIL_LOGO_PATH || 'Vencindario_logo.png').trim().replace(/^\/+/, '')
-  const appPublic = process.env.APP_PUBLIC_URL?.trim().replace(/\/+$/, '')
-  if (appPublic?.startsWith('https://')) {
+  const appPublic = vecindarioPublicBaseUrl()
+  if (appPublic.startsWith('https://')) {
     return `${appPublic}/${logoFile}`
   }
 

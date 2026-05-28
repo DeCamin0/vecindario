@@ -6,6 +6,8 @@ export const COMMUNITY_MGMT_NAV_DEFAULT = {
   incidents: true,
   bookings: true,
   poolAccess: false,
+  paqueteria: false,
+  cuadernoDiario: false,
 }
 
 /**

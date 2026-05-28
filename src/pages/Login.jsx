@@ -6,39 +6,64 @@ import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js
 import { pisoPuertaChoicesForPortal } from '../utils/dwellingPortalChoices.js'
 import DeveloperCredit from '../components/DeveloperCredit'
 import MobileAppDownloadBanner from '../components/MobileAppDownloadBanner'
+import LoginPlayStoreNotice from '../components/LoginPlayStoreNotice.jsx'
 import { BRAND_LOGO_PNG } from '../syncBrandFavicon.js'
 import { getSignInPath } from '../utils/signInWebPath'
 import './AuthPages.css'
 
-/** Roles con código VEC (sin super admin — va aparte). */
-const ROLE_OPTIONS = [
+/** Pantalla inicial: solo estos cuatro accesos. */
+const HOME_ACCESS_OPTIONS = [
   {
-    value: 'resident',
-    label: 'Residente / vecino',
-    short: 'Vecino',
+    id: 'resident',
+    label: 'Vecino',
     sub: 'Portal, piso y puerta',
     icon: '🏠',
   },
   {
-    value: 'concierge',
-    label: 'Conserje / portería',
-    short: 'Conserje',
+    id: 'concierge',
+    label: 'Conserje',
     sub: 'Correo + VEC',
     icon: '🛎️',
   },
   {
-    value: 'pool_staff',
-    label: 'Socorrista / piscina',
-    short: 'Piscina',
+    id: 'pool_staff',
+    label: 'Piscina',
     sub: 'Correo + VEC',
     icon: '🏊',
   },
   {
-    value: 'community_admin',
-    label: 'Administrador de comunidad',
-    short: 'Administrador',
-    sub: 'Correo y contraseña',
+    id: 'admin_hub',
+    label: 'Administración',
+    sub: 'Comunidad, empresa o super admin',
     icon: '📋',
+  },
+]
+
+/** Tras «Administración»: admin de ficha, admin de empresa o super admin. */
+const ADMIN_TYPE_OPTIONS = [
+  {
+    loginMode: 'community',
+    role: 'community_admin',
+    label: 'Administrador de comunidad',
+    short: 'Admin comunidad',
+    sub: 'Correo y contraseña (ficha)',
+    icon: '🏢',
+  },
+  {
+    loginMode: 'company_admin',
+    role: null,
+    label: 'Administrador de empresa',
+    short: 'Admin empresa',
+    sub: 'Gestiona comunidades de la firma',
+    icon: '🏛️',
+  },
+  {
+    loginMode: 'super_admin',
+    role: null,
+    label: 'Super administrador',
+    short: 'Super admin',
+    sub: 'Panel De Camino / plataforma',
+    icon: '⚙️',
   },
 ]
 
@@ -74,7 +99,9 @@ function Login() {
   const [piso, setPiso] = useState('')
   const [portal, setPortal] = useState('')
   const [puerta, setPuerta] = useState('')
-  const [role, setRole] = useState('resident')
+  const [role, setRole] = useState(null)
+  /** home → solo botones | admin_pick → tipo de administración | form → credenciales */
+  const [loginStep, setLoginStep] = useState('home')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -110,8 +137,8 @@ function Login() {
 
   const { pisoOptions: pisoChoicesRaw, puertaOptions: puertaChoicesRaw } = useMemo(
     () =>
-      pisoPuertaChoicesForPortal(portal, portalChoicesRaw, dwellingByPortalIndex),
-    [portal, portalChoicesRaw, dwellingByPortalIndex],
+      pisoPuertaChoicesForPortal(portal, portalChoicesRaw, dwellingByPortalIndex, piso),
+    [portal, portalChoicesRaw, dwellingByPortalIndex, piso],
   )
 
   const pisoSelectOptions = useMemo(() => {
@@ -130,6 +157,42 @@ function Login() {
 
   const slugCommunityReady =
     fromSlugRoute && !slugRouteBusy && !slugRouteError && communityId != null && Boolean(community)
+
+  const goLoginHome = () => {
+    setLoginStep('home')
+    setLoginMode('community')
+    setRole(null)
+    setError('')
+  }
+
+  const pickCommunityRole = (roleId) => {
+    setLoginMode('community')
+    setRole(roleId)
+    setError('')
+    setLoginStep('form')
+  }
+
+  const pickAdminType = (opt) => {
+    setLoginMode(opt.loginMode)
+    setRole(opt.role)
+    setError('')
+    setLoginStep('form')
+  }
+
+  const goBackFromForm = () => {
+    if (
+      loginMode === 'super_admin' ||
+      loginMode === 'company_admin' ||
+      role === 'community_admin'
+    ) {
+      setLoginMode('community')
+      setRole(null)
+      setLoginStep('admin_pick')
+      setError('')
+      return
+    }
+    goLoginHome()
+  }
 
   useEffect(() => {
     if (!loginSlugFromRoute) {
@@ -203,7 +266,7 @@ function Login() {
       return 'Administrador: solo correo y contraseña de la ficha — sin código VEC.'
     }
     if (role === 'resident') {
-      return 'Valida el VEC y entra con portal, piso y contraseña.'
+      return 'Con correo en tu cuenta: email y contraseña. Sin correo: código VEC + portal + piso + contraseña.'
     }
     if (role === 'concierge') {
       return 'Código VEC de la comunidad + correo de conserje (el de la ficha) + contraseña.'
@@ -219,7 +282,10 @@ function Login() {
 
   const showEmailFieldCommunity =
     loginMode === 'community' &&
-    (role === 'community_admin' || role === 'concierge' || role === 'pool_staff')
+    (role === 'resident' ||
+      role === 'community_admin' ||
+      role === 'concierge' ||
+      role === 'pool_staff')
 
   const verifyVecCode = async () => {
     setVecError('')
@@ -324,6 +390,7 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    if (loginStep !== 'form') return
     if (loginMode === 'super_admin') {
       if (!email.trim()) {
         setError('Introduce el email de super administrador')
@@ -416,6 +483,55 @@ function Login() {
     }
 
     if (role === 'resident') {
+      const emailTrim = email.trim().toLowerCase()
+      if (emailTrim) {
+        setSubmitting(true)
+        try {
+          const res = await fetch(apiUrl('/api/auth/login'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: emailTrim, password }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            setError(data.message || data.error || 'Credenciales incorrectas')
+            return
+          }
+          if (!data.accessToken || !data.user) {
+            setError('Respuesta inválida del servidor')
+            return
+          }
+          if (data.community?.name != null && data.community?.id != null) {
+            const acFromServer =
+              data.community.accessCode != null && String(data.community.accessCode).trim()
+                ? String(data.community.accessCode).trim().toUpperCase()
+                : ''
+            setCommunity(data.community.name, {
+              id: data.community.id,
+              accessCode: acFromServer,
+              loginSlug: data.community.loginSlug,
+            })
+          }
+          applyServerSession(data.accessToken, data.user, {
+            company: data.company,
+            communityFromLogin: data.community,
+          })
+          const serverRole = data.user.role
+          if (serverRole === 'president' || serverRole === 'community_admin') {
+            navigate(postLoginSlugQuery ? `/community-admin${postLoginSlugQuery}` : '/community-admin', {
+              replace: true,
+            })
+          } else {
+            navigate(postLoginSlugQuery ? `/${postLoginSlugQuery}` : '/', { replace: true })
+          }
+        } catch {
+          setError('No se pudo conectar con el servidor')
+        } finally {
+          setSubmitting(false)
+        }
+        return
+      }
+
       if (fromSlugRoute && slugRouteBusy) {
         setError('Espera a que se valide el enlace de la comunidad.')
         return
@@ -611,108 +727,141 @@ function Login() {
                 />
               </div>
               <h1 className="auth-title auth-title--login">
-                {loginMode === 'super_admin'
-                  ? 'Super administrador'
-                  : loginMode === 'company_admin'
-                    ? 'Administrador de empresa'
-                    : 'Iniciar sesión'}
+                {loginStep === 'home'
+                  ? 'Vecindario'
+                  : loginStep === 'admin_pick'
+                    ? 'Administración'
+                    : loginMode === 'super_admin'
+                      ? 'Super administrador'
+                      : loginMode === 'company_admin'
+                        ? 'Administrador de empresa'
+                        : role === 'resident'
+                          ? 'Acceso vecino'
+                          : role === 'concierge'
+                            ? 'Acceso conserje'
+                            : role === 'pool_staff'
+                              ? 'Acceso piscina'
+                              : 'Administrador de comunidad'}
               </h1>
               <p className="auth-login-tagline">
-                {loginMode === 'super_admin'
-                  ? 'Panel global de la plataforma. Solo email y contraseña — sin código VEC.'
-                  : loginMode === 'company_admin'
-                    ? 'Gestiona las comunidades de tu empresa. Las nuevas quedan pendientes hasta que un super administrador las active.'
-                  : taglineCommunity}
+                {loginStep === 'home'
+                  ? 'Elige cómo quieres entrar'
+                  : loginStep === 'admin_pick'
+                    ? 'Comunidad con ficha propia, empresa gestora o panel interno De Camino'
+                    : loginMode === 'super_admin'
+                      ? 'Panel global. Solo email y contraseña — sin código VEC.'
+                      : loginMode === 'company_admin'
+                        ? 'Gestiona las comunidades de tu empresa (firma mandataria).'
+                        : taglineCommunity}
               </p>
             </div>
 
-            {loginMode === 'community' && demoMeta?.enabled ? (
-              <div className="auth-demo-explore">
-                <p className="auth-demo-explore__intro">
-                  ¿Quieres ver la app por dentro? Entra con datos de demostración (sin contraseña).
-                </p>
-                <button
-                  type="button"
-                  className="btn btn--secondary auth-demo-explore__btn"
-                  onClick={() => {
-                    setDemoPickerOpen(true)
-                    setDemoPreset('')
-                    setError('')
-                  }}
+            {loginStep === 'home' ? (
+              <div className="auth-field auth-field--role-picker">
+                <span className="auth-label auth-label--center" id="login-role-label">
+                  ¿Cómo entras?
+                </span>
+                <div
+                  className="auth-role-picker auth-role-picker--quad"
+                  role="group"
+                  aria-labelledby="login-role-label"
                 >
-                  Explorar demo
-                </button>
-              </div>
-            ) : null}
-
-        <form onSubmit={handleSubmit} className="auth-form">
-          {(loginMode === 'super_admin' || loginMode === 'company_admin') && (
-            <div className="auth-field">
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm auth-login-back-community"
-                onClick={() => {
-                  setLoginMode('community')
-                  setError('')
-                }}
-              >
-                ← Volver al acceso de comunidades y vecinos
-              </button>
-            </div>
-          )}
-
-          {loginMode === 'community' && (
-            <div className="auth-field auth-field--role-picker">
-              <span className="auth-label" id="login-role-label">
-                ¿Cómo entras?
-              </span>
-              <div
-                className="auth-role-picker"
-                role="radiogroup"
-                aria-labelledby="login-role-label"
-              >
-                {ROLE_OPTIONS.map(({ value, label, short, sub, icon }) => {
-                  const selected = role === value
-                  return (
+                  {HOME_ACCESS_OPTIONS.map(({ id, label, sub, icon }) => (
                     <button
-                      key={value}
+                      key={id}
                       type="button"
-                      role="radio"
-                      aria-checked={selected}
+                      className="auth-role-btn auth-role-btn--pick"
                       aria-label={label}
-                      className={`auth-role-btn${selected ? ' auth-role-btn--active' : ''}`}
                       onClick={() => {
-                        setRole(value)
-                        if (value === 'resident') {
-                          setEmail('')
+                        if (id === 'admin_hub') {
+                          setError('')
+                          setLoginStep('admin_pick')
+                          return
                         }
-                        if (value === 'community_admin' || value === 'concierge' || value === 'pool_staff') {
+                        if (id === 'resident') setEmail('')
+                        if (id !== 'resident') {
                           setPiso('')
                           setPortal('')
                           setPuerta('')
                         }
-                        setError('')
+                        pickCommunityRole(id)
                       }}
                     >
                       <span className="auth-role-btn__icon" aria-hidden>
                         {icon}
                       </span>
-                      <span className="auth-role-btn__text">{short}</span>
+                      <span className="auth-role-btn__text">{label}</span>
                       <span className="auth-role-btn__sub">{sub}</span>
                     </button>
-                  )
-                })}
+                  ))}
+                </div>
+                {demoMeta?.enabled ? (
+                  <p className="auth-login-home-demo">
+                    <button
+                      type="button"
+                      className="auth-link auth-link--button"
+                      onClick={() => {
+                        setDemoPickerOpen(true)
+                        setDemoPreset('')
+                        setError('')
+                      }}
+                    >
+                      Explorar demo
+                    </button>
+                  </p>
+                ) : null}
+                <LoginPlayStoreNotice />
               </div>
-            </div>
-          )}
+            ) : null}
 
-          {loginMode === 'community' && fromSlugRoute && slugRouteBusy && (
+            {loginStep === 'admin_pick' ? (
+              <div className="auth-field auth-field--role-picker">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm auth-login-back-community"
+                  onClick={goLoginHome}
+                >
+                  ← Volver
+                </button>
+                <div className="auth-role-picker auth-role-picker--admin" role="group" aria-label="Tipo de administración">
+                  {ADMIN_TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.loginMode}
+                      type="button"
+                      className="auth-role-btn auth-role-btn--pick"
+                      aria-label={opt.label}
+                      onClick={() => pickAdminType(opt)}
+                    >
+                      <span className="auth-role-btn__icon" aria-hidden>
+                        {opt.icon}
+                      </span>
+                      <span className="auth-role-btn__text">{opt.short}</span>
+                      <span className="auth-role-btn__sub">{opt.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+        {loginStep === 'form' ? (
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="auth-field">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm auth-login-back-community"
+              onClick={goBackFromForm}
+            >
+              ← Volver
+            </button>
+          </div>
+
+          {loginMode === 'community' && role && fromSlugRoute && slugRouteBusy && (
             <p className="auth-vec-ok" role="status">
               Comprobando enlace de la comunidad…
             </p>
           )}
 
-          {loginMode === 'community' && fromSlugRoute && slugRouteError && (
+          {loginMode === 'community' && role && fromSlugRoute && slugRouteError && (
             <div className="auth-field">
               <p className="auth-error" role="alert">
                 {slugRouteError}. Puedes comprobar el código VEC abajo o{' '}
@@ -733,7 +882,7 @@ function Login() {
             </div>
           )}
 
-          {loginMode === 'community' && slugCommunityReady && (
+          {loginMode === 'community' && role && slugCommunityReady && (
             <div className="auth-field auth-field--slug-ok">
               <p className="auth-vec-ok" role="status">
                 Comunidad por enlace: <strong>{community}</strong>
@@ -756,7 +905,7 @@ function Login() {
             </div>
           )}
 
-          {loginMode === 'community' && showVecCodeField(role) && (!fromSlugRoute || slugRouteError) && (
+          {loginMode === 'community' && role && showVecCodeField(role) && (!fromSlugRoute || slugRouteError) && (
             <div className="auth-field auth-field--vec">
               <label className="auth-label" htmlFor="vec-code">
                 Código de comunidad (VEC)
@@ -834,6 +983,12 @@ function Login() {
                 autoComplete="email"
                 autoFocus={loginMode === 'super_admin' || loginMode === 'company_admin'}
               />
+              {role === 'resident' ? (
+                <p className="auth-vec-ok-hint" style={{ marginTop: '0.5rem' }}>
+                  Si tienes correo en tu cuenta, basta email y contraseña (abajo). Si no, deja el email vacío
+                  y usa VEC + portal + piso.
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -911,7 +1066,10 @@ function Login() {
                     name="vecindario_piso"
                     className="auth-input auth-select"
                     value={piso}
-                    onChange={(e) => setPiso(e.target.value)}
+                    onChange={(e) => {
+                      setPiso(e.target.value)
+                      setPuerta('')
+                    }}
                     required
                     aria-required
                     autoComplete="off"
@@ -1029,63 +1187,24 @@ function Login() {
                 : 'Iniciar sesión'}
           </button>
         </form>
+        ) : null}
 
-            {loginMode === 'community' && (
-              <div className="auth-login-super-wrap">
-                <button
-                  type="button"
-                  className="btn btn--secondary auth-login-super-btn"
-                  onClick={() => {
-                    navigate(getSignInPath({ forceGeneric: true }))
-                    setLoginMode('super_admin')
-                    setVecCode('')
-                    setVecError('')
-                    setSlugRouteError('')
-                    setCommunity(null)
-                    setError('')
-                    setPiso('')
-                    setPortal('')
-                    setPuerta('')
-                  }}
-                >
-                  Acceso super administrador
-                </button>
-                <p className="auth-login-super-hint">
-                  Uso interno: gestión de comunidades y plataforma. No necesitas código VEC.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn--secondary auth-login-super-btn"
-                  style={{ marginTop: '0.5rem' }}
-                  onClick={() => {
-                    navigate(getSignInPath({ forceGeneric: true }))
-                    setLoginMode('company_admin')
-                    setVecCode('')
-                    setVecError('')
-                    setSlugRouteError('')
-                    setCommunity(null)
-                    setError('')
-                    setPiso('')
-                    setPortal('')
-                    setPuerta('')
-                  }}
-                >
-                  Acceso administrador de empresa
-                </button>
-                <p className="auth-login-super-hint">
-                  Gestiona comunidades de tu empresa (alta pendiente de aprobación del super administrador).
-                </p>
-              </div>
-            )}
-
-            {loginMode === 'community' && (
-              <p className="auth-footer auth-footer--login">
-                ¿Interesado en Vecindario?{' '}
-                <Link to="/solicitar-oferta" className="auth-link">
-                  Solicitar oferta
-                </Link>
-              </p>
-            )}
+            <p className="auth-footer auth-footer--login">
+              <Link to="/privacy" className="auth-link">
+                Política de privacidad
+              </Link>
+              {loginStep === 'home' ? (
+                <>
+                  <span className="auth-footer__sep" aria-hidden="true">
+                    {' · '}
+                  </span>
+                  ¿Interesado en Vecindario?{' '}
+                  <Link to="/solicitar-oferta" className="auth-link">
+                    Solicitar oferta
+                  </Link>
+                </>
+              ) : null}
+            </p>
 
             {demoPickerOpen && demoMeta?.enabled ? (
               <div className="auth-demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">

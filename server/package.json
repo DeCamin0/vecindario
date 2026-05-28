@@ -1,7 +1,7 @@
 {
   "name": "vecindario-server",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "lint": "cd .. && npx eslint server",
@@ -9,7 +9,7 @@
     "server:dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "postinstall": "prisma generate --schema=../prisma/schema.prisma && node ../scripts/sync-prisma-to-server.mjs",
+    "postinstall": "node ../scripts/ensure-prisma-for-server.mjs",
     "predev": "prisma generate --schema=../prisma/schema.prisma",
     "db:generate": "prisma generate --schema=../prisma/schema.prisma",
     "db:sync": "node ../scripts/sync-prisma-to-server.mjs",

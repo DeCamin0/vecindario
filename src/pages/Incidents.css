@@ -421,7 +421,8 @@
   margin-left: 0;
 }
 
-.incident-reporter-line {
+.incident-reporter-line,
+.incident-resolver-line {
   margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
   color: var(--text-body);

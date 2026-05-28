@@ -1,0 +1,83 @@
+.profile-my-data-page .page-header {
+  margin-bottom: var(--section-gap);
+}
+
+.profile-my-data-back {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.profile-my-data-back:hover {
+  text-decoration: underline;
+}
+
+.profile-my-data-card {
+  padding: var(--space-6);
+}
+
+.profile-my-data-readonly {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-6);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.profile-my-data-readonly dt {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-quiet);
+  margin: 0 0 var(--space-1);
+}
+
+.profile-my-data-readonly dd {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-heading);
+}
+
+.profile-my-data-readonly--staff p {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  color: var(--text-body);
+}
+
+.profile-my-data-form {
+  margin-top: var(--space-2);
+}
+
+.profile-my-data-section {
+  margin: var(--space-5) 0 var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-quiet);
+}
+
+.profile-my-data-hint {
+  margin: 0;
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.profile-my-data-field-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.profile-my-data-success {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-success, #15803d);
+}

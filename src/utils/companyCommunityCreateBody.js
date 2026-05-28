@@ -8,14 +8,6 @@ export function buildCompanyCommunityCreateBody(form) {
   const contactEmail = String(form.contactEmail ?? '').trim()
   if (!contactEmail) return { error: 'El email de contacto es obligatorio.' }
 
-  const presidentPortal = String(form.presidentPortal ?? '').trim()
-  const presidentPiso = String(form.presidentPiso ?? '').trim()
-  if ((presidentPortal && !presidentPiso) || (!presidentPortal && presidentPiso)) {
-    return {
-      error: 'Presidente por vivienda: rellena portal y piso, o déjalos vacíos los dos.',
-    }
-  }
-
   const boardVicePortal = String(form.boardVicePortal ?? '').trim()
   const boardVicePiso = String(form.boardVicePiso ?? '').trim()
   if ((boardVicePortal && !boardVicePiso) || (!boardVicePortal && boardVicePiso)) {
@@ -57,17 +49,27 @@ export function buildCompanyCommunityCreateBody(form) {
 
   const pe = String(form.presidentEmail ?? '').trim()
   if (pe) body.presidentEmail = pe
-  const ae = String(form.communityAdminEmail ?? '').trim()
-  if (ae) body.communityAdminEmail = ae
-  const ce = String(form.conciergeEmail ?? '').trim()
-  if (ce) body.conciergeEmail = ce
+  /* Las comunidades de empresa no llevan administrador en ficha. */
+  const n = Math.min(5, Math.max(1, Number(form.conciergeCount) || 1))
+  const staff = (form.conciergeStaff || [])
+    .slice(0, n)
+    .map((s) => ({
+      email: String(s?.email ?? '').trim(),
+      name: String(s?.name ?? '').trim(),
+    }))
+    .filter((s) => s.email)
+    .map((s) => ({
+      email: s.email,
+      ...(s.name ? { name: s.name } : {}),
+    }))
+  if (staff.length) body.conciergeStaff = staff
+  const ces = String(form.conciergeSubstituteEmail ?? '').trim()
+  if (ces) body.conciergeSubstituteEmail = ces
+  const cesn = String(form.conciergeSubstituteName ?? '').trim()
+  if (cesn) body.conciergeSubstituteName = cesn
   const pse = String(form.poolStaffEmail ?? '').trim()
   if (pse) body.poolStaffEmail = pse
 
-  if (presidentPortal && presidentPiso) {
-    body.presidentPortal = presidentPortal
-    body.presidentPiso = presidentPiso
-  }
   if (boardVicePortal && boardVicePiso) {
     body.boardVicePortal = boardVicePortal
     body.boardVicePiso = boardVicePiso
@@ -96,6 +98,8 @@ export function buildCompanyCommunityCreateBody(form) {
   body.appNavIncidentsEnabled = form.appNavIncidentsEnabled !== false
   body.appNavBookingsEnabled = form.appNavBookingsEnabled !== false
   body.appNavPoolAccessEnabled = form.appNavPoolAccessEnabled === true
+  body.appNavPaqueteriaEnabled = form.appNavPaqueteriaEnabled === true
+  body.appNavCuadernoDiarioEnabled = form.appNavCuadernoDiarioEnabled === true
 
   const pcc = String(form.padelCourtCount ?? '').trim()
   if (pcc) {

@@ -8,7 +8,9 @@ import {
   SERVICE_MESSAGE_THREAD_STATUSES,
   SERVICE_MESSAGE_COMPOSE_STATUSES,
   formatServicePriceDisplay,
+  serviceSubtypeChipLabelEs,
 } from '../constants/serviceRequests.js'
+import ServiceRequestPhotoGallery from '../components/ServiceRequestPhotoGallery.jsx'
 import {
   buildServiceProgressSteps,
   categoryMeta,
@@ -486,13 +488,29 @@ export default function AdminServices() {
 
                 <section className="card sr-detail-panel">
                   <h2 className="sr-detail-panel__h">Mensaje del vecino</h2>
-                  <p className="sr-detail-panel__body">{displayRow.description}</p>
-                  {displayRow.serviceSubtypeLabel || displayRow.preferredDate ? (
+                  {displayRow.description?.trim() ? (
+                    <p className="sr-detail-panel__body">{displayRow.description}</p>
+                  ) : (
+                    <p className="sr-detail-panel__body sr-detail-panel__empty">
+                      Sin texto; revisa las fotos.
+                    </p>
+                  )}
+                  {displayRow.serviceSubtypeLabel ||
+                  displayRow.preferredDate ||
+                  displayRow.needsTechnicalVisit ? (
                     <div className="sr-detail-chip-row">
                       {displayRow.serviceSubtypeLabel ? (
                         <span className="sr-detail-chip">
-                          <span className="sr-detail-chip__k">Tipo de limpieza</span>
+                          <span className="sr-detail-chip__k">
+                            {serviceSubtypeChipLabelEs(displayRow.categoryId)}
+                          </span>
                           <span className="sr-detail-chip__v">{displayRow.serviceSubtypeLabel}</span>
+                        </span>
+                      ) : null}
+                      {displayRow.needsTechnicalVisit ? (
+                        <span className="sr-detail-chip">
+                          <span className="sr-detail-chip__k">Visita</span>
+                          <span className="sr-detail-chip__v">Necesita visita técnica</span>
                         </span>
                       ) : null}
                       {displayRow.preferredDate ? (
@@ -505,25 +523,7 @@ export default function AdminServices() {
                   ) : null}
                 </section>
 
-                {Array.isArray(displayRow.photos) && displayRow.photos.length > 0 ? (
-                  <section className="sr-gallery" aria-label="Fotos adjuntas">
-                    <h2 className="sr-gallery__h">Fotos</h2>
-                    <div className="sr-gallery__grid">
-                      {displayRow.photos.map((src, i) => (
-                        <a
-                          key={i}
-                          href={src}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="sr-gallery__cell"
-                        >
-                          <img src={src} alt={`Foto ${i + 1}`} className="sr-gallery__img" />
-                          <span className="sr-gallery__zoom">Ampliar</span>
-                        </a>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
+                <ServiceRequestPhotoGallery photos={displayRow.photos} heading="Fotos del vecino" />
 
                 {displayRow.priceAmount != null &&
                 ['price_sent', 'accepted', 'rejected', 'in_progress', 'completed'].includes(

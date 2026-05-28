@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  useAuth,
+  canEditResidentFichaFields,
+  canViewCommunityResidents,
+} from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js'
 import {
@@ -8,6 +12,8 @@ import {
   occupiedPuertasForUnit,
   pisoPuertaChoicesForPortal,
 } from '../utils/dwellingPortalChoices.js'
+import UserAvatarDisplay from '../components/UserAvatarDisplay.jsx'
+import { useDialog } from '../context/DialogContext.jsx'
 import './Admin.css'
 import './CommunityAdmin.css'
 import { getSignInPath } from '../utils/signInWebPath.js'
@@ -18,6 +24,13 @@ const JUNTA_OPTIONS = [
   { value: 'vice_president', label: 'Vicepresidente' },
   { value: 'vocal', label: 'Vocal' },
 ]
+
+const JUNTA_LABEL_BY_VALUE = Object.fromEntries(JUNTA_OPTIONS.map((o) => [o.value, o.label]))
+
+function displayField(value) {
+  const t = value != null ? String(value).trim() : ''
+  return t || '—'
+}
 
 const HABITACIONES_CHOICES = ['1', '2', '3', '4', '5']
 const POOL_ACCESS_CHOICES = Array.from({ length: 10 }, (_, i) => String(i + 1))
@@ -50,23 +63,90 @@ const emptyCreateForm = () => ({
   password: '',
 })
 
-export default function CommunityResidents() {
+export default function CommunityResidents({ superAdminScope = false }) {
   const navigate = useNavigate()
-  const { accessToken, communityId, communityAccessCode, community } = useAuth()
+  const { communityId: routeCommunityId } = useParams()
+  const {
+    accessToken,
+    communityId: sessionCommunityId,
+    communityAccessCode,
+    community,
+    userRole,
+    appNavFlags,
+  } = useAuth()
+  const { confirm } = useDialog()
+
+  const [adminCtx, setAdminCtx] = useState(null)
+  const [adminCtxError, setAdminCtxError] = useState('')
+  const [adminCtxLoading, setAdminCtxLoading] = useState(superAdminScope)
+
+  const effectiveCommunityId = superAdminScope
+    ? Number(routeCommunityId)
+    : sessionCommunityId
+  const effectiveAccessCode = superAdminScope
+    ? (adminCtx?.accessCode ?? '').trim().toUpperCase()
+    : communityAccessCode?.trim().toUpperCase() || ''
+  const effectiveCommunityName = superAdminScope ? adminCtx?.name ?? '' : community ?? ''
+
+  const canCreateResidents = superAdminScope && userRole === 'super_admin'
+  const canFichaEdit =
+    (superAdminScope && userRole === 'super_admin') || canEditResidentFichaFields(userRole)
+  const showPoolFichaEdit = canFichaEdit && appNavFlags.poolAccess
+
+  useEffect(() => {
+    if (superAdminScope) {
+      if (userRole !== 'super_admin') {
+        navigate('/admin', { replace: true })
+      }
+      return
+    }
+    if (!canViewCommunityResidents(userRole)) {
+      navigate('/', { replace: true })
+    }
+  }, [userRole, navigate, superAdminScope])
+
+  useEffect(() => {
+    if (!superAdminScope || !accessToken) {
+      setAdminCtxLoading(false)
+      return
+    }
+    const id = Number(routeCommunityId)
+    if (!Number.isInteger(id) || id < 1) {
+      setAdminCtxError('Comunidad no válida')
+      setAdminCtxLoading(false)
+      return
+    }
+    setAdminCtxLoading(true)
+    setAdminCtxError('')
+    fetch(apiUrl(`/api/admin/communities/${id}/alta-vecinos-context`), {
+      headers: jsonAuthHeaders(accessToken),
+    })
+      .then(async (res) => {
+        const d = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+        setAdminCtx(d)
+      })
+      .catch((e) => setAdminCtxError(e.message || 'No se pudo cargar la comunidad'))
+      .finally(() => setAdminCtxLoading(false))
+  }, [superAdminScope, accessToken, routeCommunityId])
   const [list, setList] = useState([])
   const [listError, setListError] = useState('')
   const [loadingList, setLoadingList] = useState(true)
+  const [listPortalFilter, setListPortalFilter] = useState('')
 
   const [form, setForm] = useState(emptyCreateForm)
   const [formError, setFormError] = useState('')
   const [success, setSuccess] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [juntaSavingId, setJuntaSavingId] = useState(null)
+  const [poolSavingId, setPoolSavingId] = useState(null)
   const [passwordResetForId, setPasswordResetForId] = useState(null)
   const [passwordResetValue, setPasswordResetValue] = useState('')
   const [passwordResetBusy, setPasswordResetBusy] = useState(false)
   const [passwordResetError, setPasswordResetError] = useState('')
   const [passwordResetSuccess, setPasswordResetSuccess] = useState('')
+  const [tempPasswordBusyId, setTempPasswordBusyId] = useState(null)
+  const [tempPasswordResultById, setTempPasswordResultById] = useState({})
 
   const [editResident, setEditResident] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -81,7 +161,8 @@ export default function CommunityResidents() {
   const [bulkError, setBulkError] = useState('')
   const [bulkDone, setBulkDone] = useState(null)
 
-  const code = communityAccessCode?.trim().toUpperCase() || ''
+  const code = effectiveAccessCode
+  const communityId = effectiveCommunityId
   const { loading: portalLoading, portals: portalChoicesRaw, dwellingByPortalIndex } =
     useCommunityPortalOptions(
       communityId != null ? communityId : null,
@@ -90,13 +171,32 @@ export default function CommunityResidents() {
     )
 
   const createDwelling = useMemo(
-    () => pisoPuertaChoicesForPortal(form.portal, portalChoicesRaw, dwellingByPortalIndex),
-    [form.portal, portalChoicesRaw, dwellingByPortalIndex],
+    () => pisoPuertaChoicesForPortal(form.portal, portalChoicesRaw, dwellingByPortalIndex, form.piso),
+    [form.portal, form.piso, portalChoicesRaw, dwellingByPortalIndex],
   )
+
+  const portalFilterOptions = useMemo(() => {
+    const set = new Set()
+    for (const p of portalChoicesRaw ?? []) {
+      const t = normDwellPart(p)
+      if (t) set.add(t)
+    }
+    for (const r of list) {
+      const t = normDwellPart(r.portal)
+      if (t) set.add(t)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
+  }, [portalChoicesRaw, list])
+
+  const filteredList = useMemo(() => {
+    const f = normDwellPart(listPortalFilter)
+    if (!f) return list
+    return list.filter((r) => normDwellPart(r.portal) === f)
+  }, [list, listPortalFilter])
 
   const editDwelling = useMemo(() => {
     if (!editForm) return { pisoOptions: null, puertaOptions: null }
-    return pisoPuertaChoicesForPortal(editForm.portal, portalChoicesRaw, dwellingByPortalIndex)
+    return pisoPuertaChoicesForPortal(editForm.portal, portalChoicesRaw, dwellingByPortalIndex, editForm.piso)
   }, [editForm, portalChoicesRaw, dwellingByPortalIndex])
 
   const createPisoSelect = choicesWithLegacy(createDwelling.pisoOptions, form.piso)
@@ -421,6 +521,93 @@ export default function CommunityResidents() {
     }
   }
 
+  const handleGenerateTempPassword = async (resident) => {
+    if (!accessToken || communityId == null) return
+    const label = resident.name?.trim() || unitSummary(resident) || `vecino ${resident.id}`
+    const okConfirm = await confirm({
+      title: 'Contraseña temporal',
+      message: `¿Generar una contraseña temporal nueva para ${label}? La anterior dejará de valer. Cópiala y entrégala al vecino.`,
+      confirmLabel: 'Generar',
+      cancelLabel: 'Cancelar',
+      variant: 'warning',
+    })
+    if (!okConfirm) return
+    setTempPasswordBusyId(resident.id)
+    setListError('')
+    setTempPasswordResultById((prev) => {
+      const next = { ...prev }
+      delete next[resident.id]
+      return next
+    })
+    try {
+      const res = await fetch(
+        apiUrl(`/api/community/residents/${resident.id}/temporary-password`),
+        {
+          method: 'POST',
+          headers: jsonAuthHeaders(accessToken),
+          body: JSON.stringify({
+            communityId,
+            ...(code ? { accessCode: code } : {}),
+          }),
+        },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setListError(data.error || data.message || 'No se pudo generar la contraseña')
+        return
+      }
+      setTempPasswordResultById((prev) => ({
+        ...prev,
+        [resident.id]: {
+          password: data.temporaryPassword ?? '',
+          message: data.message ?? 'Contraseña temporal generada.',
+        },
+      }))
+    } catch {
+      setListError('Error de red')
+    } finally {
+      setTempPasswordBusyId(null)
+    }
+  }
+
+  const handlePoolQuotaChange = async (residentId, poolAccessOwner, poolAccessGuest) => {
+    if (!accessToken || communityId == null) return
+    setPoolSavingId(residentId)
+    setListError('')
+    try {
+      const res = await fetch(apiUrl(`/api/community/residents/${residentId}`), {
+        method: 'PATCH',
+        headers: jsonAuthHeaders(accessToken),
+        body: JSON.stringify({
+          communityId,
+          ...(code ? { accessCode: code } : {}),
+          poolAccessOwner: poolAccessOwner.trim().slice(0, 64) || null,
+          poolAccessGuest: poolAccessGuest.trim().slice(0, 64) || null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setListError(data.error || data.message || 'No se pudo actualizar accesos de piscina')
+        return
+      }
+      setList((prev) =>
+        prev.map((row) =>
+          row.id === residentId
+            ? {
+                ...row,
+                poolAccessOwner: data.poolAccessOwner ?? null,
+                poolAccessGuest: data.poolAccessGuest ?? null,
+              }
+            : row,
+        ),
+      )
+    } catch {
+      setListError('Error de red')
+    } finally {
+      setPoolSavingId(null)
+    }
+  }
+
   const handleJuntaChange = async (residentId, boardRole) => {
     if (!accessToken || communityId == null) return
     setJuntaSavingId(residentId)
@@ -440,11 +627,7 @@ export default function CommunityResidents() {
         setListError(data.error || data.message || 'No se pudo actualizar el cargo de junta')
         return
       }
-      setList((prev) =>
-        prev.map((row) =>
-          row.id === residentId ? { ...row, boardRole: data.boardRole ?? null } : row,
-        ),
-      )
+      await loadList()
     } catch {
       setListError('Error de red')
     } finally {
@@ -457,18 +640,33 @@ export default function CommunityResidents() {
     return parts.length ? parts.join(' · ') : '—'
   }
 
-  const extrasSummary = (r) => {
-    const bits = []
-    if (r.phone?.trim()) bits.push(`Tel. ${r.phone.trim()}`)
-    if (r.habitaciones?.trim()) bits.push(`Hab. ${r.habitaciones.trim()}`)
-    if (r.plazaGaraje?.trim()) bits.push(`Garaje ${r.plazaGaraje.trim()}`)
-    if (r.poolAccessOwner?.trim()) bits.push(`Pisc. tit. ${r.poolAccessOwner.trim()}`)
-    if (r.poolAccessGuest?.trim()) bits.push(`Pisc. inv. ${r.poolAccessGuest.trim()}`)
-    return bits.length ? bits.join(' · ') : null
-  }
-
   if (!accessToken) {
     navigate(getSignInPath(), { replace: true })
+    return null
+  }
+
+  if (superAdminScope && adminCtxLoading) {
+    return (
+      <div className="community-admin-page page-container">
+        <p className="admin-empty-hint">Cargando comunidad…</p>
+      </div>
+    )
+  }
+
+  if (superAdminScope && adminCtxError) {
+    return (
+      <div className="community-admin-page page-container">
+        <p className="admin-banner-error" role="alert">
+          {adminCtxError}
+        </p>
+        <Link to="/admin" className="admin-back-link">
+          Volver al panel super admin
+        </Link>
+      </div>
+    )
+  }
+
+  if (superAdminScope && communityId == null) {
     return null
   }
 
@@ -477,20 +675,54 @@ export default function CommunityResidents() {
       <header className="community-admin-header admin-header">
         <div className="admin-header-inner">
           <div className="community-admin-header-brand">
-            <h1 className="community-admin-title">Alta de vecinos</h1>
+            <h1 className="community-admin-title">
+              {superAdminScope
+                ? 'Alta de vecinos (entrega)'
+                : canCreateResidents
+                  ? 'Alta de vecinos'
+                  : 'Lista de vecinos'}
+            </h1>
             <p className="community-admin-subtitle">
-              Ficha completa: vivienda (portal, piso, puerta) y datos opcionales
-              {community ? ` · ${community}` : ''}
+              {superAdminScope
+                ? 'Crea cuentas para todas las viviendas antes de entregar la app a la comunidad. Código VEC en la ficha de la comunidad.'
+                : canCreateResidents
+                  ? 'Ficha completa: vivienda (portal, piso, puerta) y datos opcionales'
+                  : userRole === 'community_admin'
+                    ? 'Consulta portal, piso y puerta. Las cuentas se crean según la estructura configurada en Super Admin.'
+                    : userRole === 'president'
+                      ? 'Consulta y edita junta y cupos de piscina. Las cuentas de vecino se generan según la estructura de la comunidad (Super Admin).'
+                      : 'Consulta portal, piso y puerta de cada vivienda. Las cuentas las crea De Camino según la estructura de la finca.'}
+              {effectiveCommunityName ? ` · ${effectiveCommunityName}` : ''}
+              {superAdminScope && code ? (
+                <>
+                  {' '}
+                  · VEC: <code>{code}</code>
+                </>
+              ) : null}
             </p>
           </div>
-          <Link to="/community-admin" className="admin-back-link">
-            Volver al panel
+          <Link
+            to={
+              superAdminScope
+                ? '/admin'
+                : userRole === 'community_admin' || userRole === 'president'
+                  ? '/community-admin'
+                  : '/'
+            }
+            className="admin-back-link"
+          >
+            {superAdminScope
+              ? 'Volver al panel super admin'
+              : userRole === 'community_admin' || userRole === 'president'
+                ? 'Volver al panel'
+                : 'Volver a inicio'}
           </Link>
         </div>
       </header>
 
       <main className="community-admin-main admin-main page-container">
         <div className="community-admin-inner">
+          {canCreateResidents ? (
           <section className="community-admin-section">
             <h2 className="community-admin-section-title">Nuevo vecino</h2>
             <p className="community-admin-section-intro">
@@ -772,23 +1004,37 @@ export default function CommunityResidents() {
               </button>
             </form>
           </section>
+          ) : null}
 
           <section className="community-admin-section">
             <h2 className="community-admin-section-title">Vecinos dados de alta</h2>
-            <p className="community-admin-section-intro community-residents-junta-intro">
-              Cargo en la junta por vivienda: el <strong>presidente</strong> inicia sesión como vecino y obtiene el
-              panel de gestión; vice y vocal quedan registrados en la comunidad (sin permisos extra en la app por
-              ahora).
-            </p>
-            <p className="community-residents-bulk-actions">
-              <button type="button" className="btn btn--ghost btn--small" onClick={openBulkModal}>
-                Crear cuentas en viviendas sin vecino…
-              </button>
-              <span className="community-residents-bulk-actions-hint">
-                Usa la misma estructura de portales/plantas/puertas que en Super Admin; contraseña inicial común para
-                todas las cuentas creadas en un solo paso.
-              </span>
-            </p>
+            {canFichaEdit ? (
+              <p className="community-admin-section-intro community-residents-junta-intro">
+                Cargo en la junta por <strong>portal + piso + puerta</strong> (cada apartamento es distinto). El{' '}
+                <strong>presidente</strong> inicia sesión como vecino y obtiene el panel de gestión; vice y vocal quedan
+                registrados en la comunidad (sin permisos extra en la app por ahora).
+              </p>
+            ) : null}
+            {canCreateResidents ? (
+              <p className="community-residents-bulk-actions">
+                <button type="button" className="btn btn--ghost btn--small" onClick={openBulkModal}>
+                  Crear cuentas en viviendas sin vecino…
+                </button>
+                <span className="community-residents-bulk-actions-hint">
+                  Usa la misma estructura de portales/plantas/puertas que en Super Admin; contraseña inicial común para
+                  todas las cuentas creadas en un solo paso.
+                </span>
+              </p>
+            ) : canFichaEdit ? (
+              <p className="community-admin-section-intro">
+                Consulta todos los datos del vecino. Puedes asignar cargo de junta y cupos de piscina (titular e
+                invitados), y generar contraseña temporal (no se cambia portal, piso ni puerta).
+              </p>
+            ) : (
+              <p className="community-admin-section-intro">
+                Consulta portal, piso y puerta de cada vivienda.
+              </p>
+            )}
             {loadingList ? (
               <p className="community-admin-section-intro">Cargando…</p>
             ) : listError ? (
@@ -798,46 +1044,203 @@ export default function CommunityResidents() {
             ) : list.length === 0 ? (
               <p className="community-admin-section-intro">Aún no hay cuentas con portal/piso en esta comunidad.</p>
             ) : (
+              <>
+                {portalFilterOptions.length > 0 ? (
+                  <div className="community-residents-portal-filter">
+                    <label className="community-residents-portal-filter-label" htmlFor="cr-list-portal-filter">
+                      Filtrar por portal
+                    </label>
+                    <select
+                      id="cr-list-portal-filter"
+                      className="auth-input auth-select community-residents-portal-filter-select"
+                      value={listPortalFilter}
+                      onChange={(e) => setListPortalFilter(e.target.value)}
+                      disabled={portalLoading && portalFilterOptions.length === 0}
+                    >
+                      <option value="">Todos los portales ({list.length})</option>
+                      {portalFilterOptions.map((p) => {
+                        const count = list.filter((r) => normDwellPart(r.portal) === p).length
+                        return (
+                          <option key={p} value={p}>
+                            Portal {p} ({count})
+                          </option>
+                        )
+                      })}
+                    </select>
+                    {listPortalFilter ? (
+                      <p className="community-residents-portal-filter-meta">
+                        {filteredList.length === 0
+                          ? `Ninguna vivienda en portal ${listPortalFilter}`
+                          : `${filteredList.length} vivienda${filteredList.length === 1 ? '' : 's'} en portal ${listPortalFilter}`}
+                        {' · '}
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--small community-residents-portal-filter-clear"
+                          onClick={() => setListPortalFilter('')}
+                        >
+                          Ver todos
+                        </button>
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {filteredList.length === 0 ? (
+                  <p className="community-admin-section-intro">
+                    No hay vecinos en el portal seleccionado.{' '}
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--small"
+                      onClick={() => setListPortalFilter('')}
+                    >
+                      Ver todos los portales
+                    </button>
+                  </p>
+                ) : (
               <ul className="community-residents-list card">
-                {list.map((r) => (
+                {filteredList.map((r) => {
+                  const tempResult = tempPasswordResultById[r.id]
+                  return (
                   <li key={r.id} className="community-residents-list-item">
                     <div className="community-residents-list-row">
+                      <div className="community-residents-list-content">
                       <div className="community-residents-list-unit">
-                        <strong>{unitSummary(r)}</strong>
+                        <strong className="community-residents-list-heading">{unitSummary(r)}</strong>
                         {r.name ? (
-                          <>
-                            <span aria-hidden="true"> — </span>
-                            <span>{r.name}</span>
-                          </>
+                          <span className="community-residents-list-name">{r.name}</span>
                         ) : null}
-                        {r.hasEmail ? (
-                          <span className="community-residents-badge">también con correo</span>
-                        ) : null}
-                        {extrasSummary(r) ? (
-                          <span className="community-residents-unit-line">{extrasSummary(r)}</span>
-                        ) : null}
+                        <dl className="community-residents-detail-dl">
+                          <div>
+                            <dt>Portal</dt>
+                            <dd>{displayField(r.portal)}</dd>
+                          </div>
+                          <div>
+                            <dt>Piso</dt>
+                            <dd>{displayField(r.piso)}</dd>
+                          </div>
+                          <div>
+                            <dt>Puerta</dt>
+                            <dd>{displayField(r.puerta)}</dd>
+                          </div>
+                          <div>
+                            <dt>Nombre</dt>
+                            <dd>{displayField(r.name)}</dd>
+                          </div>
+                          <div>
+                            <dt>Email</dt>
+                            <dd>{displayField(r.email)}</dd>
+                          </div>
+                          <div>
+                            <dt>Teléfono</dt>
+                            <dd>{displayField(r.phone)}</dd>
+                          </div>
+                          <div>
+                            <dt>Habitaciones</dt>
+                            <dd>{displayField(r.habitaciones)}</dd>
+                          </div>
+                          <div>
+                            <dt>Plaza garaje</dt>
+                            <dd>{displayField(r.plazaGaraje)}</dd>
+                          </div>
+                          {showPoolFichaEdit ? (
+                            <>
+                              <div>
+                                <dt>Piscina (titular)</dt>
+                                <dd>
+                                  <select
+                                    className="auth-input auth-select community-residents-pool-select"
+                                    value={dwellingSelectValue(POOL_ACCESS_CHOICES, r.poolAccessOwner)}
+                                    disabled={poolSavingId === r.id}
+                                    onChange={(e) =>
+                                      void handlePoolQuotaChange(
+                                        r.id,
+                                        e.target.value,
+                                        r.poolAccessGuest ?? '',
+                                      )
+                                    }
+                                    aria-label={`Accesos titular piscina, ${unitSummary(r)}`}
+                                  >
+                                    <option value="">—</option>
+                                    {POOL_ACCESS_CHOICES.map((n) => (
+                                      <option key={n} value={n}>
+                                        {n}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Piscina (invitados)</dt>
+                                <dd>
+                                  <select
+                                    className="auth-input auth-select community-residents-pool-select"
+                                    value={dwellingSelectValue(POOL_ACCESS_CHOICES, r.poolAccessGuest)}
+                                    disabled={poolSavingId === r.id}
+                                    onChange={(e) =>
+                                      void handlePoolQuotaChange(
+                                        r.id,
+                                        r.poolAccessOwner ?? '',
+                                        e.target.value,
+                                      )
+                                    }
+                                    aria-label={`Accesos invitados piscina, ${unitSummary(r)}`}
+                                  >
+                                    <option value="">—</option>
+                                    {POOL_ACCESS_CHOICES.map((n) => (
+                                      <option key={n} value={n}>
+                                        {n}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </dd>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                <dt>Piscina (titular)</dt>
+                                <dd>{displayField(r.poolAccessOwner)}</dd>
+                              </div>
+                              <div>
+                                <dt>Piscina (invitados)</dt>
+                                <dd>{displayField(r.poolAccessGuest)}</dd>
+                              </div>
+                            </>
+                          )}
+                          {!canFichaEdit ? (
+                            <div>
+                              <dt>Junta</dt>
+                              <dd>{JUNTA_LABEL_BY_VALUE[r.boardRole ?? 'none'] ?? '—'}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
                       </div>
-                      <div className="community-residents-list-junta">
-                        <label className="community-residents-junta-label" htmlFor={`junta-${r.id}`}>
-                          Junta
-                        </label>
-                        <select
-                          id={`junta-${r.id}`}
-                          className="auth-input auth-select community-residents-junta-select"
-                          value={r.boardRole ?? 'none'}
-                          disabled={juntaSavingId === r.id}
-                          onChange={(e) => void handleJuntaChange(r.id, e.target.value)}
-                        >
-                          {JUNTA_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
-                        {juntaSavingId === r.id ? (
-                          <span className="community-residents-junta-saving">Guardando…</span>
-                        ) : null}
-                      </div>
+                      {canFichaEdit ? (
+                        <div className="community-residents-list-junta">
+                          <label className="community-residents-junta-label" htmlFor={`junta-${r.id}`}>
+                            Junta
+                          </label>
+                          <select
+                            id={`junta-${r.id}`}
+                            className="auth-input auth-select community-residents-junta-select"
+                            value={r.boardRole ?? 'none'}
+                            disabled={juntaSavingId === r.id}
+                            onChange={(e) => void handleJuntaChange(r.id, e.target.value)}
+                          >
+                            {JUNTA_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                          {juntaSavingId === r.id ? (
+                            <span className="community-residents-junta-saving">Guardando…</span>
+                          ) : null}
+                          {poolSavingId === r.id ? (
+                            <span className="community-residents-junta-saving">Guardando piscina…</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {canFichaEdit ? (
                       <div className="community-residents-list-actions">
                         <button
                           type="button"
@@ -854,8 +1257,38 @@ export default function CommunityResidents() {
                           Nueva contraseña
                         </button>
                       </div>
+                      ) : null}
+                      <div className="community-residents-list-actions community-residents-list-actions--stack">
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--sm"
+                          disabled={tempPasswordBusyId === r.id}
+                          onClick={() => void handleGenerateTempPassword(r)}
+                        >
+                          {tempPasswordBusyId === r.id ? 'Generando…' : 'Generar contraseña'}
+                        </button>
+                      </div>
+                      </div>
+                      <UserAvatarDisplay
+                        name={r.name}
+                        profileImageUrl={r.profileImageUrl}
+                        size="lg"
+                        hideWithoutPhoto
+                        className="community-residents-list-photo"
+                      />
                     </div>
-                    {passwordResetForId === r.id ? (
+                    {tempResult?.password ? (
+                      <div className="community-residents-temp-password-banner" role="status">
+                        <p className="community-residents-temp-password-label">
+                          Contraseña temporal (cópiala ahora):
+                        </p>
+                        <code className="community-residents-temp-password-code">{tempResult.password}</code>
+                        {tempResult.message ? (
+                          <p className="community-residents-temp-password-hint">{tempResult.message}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {canFichaEdit && passwordResetForId === r.id ? (
                       <form
                         className="community-residents-password-panel"
                         onSubmit={(ev) => void handlePasswordResetSubmit(ev)}
@@ -916,8 +1349,11 @@ export default function CommunityResidents() {
                       </p>
                     ) : null}
                   </li>
-                ))}
+                  )
+                })}
               </ul>
+                )}
+              </>
             )}
           </section>
         </div>

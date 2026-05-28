@@ -6,6 +6,7 @@ import { loadVecindarioUser, userMayManageIncidents } from '../lib/community-inc
 import {
   isValidServiceStatus,
   userMayCreateServiceRequest,
+  userMayViewCommunityServiceOverview,
   userMayViewServiceRequestAsOwner,
   userMayPostServiceQuoteMessage,
 } from '../lib/community-services-access.js'
@@ -244,6 +245,37 @@ function mapRowDetail(row: ServiceRequestRow, opts: { isSuper: boolean; viewerUs
   return { ...list, photos: [] as string[] }
 }
 
+/** Vista gestión comunidad: quién pidió qué y en qué estado (sin fotos ni mensajes). */
+function mapRowCommunityOverview(row: ServiceRequestRow) {
+  const price =
+    row.priceAmount != null
+      ? {
+          min: String(row.priceAmount),
+          max: row.priceAmountMax != null ? String(row.priceAmountMax) : null,
+        }
+      : null
+  return {
+    id: row.id,
+    communityId: row.communityId,
+    categoryId: row.categoryId,
+    categoryLabel: row.categoryLabel,
+    serviceSubtype: row.serviceSubtype ?? null,
+    serviceSubtypeLabel: serviceSubtypeLabel(row.categoryId, row.serviceSubtype),
+    needsTechnicalVisit: row.needsTechnicalVisit === true,
+    description: row.description,
+    preferredDate: row.preferredDate ? row.preferredDate.toISOString().slice(0, 10) : null,
+    status: row.status,
+    price,
+    providerName: row.providerName?.trim() || null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    requesterName: row.requester.name?.trim() || null,
+    requesterEmail: row.requester.email?.trim() || null,
+    requesterPortal: row.requester.portal?.trim() || null,
+    requesterPiso: row.requester.piso?.trim() || null,
+  }
+}
+
 async function loadRequestFull(id: number) {
   return svc.communityServiceRequest.findUnique({
     where: { id },
@@ -284,6 +316,44 @@ communityServicesRouter.get('/my', requireAuth, async (req, res) => {
   res.json(
     rows.map((r) => mapRowList(r, { isSuper: false, viewerUserId: user.id })),
   )
+})
+
+/** GET /api/services/community-overview?communityId= — administrador / presidente / conserje: solo lectura */
+communityServicesRouter.get('/community-overview', requireAuth, async (req, res) => {
+  const communityId = Number(req.query.communityId)
+  const statusFilter =
+    typeof req.query.status === 'string' && isValidServiceStatus(req.query.status)
+      ? req.query.status
+      : undefined
+  if (!Number.isInteger(communityId) || communityId < 1) {
+    res.status(400).json({ error: 'communityId inválido' })
+    return
+  }
+  const user = await loadVecindarioUser(req.userId!)
+  const comm = await prisma.community.findUnique({ where: { id: communityId } })
+  if (!user || !comm) {
+    res.status(404).json({ error: 'No encontrado' })
+    return
+  }
+  if (!userMayViewCommunityServiceOverview(user, comm)) {
+    res.status(403).json({ error: 'No autorizado para ver solicitudes de servicio de la comunidad' })
+    return
+  }
+  const where: { communityId: number; status?: string } = { communityId }
+  if (statusFilter) where.status = statusFilter
+  const rows = await svc.communityServiceRequest.findMany({
+    where,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: 200,
+    include: {
+      requester: { select: { id: true, email: true, name: true, piso: true, portal: true } },
+    },
+  })
+  res.json({
+    items: rows.map(mapRowCommunityOverview),
+    readOnly: true,
+    hint: 'Los presupuestos y la gestión comercial las realiza De Camino (super administrador).',
+  })
 })
 
 /** GET /api/services/management-metrics?communityId= — staff gestión (conteo solicitudes en revisión) */

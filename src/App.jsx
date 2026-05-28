@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { DialogProvider } from './context/DialogContext'
 import { NotificationsProvider } from './context/NotificationsContext'
 import { ActivityProvider } from './context/ActivityContext'
 import AppLayout from './layouts/AppLayout'
@@ -14,9 +15,14 @@ import Incidents from './pages/Incidents'
 import Bookings from './pages/Bookings'
 import Activity from './pages/Activity'
 import Profile from './pages/Profile'
+import ProfileMyData from './pages/ProfileMyData'
+import ProfileNotifications from './pages/ProfileNotifications'
+import ProfileHelp from './pages/ProfileHelp'
+import ProfileChangePassword from './pages/ProfileChangePassword'
 import Admin from './pages/Admin'
 import AdminServices from './pages/AdminServices'
 import CommunityAdmin from './pages/CommunityAdmin'
+import CommunityServicesOverview from './pages/CommunityServicesOverview'
 import CommunityResidents from './pages/CommunityResidents'
 import CompanyAdminDashboard from './pages/CompanyAdminDashboard'
 import RequireRole from './components/RequireRole'
@@ -24,12 +30,18 @@ import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
 import CompletePiso from './pages/CompletePiso'
 import OpenAppLanding from './pages/OpenAppLanding'
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
+import AccountDeletionPage from './pages/AccountDeletionPage'
 import AppBootstrap from './bootstrap/AppBootstrap'
 import PWAUpdateBanner from './components/PWAUpdateBanner'
 import { getSignInPath } from './utils/signInWebPath'
 import PoolAccessPage from './pages/PoolAccessPage'
 import PoolSelfCheckinPage from './pages/PoolSelfCheckinPage'
 import PoolValidatePage from './pages/PoolValidatePage'
+import PaqueteriaListPage from './pages/paqueteria/PaqueteriaListPage'
+import PaqueteriaNewPage from './pages/paqueteria/PaqueteriaNewPage'
+import PaqueteriaDetailPage from './pages/paqueteria/PaqueteriaDetailPage'
+import CuadernoDiarioPage from './pages/cuaderno-diario/CuadernoDiarioPage'
 import './App.css'
 
 const routerBasename =
@@ -39,6 +51,7 @@ function App() {
   return (
     <BrowserRouter basename={routerBasename}>
       <AuthProvider>
+        <DialogProvider>
         <NotificationsProvider>
         <ActivityProvider>
         {/* Registro SW en todas las rutas (/admin, /login, …), no solo dentro de AppLayout */}
@@ -49,10 +62,21 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/c/:loginSlug/login" element={<Login />} />
           <Route path="/open-app" element={<OpenAppLanding />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/delete-account" element={<AccountDeletionPage />} />
+        <Route path="/delete-data" element={<AccountDeletionPage />} />
           <Route path="/solicitar-oferta" element={<QuoteRequestPage />} />
           <Route path="/register" element={<Navigate to="/solicitar-oferta" replace />} />
           <Route path="/completar-piso" element={<CompletePiso />} />
           <Route path="/admin" element={<RequireRole role="super_admin"><Admin /></RequireRole>} />
+          <Route
+            path="/admin/communities/:communityId/vecinos"
+            element={
+              <RequireRole role="super_admin">
+                <CommunityResidents superAdminScope />
+              </RequireRole>
+            }
+          />
           <Route
             path="/company-admin"
             element={
@@ -80,7 +104,7 @@ function App() {
           <Route
             path="/community-admin"
             element={
-              <RequireRole role={['community_admin', 'president', 'concierge']}>
+              <RequireRole role={['community_admin', 'president', 'concierge', 'company_admin']}>
                 <RequirePiso>
                   <CommunityAdmin />
                 </RequirePiso>
@@ -90,9 +114,21 @@ function App() {
           <Route
             path="/community-admin/vecinos"
             element={
-              <RequireRole role={['community_admin', 'president', 'concierge']}>
+              <RequireRole role={['community_admin', 'president', 'concierge', 'company_admin']}>
                 <RequirePiso>
                   <CommunityResidents />
+                </RequirePiso>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/community-admin/servicios"
+            element={
+              <RequireRole role={['community_admin', 'president', 'concierge', 'company_admin']}>
+                <RequirePiso>
+                  <RequireCommunityNavTab tab="services">
+                    <CommunityServicesOverview />
+                  </RequireCommunityNavTab>
                 </RequirePiso>
               </RequireRole>
             }
@@ -141,6 +177,10 @@ function App() {
             />
             <Route path="activity" element={<Activity />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="profile/mis-datos" element={<ProfileMyData />} />
+            <Route path="profile/cambiar-contrasena" element={<ProfileChangePassword />} />
+            <Route path="profile/notificaciones" element={<ProfileNotifications />} />
+            <Route path="profile/ayuda" element={<ProfileHelp />} />
             <Route
               path="pool"
               element={
@@ -158,11 +198,44 @@ function App() {
               }
             />
             <Route path="pool-validate" element={<PoolValidatePage />} />
+            <Route
+              path="paqueteria"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <PaqueteriaListPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="paqueteria/nuevo"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <PaqueteriaNewPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="paqueteria/:id"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <PaqueteriaDetailPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="cuaderno-diario"
+              element={
+                <RequireCommunityNavTab tab="cuadernoDiario">
+                  <CuadernoDiarioPage />
+                </RequireCommunityNavTab>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
         </ActivityProvider>
         </NotificationsProvider>
+        </DialogProvider>
       </AuthProvider>
     </BrowserRouter>
   )

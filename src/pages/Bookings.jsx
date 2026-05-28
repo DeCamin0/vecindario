@@ -1,7 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { canManageCommunity, canActAsResident } from '../context/AuthContext'
+import { useDialog } from '../context/DialogContext'
+import {
+  canManageCommunity,
+  canActAsResident,
+  canBookOnBehalfOfNeighbor,
+} from '../context/AuthContext'
 import { isGymAccessControlEnabled } from '../config/clientFeatures'
 import { apiUrl } from '../config/api.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
@@ -46,13 +51,27 @@ function mapServerBookingRow(row) {
     date: row.bookingDate,
     timeSlot: row.slotKey || `min-${row.startMinute}-${row.endMinute}`,
     timeSlotLabel: label,
-    userEmail: row.actorEmail,
-    userName: row.actorEmail ? row.actorEmail.split('@')[0] : undefined,
+    userEmail: row.residentEmail || row.actorEmail,
+    userName:
+      row.residentName?.trim() ||
+      (row.residentEmail || row.actorEmail
+        ? String(row.residentEmail || row.actorEmail).split('@')[0]
+        : undefined),
+    ...(row.residentName ? { residentName: row.residentName.trim() } : {}),
     ...(row.actorPiso ? { piso: row.actorPiso } : {}),
     ...(row.actorPortal ? { portal: row.actorPortal } : {}),
+    ...(row.bookedByName?.trim() ? { bookedByName: row.bookedByName.trim() } : {}),
+    ...(row.vecindarioUserId != null ? { vecindarioUserId: row.vecindarioUserId } : {}),
     recordedAt: row.createdAt,
     fromServer: true,
   }
+}
+
+function bookingCancelConfirmMessage(item) {
+  const when = item.date
+    ? `${item.date}${item.timeSlotLabel ? `, ${item.timeSlotLabel}` : ''}`
+    : item.timeSlotLabel || 'esta reserva'
+  return `¿Cancelar la reserva de ${item.facility || 'espacio'} (${when})? El tramo quedará libre para otros vecinos.`
 }
 
 /** Con sesión + comunidad, la reserva se guarda en BD (mismo origen que Actividad). */
@@ -510,11 +529,13 @@ function bookingDateMonthYearEs(dateKey) {
 
 export default function Bookings() {
   const { userRole, user, communityId, accessToken, communityAccessCode } = useAuth()
+  const { confirm } = useDialog()
   const [serverBookings, setServerBookings] = useState([])
   const showManagement = canManageCommunity(userRole)
   const showCreateForm = canActAsResident(userRole)
   const isStaffBookingMode =
     userRole === 'concierge' || userRole === 'super_admin' || canManageCommunity(userRole)
+  const canOnBehalfBooking = canBookOnBehalfOfNeighbor(userRole)
   /** Gestión sin vivienda en ficha: no reservan «para sí»; solo en nombre de vecino. */
   const staffMayReserveAsSelf = Boolean(user?.piso?.trim() && user?.portal?.trim())
   /** Conserje: solo supervisión en gimnasio, sin registrar propia entrada/salida. */
@@ -535,6 +556,21 @@ export default function Bookings() {
   const [staffNeighbors, setStaffNeighbors] = useState([])
   const [staffNeighborsStatus, setStaffNeighborsStatus] = useState('idle')
   const [staffOnBehalfUserId, setStaffOnBehalfUserId] = useState('')
+  /** Gestión: consulta de ocupación en fechas lejanas (no crear reserva desde este modo). */
+  const [staffHistoryMode, setStaffHistoryMode] = useState(false)
+  const [cancellingBookingId, setCancellingBookingId] = useState(null)
+  const [cancelError, setCancelError] = useState('')
+
+  const canConciergeCancelAny = userRole === 'concierge'
+  const canCancelBookingItem = useCallback(
+    (item) => {
+      if (!item?.fromServer || item.serverId == null || !accessToken) return false
+      if (canConciergeCancelAny) return true
+      if (user?.id != null && item.vecindarioUserId === Number(user.id)) return true
+      return emailsMatchForAccount(item.userEmail, user?.email)
+    },
+    [accessToken, canConciergeCancelAny, user?.email, user?.id],
+  )
 
   const delay = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), [])
 
@@ -616,8 +652,41 @@ export default function Bookings() {
     refreshServerBookings()
   }, [refreshServerBookings])
 
+  const handleCancelBooking = useCallback(
+    async (item) => {
+      if (!canCancelBookingItem(item) || cancellingBookingId != null) return
+      const ok = await confirm({
+        title: 'Cancelar reserva',
+        message: bookingCancelConfirmMessage(item),
+        confirmLabel: 'Sí, cancelar',
+        cancelLabel: 'No, mantener',
+        variant: 'danger',
+      })
+      if (!ok) return
+      setCancelError('')
+      setCancellingBookingId(item.serverId)
+      try {
+        const res = await fetch(apiUrl(`/api/bookings/${item.serverId}`), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setCancelError(typeof data.error === 'string' ? data.error : 'No se pudo cancelar la reserva.')
+          return
+        }
+        await refreshServerBookings()
+      } catch {
+        setCancelError('Error de red al cancelar la reserva.')
+      } finally {
+        setCancellingBookingId(null)
+      }
+    },
+    [accessToken, canCancelBookingItem, cancellingBookingId, confirm, refreshServerBookings],
+  )
+
   useEffect(() => {
-    if (!isStaffBookingMode || !accessToken || communityId == null) {
+    if (!canOnBehalfBooking || !accessToken || communityId == null) {
       setStaffNeighbors([])
       setStaffNeighborsStatus('idle')
       return
@@ -644,7 +713,7 @@ export default function Bookings() {
     return () => {
       cancelled = true
     }
-  }, [isStaffBookingMode, accessToken, communityId])
+  }, [canOnBehalfBooking, accessToken, communityId])
 
   /** Solo filas del servidor: ocupación de tramos y «Tus registros recientes» coinciden con la BD. */
   const allBookings = useMemo(() => [...serverBookings], [serverBookings])
@@ -760,7 +829,7 @@ export default function Bookings() {
   }, [communityBookingConfig])
 
   const padelCapUser = useMemo(() => {
-    if (!isStaffBookingMode) return user
+    if (!canOnBehalfBooking) return user
     if (staffOnBehalfUserId) {
       const n = staffNeighbors.find((x) => String(x.id) === String(staffOnBehalfUserId))
       if (n) {
@@ -774,7 +843,7 @@ export default function Bookings() {
     }
     if (staffMayReserveAsSelf) return user
     return null
-  }, [isStaffBookingMode, staffOnBehalfUserId, staffNeighbors, user, staffMayReserveAsSelf])
+  }, [canOnBehalfBooking, staffOnBehalfUserId, staffNeighbors, user, staffMayReserveAsSelf])
 
   /** Tira horizontal: misma ventana corta que los vecinos (ayer + hoy + días futuros). */
   const padelStripDayKeys = useMemo(() => {
@@ -797,20 +866,24 @@ export default function Bookings() {
     return buildSalonStaffJumpDateKeys(spaceConfig.maxDaysInAdvance ?? 14)
   }, [isStaffBookingMode, salonDayBookingFlow, spaceConfig])
 
-  /** Validación del input «Ir a fecha» (gestión) y valor controlado; vecinos pádel usan tira en el fallback. */
-  const bookingDatePickerKeySet = useMemo(() => {
-    if (padelConciergeJumpKeys?.length) return new Set(padelConciergeJumpKeys)
-    if (salonStaffJumpKeys?.length) return new Set(salonStaffJumpKeys)
-    if (padelStripDayKeys?.length) return new Set(padelStripDayKeys)
-    return null
-  }, [padelConciergeJumpKeys, salonStaffJumpKeys, padelStripDayKeys])
+  /** Histórico gestión: ~120 días atrás + ventana futura (solo consulta). */
+  const staffHistoryDateKeySet = useMemo(() => {
+    if (!isStaffBookingMode) return null
+    const keys = padelConciergeJumpKeys ?? salonStaffJumpKeys
+    return keys?.length ? new Set(keys) : null
+  }, [isStaffBookingMode, padelConciergeJumpKeys, salonStaffJumpKeys])
 
-  const staffConciergeDateInputMinMax = useMemo(() => {
+  const staffHistoryDateInputMinMax = useMemo(() => {
     const keys = padelConciergeJumpKeys ?? salonStaffJumpKeys
     if (!keys?.length) return { min: '', max: '' }
     const sorted = [...keys].sort()
     return { min: sorted[0], max: sorted[sorted.length - 1] }
   }, [padelConciergeJumpKeys, salonStaffJumpKeys])
+
+  const staffShowsHistoryControl = Boolean(
+    isStaffBookingMode &&
+      ((isPadelFacilityId(selectedFacility) && communityBookingConfig) || salonDayBookingFlow),
+  )
 
   const dateOptions = useMemo(() => {
     if (!spaceConfig) return []
@@ -951,12 +1024,23 @@ export default function Bookings() {
     [isStaffBookingMode, communityBookingsForManagement, myBookingsPreview],
   )
 
+  const exitStaffHistoryMode = useCallback(() => {
+    setStaffHistoryMode(false)
+    setPadelCapError('')
+    setBooking((prev) => ({
+      ...prev,
+      date: localDateKey(new Date()),
+      timeSlot: null,
+    }))
+  }, [])
+
   const handleFacilitySelect = (id) => {
     setSelectedFacility(selectedFacility === id ? null : id)
     setErrors({})
     setPadelCapError('')
     setGymAccessMessage(null)
     setStaffOnBehalfUserId('')
+    setStaffHistoryMode(false)
     if (selectedFacility !== id) {
       if (isStaffBookingMode) {
         if (isPadelFacilityId(id)) {
@@ -982,10 +1066,10 @@ export default function Bookings() {
     if (errors.date) setErrors((prev) => ({ ...prev, date: null }))
   }
 
-  const handleStaffDateJumpInputChange = (value) => {
+  const handleStaffHistoryDateChange = (value) => {
     if (!value) return
-    if (!bookingDatePickerKeySet || !bookingDatePickerKeySet.has(value)) {
-      setPadelCapError('Fecha fuera del rango permitido para consulta o reserva.')
+    if (!staffHistoryDateKeySet || !staffHistoryDateKeySet.has(value)) {
+      setPadelCapError('Fecha fuera del rango del histórico (~120 días atrás hasta el fin de la ventana de reservas).')
       return
     }
     setPadelCapError('')
@@ -1011,13 +1095,14 @@ export default function Bookings() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setPadelCapError('')
+    if (staffHistoryMode) return
     if (!validate() || isSubmitting) return
 
-    if (isStaffBookingMode && !staffMayReserveAsSelf) {
+    if (canOnBehalfBooking && !staffMayReserveAsSelf) {
       const parsedBehalf = Number.parseInt(String(staffOnBehalfUserId), 10)
       if (!Number.isInteger(parsedBehalf) || parsedBehalf < 1) {
         setPadelCapError(
-          'Elige un vecino en «Reserva para». El personal sin piso y portal en la comunidad no puede reservar para la cuenta de gestión.',
+          'Elige un vecino en «Reserva para». El conserje sin piso y portal en la comunidad no puede reservar para la cuenta de gestión.',
         )
         return
       }
@@ -1166,7 +1251,7 @@ export default function Bookings() {
         const behalfParsed = Number.parseInt(String(staffOnBehalfUserId), 10)
         const selfId = user?.id != null ? Number(user.id) : NaN
         const useBehalf =
-          isStaffBookingMode &&
+          canOnBehalfBooking &&
           Number.isInteger(behalfParsed) &&
           behalfParsed >= 1 &&
           Number.isInteger(selfId) &&
@@ -1498,8 +1583,8 @@ export default function Bookings() {
                     {isStaffBookingMode ? (
                       <>
                         {' '}
-                        Como gestión puedes revisar hasta ~120 días atrás (solo consulta; las reservas nuevas son solo
-                        desde hoy en la ventana habitual) y ver quién ocupa cada tramo.
+                        Las reservas nuevas se hacen con la tira de días. Para ver ocupación de cualquier otra fecha,
+                        usa «Consultar histórico» (solo lectura).
                       </>
                     ) : null}
                   </>
@@ -1518,30 +1603,58 @@ export default function Bookings() {
               </span>
             </div>
             {errors.date && <p className="form-error form-error--inline" role="alert">{errors.date}</p>}
-            {isStaffBookingMode &&
-              staffConciergeDateInputMinMax.min &&
-              ((isPadelFacilityId(selectedFacility) && communityBookingConfig) || salonDayBookingFlow) && (
-                <div className="booking-field booking-concierge-date-pick">
-                  <label className="form-label" htmlFor="booking-staff-date-jump-input">
-                    Ir a fecha concreta
-                  </label>
-                  <input
-                    id="booking-staff-date-jump-input"
-                    type="date"
-                    className="booking-concierge-date-input"
-                    min={staffConciergeDateInputMinMax.min}
-                    max={staffConciergeDateInputMinMax.max}
-                    value={
-                      booking.date && bookingDatePickerKeySet?.has(booking.date) ? booking.date : ''
-                    }
-                    onChange={(e) => handleStaffDateJumpInputChange(e.target.value)}
-                  />
-                  <p className="booking-field-hint">
-                    Útil para saltar en el calendario o revisar días anteriores (solo lectura).
-                  </p>
-                </div>
-              )}
-            {isStaffBookingMode && accessToken && communityId != null && (
+            {staffShowsHistoryControl && (
+              <div className="booking-staff-history-toggle">
+                {staffHistoryMode ? (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    onClick={exitStaffHistoryMode}
+                  >
+                    Volver a reservar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    onClick={() => {
+                      setStaffHistoryMode(true)
+                      setPadelCapError('')
+                      setBooking((prev) => ({
+                        ...prev,
+                        date: prev.date ?? localDateKey(new Date()),
+                        timeSlot: null,
+                      }))
+                    }}
+                  >
+                    Consultar histórico
+                  </button>
+                )}
+              </div>
+            )}
+            {staffHistoryMode && staffHistoryDateInputMinMax.min && (
+              <div className="booking-staff-history-panel card">
+                <label className="form-label" htmlFor="booking-staff-history-date-input">
+                  Histórico — elegir día
+                </label>
+                <input
+                  id="booking-staff-history-date-input"
+                  type="date"
+                  className="booking-concierge-date-input"
+                  min={staffHistoryDateInputMinMax.min}
+                  max={staffHistoryDateInputMinMax.max}
+                  value={
+                    booking.date && staffHistoryDateKeySet?.has(booking.date) ? booking.date : ''
+                  }
+                  onChange={(e) => handleStaffHistoryDateChange(e.target.value)}
+                />
+                <p className="booking-field-hint">
+                  Solo consulta: ocupación y quién reservó. Para una reserva nueva, pulsa «Volver a reservar» y usa la
+                  tira de días.
+                </p>
+              </div>
+            )}
+            {canOnBehalfBooking && !staffHistoryMode && accessToken && communityId != null && (
               <div className="booking-field booking-concierge-behalf">
                 <label className="form-label" htmlFor="booking-on-behalf">
                   Reserva para
@@ -1582,12 +1695,12 @@ export default function Bookings() {
                 )}
               </div>
             )}
-            {dateOptions.length === 0 ? (
+            {!staffHistoryMode && dateOptions.length === 0 ? (
               <div className="booking-no-dates card">
                 <p className="booking-no-dates-message">No hay fechas disponibles para este espacio.</p>
                 <p className="booking-no-dates-explanation">Prueba otro espacio o vuelve a intentarlo más tarde.</p>
               </div>
-            ) : (
+            ) : !staffHistoryMode ? (
               <>
                 <div className="booking-date-strip" role="group" aria-label="Días disponibles">
                   {dateOptions.map(({ key, day, num }) => (
@@ -1610,7 +1723,11 @@ export default function Bookings() {
                   </p>
                 )}
               </>
-            )}
+            ) : staffHistoryMode && !booking.date ? (
+              <p className="booking-field-hint" role="status">
+                Elige un día en el calendario del histórico para ver la ocupación.
+              </p>
+            ) : null}
           </div>
 
           {!salonDayBookingFlow ? (
@@ -1655,7 +1772,7 @@ export default function Bookings() {
                           </div>
                         )
                       }
-                      if (padelHistoryReadOnlyDay) {
+                      if (padelHistoryReadOnlyDay || staffHistoryMode) {
                         return (
                           <div
                             key={slotId}
@@ -1736,10 +1853,15 @@ export default function Bookings() {
             </div>
           )}
 
-          {(padelHistoryReadOnlyDay || salonHistoryReadOnlyDay) && (
+          {staffHistoryMode && (
             <p className="booking-field-hint" role="status">
-              Día en modo consulta: no se pueden crear reservas en fechas pasadas. Elige hoy o una fecha futura para
-              confirmar.
+              Modo histórico: solo consulta. Pulsa «Volver a reservar» para elegir vecino, día en la tira y confirmar.
+            </p>
+          )}
+          {!staffHistoryMode && (padelHistoryReadOnlyDay || salonHistoryReadOnlyDay) && (
+            <p className="booking-field-hint" role="status">
+              Ayer y días pasados en la tira son solo consulta. Elige hoy o un día futuro en la tira para confirmar la
+              reserva.
             </p>
           )}
           {padelCapError && (
@@ -1752,6 +1874,7 @@ export default function Bookings() {
             className={`btn btn--primary btn--block booking-submit ${isSubmitting ? 'btn--loading' : ''}`}
             disabled={
               isSubmitting ||
+              staffHistoryMode ||
               padelHistoryReadOnlyDay ||
               salonHistoryReadOnlyDay ||
               (salonDayBookingFlow &&
@@ -1781,6 +1904,11 @@ export default function Bookings() {
             Ver todo
           </Link>
         </div>
+        {cancelError ? (
+          <p className="form-error form-error--block booking-cancel-error" role="alert">
+            {cancelError}
+          </p>
+        ) : null}
         {recentRecordsPreview.length === 0 ? (
           <div className="booking-my-records-empty card">
             <p className="booking-my-records-empty-text">
@@ -1795,8 +1923,20 @@ export default function Bookings() {
           <ul className="booking-my-records-list">
             {recentRecordsPreview.map((item) => (
               <li key={item.id} className="booking-my-records-item card">
-                <span className="booking-my-records-facility">{item.facility}</span>
-                <p className="booking-my-records-meta">{formatBookingMeta(item)}</p>
+                <div className="booking-my-records-item-main">
+                  <span className="booking-my-records-facility">{item.facility}</span>
+                  <p className="booking-my-records-meta">{formatBookingMeta(item)}</p>
+                </div>
+                {canCancelBookingItem(item) ? (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm booking-cancel-btn"
+                    disabled={cancellingBookingId === item.serverId}
+                    onClick={() => handleCancelBooking(item)}
+                  >
+                    {cancellingBookingId === item.serverId ? 'Cancelando…' : 'Cancelar reserva'}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1818,8 +1958,20 @@ export default function Bookings() {
             ) : (
               communityBookingsForManagement.map((item) => (
                 <div key={item.id} className="booking-management-card card">
-                  <span className="booking-management-facility">{item.facility}</span>
-                  <p className="booking-management-meta">{formatBookingMeta(item)}</p>
+                  <div className="booking-management-card-main">
+                    <span className="booking-management-facility">{item.facility}</span>
+                    <p className="booking-management-meta">{formatBookingMeta(item)}</p>
+                  </div>
+                  {canCancelBookingItem(item) ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--sm booking-cancel-btn"
+                      disabled={cancellingBookingId === item.serverId}
+                      onClick={() => handleCancelBooking(item)}
+                    >
+                      {cancellingBookingId === item.serverId ? 'Cancelando…' : 'Cancelar reserva'}
+                    </button>
+                  ) : null}
                 </div>
               ))
             )}

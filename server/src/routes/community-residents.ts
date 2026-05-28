@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express'
 import bcrypt from 'bcrypt'
+import { generateTemporaryPasswordPlain } from '../lib/temporary-password.js'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { normEmail } from '../lib/community-user-access.js'
@@ -19,7 +20,8 @@ import {
   enumerateStructuredDwellings,
 } from '../lib/enumerate-structured-dwellings.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
-import { assertStaffOwnsCommunity } from '../lib/community-staff-gate.js'
+import { resolveCommunityGate } from '../lib/community-staff-gate.js'
+import { capturePasswordPlainSnapshot } from '../lib/password-plain-snapshot.js'
 
 export const communityResidentsRouter = Router()
 
@@ -96,6 +98,53 @@ function parseBody(req: Request) {
   return b
 }
 
+/** Ficha resumida de la comunidad para panel de gestión (admin / presidente / conserje). */
+communityResidentsRouter.get('/management-ficha', requireAuth, async (req, res) => {
+  const communityId = Number(req.query.communityId)
+  if (!Number.isInteger(communityId) || communityId < 1) {
+    res.status(400).json({ error: 'communityId inválido' })
+    return
+  }
+  const accessCodeRaw = typeof req.query.accessCode === 'string' ? req.query.accessCode.trim() : ''
+  const accessCodeForGate = accessCodeRaw || undefined
+
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'staff')
+  if (!gate.ok) {
+    res.status(gate.status).json({ error: gate.message })
+    return
+  }
+
+  const row = await prisma.community.findFirst({
+    where: { id: communityId, ...communityOperationalWhere() },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      nifCif: true,
+      address: true,
+      accessCode: true,
+      loginSlug: true,
+      company: { select: { id: true, name: true } },
+    },
+  })
+  if (!row) {
+    res.status(404).json({ error: 'Comunidad no encontrada o inactiva.' })
+    return
+  }
+
+  res.json({
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    nifCif: row.nifCif?.trim() || null,
+    address: row.address?.trim() || null,
+    accessCode: row.accessCode?.trim() || null,
+    loginSlug: row.loginSlug?.trim() || null,
+    companyId: row.company?.id ?? null,
+    companyName: row.company?.name?.trim() || null,
+  })
+})
+
 /** Alta de vecino sin correo: portal + piso + contraseña dentro de la comunidad. */
 communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
   const body = parseBody(req)
@@ -151,7 +200,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
     }
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'alta')
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -203,6 +252,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
       data: {
         email: emailForCreate,
         passwordHash,
+        passwordPlainSnapshot: capturePasswordPlainSnapshot(password),
         name: name || null,
         phone,
         piso,
@@ -259,7 +309,7 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'staff')
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -280,6 +330,7 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
         plazaGaraje: true,
         poolAccessOwner: true,
         poolAccessGuest: true,
+        profileImageUrl: true,
       },
       orderBy: [{ portal: 'asc' }, { piso: 'asc' }, { puerta: 'asc' }, { id: 'asc' }],
     }),
@@ -288,8 +339,10 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
       select: {
         presidentPortal: true,
         presidentPiso: true,
+        presidentPuerta: true,
         boardVicePortal: true,
         boardVicePiso: true,
+        boardVicePuerta: true,
         boardVocalsJson: true,
       },
     }),
@@ -298,8 +351,10 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
   const juntaBase = commJunta ?? {
     presidentPortal: null,
     presidentPiso: null,
+    presidentPuerta: null,
     boardVicePortal: null,
     boardVicePiso: null,
+    boardVicePuerta: null,
     boardVocalsJson: [],
   }
 
@@ -307,8 +362,9 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
     residents: rows.map((r) => {
       const portal = r.portal?.trim() || ''
       const piso = r.piso?.trim() || ''
+      const puerta = r.puerta?.trim() || ''
       const boardRole =
-        portal && piso ? juntaRoleForResident(portal, piso, juntaBase) : null
+        portal && piso ? juntaRoleForResident(portal, piso, puerta, juntaBase) : null
       return {
         id: r.id,
         name: r.name,
@@ -321,6 +377,7 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
         plazaGaraje: r.plazaGaraje,
         poolAccessOwner: r.poolAccessOwner,
         poolAccessGuest: r.poolAccessGuest,
+        profileImageUrl: r.profileImageUrl?.trim() || null,
         hasEmail: Boolean(r.email?.trim()),
         boardRole,
       }
@@ -339,7 +396,7 @@ communityResidentsRouter.get('/residents/missing-dwellings-preview', requireAuth
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'alta')
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -390,7 +447,7 @@ communityResidentsRouter.post('/residents/create-missing-dwellings', requireAuth
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'alta')
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -459,6 +516,7 @@ communityResidentsRouter.post('/residents/create-missing-dwellings', requireAuth
         data: {
           email: null,
           passwordHash,
+          passwordPlainSnapshot: capturePasswordPlainSnapshot(password),
           name: label,
           piso,
           portal,
@@ -514,10 +572,57 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const editor = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+    select: { role: true },
+  })
+  const fichaGateOnly =
+    editor?.role === 'concierge' ||
+    editor?.role === 'community_admin' ||
+    editor?.role === 'president' ||
+    editor?.role === 'company_admin'
+  const gate = await resolveCommunityGate(
+    req.userId!,
+    communityId,
+    accessCodeForGate,
+    fichaGateOnly ? 'ficha' : 'alta',
+  )
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
+  }
+
+  if (conciergeFichaOnly) {
+    const forbidden = [
+      'name',
+      'email',
+      'phone',
+      'portal',
+      'piso',
+      'puerta',
+      'habitaciones',
+      'plazaGaraje',
+    ] as const
+    for (const k of forbidden) {
+      if (Object.prototype.hasOwnProperty.call(body, k)) {
+        res.status(403).json({
+          error: 'Campo no permitido',
+          message:
+            'El conserje solo puede actualizar accesos de piscina (titular e invitados) en la ficha del vecino.',
+        })
+        return
+      }
+    }
+    if (
+      !Object.prototype.hasOwnProperty.call(body, 'poolAccessOwner') &&
+      !Object.prototype.hasOwnProperty.call(body, 'poolAccessGuest')
+    ) {
+      res.status(400).json({
+        error: 'Nada que actualizar',
+        message: 'Indica poolAccessOwner y/o poolAccessGuest.',
+      })
+      return
+    }
   }
 
   const existing = await prisma.vecindarioUser.findFirst({
@@ -700,7 +805,12 @@ communityResidentsRouter.patch('/residents/:residentId/password', requireAuth, a
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const editor = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+    select: { role: true },
+  })
+  const pwdGateMode = editor?.role === 'super_admin' ? 'alta' : 'ficha'
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, pwdGateMode)
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -718,11 +828,84 @@ communityResidentsRouter.patch('/residents/:residentId/password', requireAuth, a
   const passwordHash = await bcrypt.hash(newPassword, 12)
   await prisma.vecindarioUser.update({
     where: { id: residentId },
-    data: { passwordHash },
+    data: {
+      passwordHash,
+      passwordPlainSnapshot: capturePasswordPlainSnapshot(newPassword),
+    },
   })
 
   res.json({ ok: true })
 })
+
+/**
+ * Contraseña temporal generada (conserje, admin, presidente): para entrega de cuenta al vecino.
+ * La anterior deja de valer. No permite alta ni cambiar vivienda.
+ */
+communityResidentsRouter.post(
+  '/residents/:residentId/temporary-password',
+  requireAuth,
+  async (req, res) => {
+    const residentId = Number(req.params.residentId)
+    if (!Number.isInteger(residentId) || residentId < 1) {
+      res.status(400).json({ error: 'ID de vecino no válido.' })
+      return
+    }
+
+    const body = parseBody(req)
+    if (!body) {
+      res.status(400).json({ error: 'JSON inválido' })
+      return
+    }
+
+    const communityId = Number(body.communityId)
+    const accessCodeRaw = typeof body.accessCode === 'string' ? body.accessCode.trim() : ''
+    const accessCodeForGate = accessCodeRaw || undefined
+
+    if (!Number.isInteger(communityId) || communityId < 1) {
+      res.status(400).json({ error: 'communityId es obligatorio.' })
+      return
+    }
+
+    const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'staff')
+    if (!gate.ok) {
+      res.status(gate.status).json({ error: gate.message })
+      return
+    }
+
+    const resident = await prisma.vecindarioUser.findFirst({
+      where: { id: residentId, communityId, role: 'resident' },
+      select: { id: true, name: true, email: true, portal: true, piso: true, puerta: true },
+    })
+    if (!resident) {
+      res.status(404).json({ error: 'Vecino no encontrado en esta comunidad.' })
+      return
+    }
+
+    const temporaryPassword = generateTemporaryPasswordPlain()
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12)
+    await prisma.vecindarioUser.update({
+      where: { id: residentId },
+      data: {
+        passwordHash,
+        passwordPlainSnapshot: capturePasswordPlainSnapshot(temporaryPassword),
+      },
+    })
+
+    res.json({
+      temporaryPassword,
+      message:
+        'Copia esta contraseña ahora y entrégala al vecino; la anterior ya no vale. Si tiene correo, puede entrar por email o por portal/piso/puerta.',
+      resident: {
+        id: resident.id,
+        name: resident.name,
+        email: resident.email?.trim() || null,
+        portal: resident.portal,
+        piso: resident.piso,
+        puerta: resident.puerta,
+      },
+    })
+  },
+)
 
 /** Asignar cargo de junta por vivienda (presidente → mismos derechos que presidentPortal/Piso al iniciar sesión). */
 communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, async (req, res) => {
@@ -757,7 +940,7 @@ communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, asyn
     return
   }
 
-  const gate = await assertStaffOwnsCommunity(req.userId!, communityId, accessCodeForGate)
+  const gate = await resolveCommunityGate(req.userId!, communityId, accessCodeForGate, 'ficha')
   if (!gate.ok) {
     res.status(gate.status).json({ error: gate.message })
     return
@@ -765,7 +948,7 @@ communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, asyn
 
   const resident = await prisma.vecindarioUser.findFirst({
     where: { id: residentId, communityId, role: 'resident' },
-    select: { id: true, portal: true, piso: true },
+    select: { id: true, portal: true, piso: true, puerta: true },
   })
   if (!resident) {
     res.status(404).json({ error: 'Vecino no encontrado en esta comunidad.' })
@@ -773,6 +956,7 @@ communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, asyn
   }
   const rp = resident.portal?.trim() || ''
   const rs = resident.piso?.trim() || ''
+  const rpt = resident.puerta?.trim() || ''
   if (!rp || !rs) {
     res.status(400).json({ error: 'El vecino debe tener portal y piso definidos.' })
     return
@@ -783,8 +967,10 @@ communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, asyn
     select: {
       presidentPortal: true,
       presidentPiso: true,
+      presidentPuerta: true,
       boardVicePortal: true,
       boardVicePiso: true,
+      boardVicePuerta: true,
       boardVocalsJson: true,
     },
   })
@@ -793,24 +979,28 @@ communityResidentsRouter.patch('/residents/:residentId/junta', requireAuth, asyn
     return
   }
 
-  const next = computeJuntaUpdate(comm, rp, rs, boardRole)
+  const next = computeJuntaUpdate(comm, rp, rs, rpt, boardRole)
 
   await prisma.community.update({
     where: { id: communityId },
     data: {
       presidentPortal: next.presidentPortal,
       presidentPiso: next.presidentPiso,
+      presidentPuerta: next.presidentPuerta,
       boardVicePortal: next.boardVicePortal,
       boardVicePiso: next.boardVicePiso,
+      boardVicePuerta: next.boardVicePuerta,
       boardVocalsJson: next.boardVocalsJson,
     },
   })
 
-  const boardRoleOut = juntaRoleForResident(rp, rs, {
+  const boardRoleOut = juntaRoleForResident(rp, rs, rpt, {
     presidentPortal: next.presidentPortal,
     presidentPiso: next.presidentPiso,
+    presidentPuerta: next.presidentPuerta,
     boardVicePortal: next.boardVicePortal,
     boardVicePiso: next.boardVicePiso,
+    boardVicePuerta: next.boardVicePuerta,
     boardVocalsJson: next.boardVocalsJson,
   })
 

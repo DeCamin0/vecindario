@@ -8,7 +8,9 @@ import {
   SERVICE_MESSAGE_COMPOSE_STATUSES,
   formatServicePriceDisplay,
   serviceMessageResidentSubtitle,
+  serviceSubtypeChipLabelEs,
 } from '../../constants/serviceRequests.js'
+import ServiceRequestPhotoGallery from '../../components/ServiceRequestPhotoGallery.jsx'
 import {
   buildServiceProgressSteps,
   categoryMeta,
@@ -273,13 +275,27 @@ export default function ServiceRequestDetailPage() {
 
             <section className="card sr-detail-panel">
               <h2 className="sr-detail-panel__h">Tu mensaje</h2>
-              <p className="sr-detail-panel__body">{row.description}</p>
-              {row.serviceSubtypeLabel || row.preferredDate ? (
+              {row.description?.trim() ? (
+                <p className="sr-detail-panel__body">{row.description}</p>
+              ) : (
+                <p className="sr-detail-panel__body sr-detail-panel__empty">
+                  Sin descripción escrita; el contexto va en las fotos.
+                </p>
+              )}
+              {row.serviceSubtypeLabel || row.preferredDate || row.needsTechnicalVisit ? (
                 <div className="sr-detail-chip-row">
                   {row.serviceSubtypeLabel ? (
                     <span className="sr-detail-chip">
-                      <span className="sr-detail-chip__k">Tipo de limpieza</span>
+                      <span className="sr-detail-chip__k">
+                        {serviceSubtypeChipLabelEs(row.categoryId)}
+                      </span>
                       <span className="sr-detail-chip__v">{row.serviceSubtypeLabel}</span>
+                    </span>
+                  ) : null}
+                  {row.needsTechnicalVisit ? (
+                    <span className="sr-detail-chip">
+                      <span className="sr-detail-chip__k">Visita</span>
+                      <span className="sr-detail-chip__v">Necesita visita técnica</span>
                     </span>
                   ) : null}
                   {row.preferredDate ? (
@@ -292,25 +308,7 @@ export default function ServiceRequestDetailPage() {
               ) : null}
             </section>
 
-            {Array.isArray(row.photos) && row.photos.length > 0 ? (
-              <section className="sr-gallery" aria-label="Fotos adjuntas">
-                <h2 className="sr-gallery__h">Fotos</h2>
-                <div className="sr-gallery__grid">
-                  {row.photos.map((src, i) => (
-                    <a
-                      key={i}
-                      href={src}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="sr-gallery__cell"
-                    >
-                      <img src={src} alt={`Foto ${i + 1} de la solicitud`} className="sr-gallery__img" />
-                      <span className="sr-gallery__zoom">Ampliar</span>
-                    </a>
-                  ))}
-                </div>
-              </section>
-            ) : null}
+            <ServiceRequestPhotoGallery photos={row.photos} heading="Fotos adjuntas" />
 
             {SERVICE_MESSAGE_THREAD_STATUSES.includes(row.status) ? (
               <section className="card sr-quote-thread-card">

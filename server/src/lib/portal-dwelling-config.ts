@@ -6,10 +6,17 @@
 export type PortalDwellingEntryStored = {
   floors?: number
   doorsPerFloor?: number
+  /** Última planta (ático): menos puertas que el resto. Opcional; si falta o iguala a doorsPerFloor, misma estructura en todas las plantas. */
+  doorsTopFloor?: number
   doorScheme?: 'letters' | 'numbers'
 }
 
-export type DwellingSelectOptions = { pisoOptions: string[]; puertaOptions: string[] }
+export type DwellingSelectOptions = {
+  pisoOptions: string[]
+  puertaOptions: string[]
+  /** Si existe, las opciones de puerta dependen del piso elegido (claves "1"…"N" alineadas con pisoOptions). */
+  puertaOptionsByPiso?: Record<string, string[]>
+}
 
 const MAX_FLOORS = 50
 const MAX_DOORS = 26
@@ -17,6 +24,14 @@ const MAX_DOORS = 26
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min
   return Math.min(max, Math.max(min, Math.trunc(n)))
+}
+
+function doorLabelsForCount(scheme: 'letters' | 'numbers', count: number): string[] {
+  const c = clampInt(count, 1, MAX_DOORS)
+  if (scheme === 'letters') {
+    return Array.from({ length: c }, (_, i) => String.fromCharCode(65 + i))
+  }
+  return Array.from({ length: c }, (_, i) => String(i + 1))
 }
 
 /** Normaliza entrada de BD a array de longitud portalCount (huecos = {}). */
@@ -33,6 +48,10 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
       typeof rec.doorsPerFloor === 'number'
         ? rec.doorsPerFloor
         : Number.parseInt(String(rec.doorsPerFloor ?? ''), 10)
+    const doorsTopFloorRaw =
+      typeof rec.doorsTopFloor === 'number'
+        ? rec.doorsTopFloor
+        : Number.parseInt(String(rec.doorsTopFloor ?? ''), 10)
     const schemeRaw = typeof rec.doorScheme === 'string' ? rec.doorScheme.trim().toLowerCase() : ''
     const doorScheme = schemeRaw === 'numbers' ? 'numbers' : schemeRaw === 'letters' ? 'letters' : undefined
     if (!Number.isFinite(floors) || floors < 1 || !Number.isFinite(doorsPerFloor) || doorsPerFloor < 1) continue
@@ -40,7 +59,18 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
     const d = clampInt(doorsPerFloor, 1, MAX_DOORS)
     if (doorScheme === 'letters' && d > 26) continue
     if (doorScheme !== 'letters' && doorScheme !== 'numbers') continue
-    out[i] = { floors: f, doorsPerFloor: d, doorScheme }
+    let doorsTopFloor: number | undefined
+    if (
+      f >= 2 &&
+      Number.isFinite(doorsTopFloorRaw) &&
+      doorsTopFloorRaw >= 1 &&
+      doorsTopFloorRaw <= d
+    ) {
+      const dt = clampInt(doorsTopFloorRaw, 1, d)
+      if (doorScheme === 'letters' && dt > 26) continue
+      if (dt < d) doorsTopFloor = dt
+    }
+    out[i] = doorsTopFloor != null ? { floors: f, doorsPerFloor: d, doorsTopFloor, doorScheme } : { floors: f, doorsPerFloor: d, doorScheme }
   }
   return out
 }
@@ -77,11 +107,26 @@ export function dwellingSelectOptions(entry: PortalDwellingEntryStored): Dwellin
   if (scheme === 'letters' && doors > 26) return { pisoOptions: [], puertaOptions: [] }
 
   const pisoOptions = Array.from({ length: floors }, (_, i) => String(i + 1))
-  const puertaOptions =
-    scheme === 'letters'
-      ? Array.from({ length: doors }, (_, i) => String.fromCharCode(65 + i))
-      : Array.from({ length: doors }, (_, i) => String(i + 1))
-  return { pisoOptions, puertaOptions }
+  let dt: number | null =
+    typeof entry.doorsTopFloor === 'number' && entry.doorsTopFloor >= 1
+      ? clampInt(entry.doorsTopFloor, 1, doors)
+      : null
+  if (floors < 2) dt = null
+  if (dt != null && dt >= doors) dt = null
+
+  if (dt == null) {
+    const puertaOptions = doorLabelsForCount(scheme, doors)
+    return { pisoOptions, puertaOptions }
+  }
+
+  const puertaOptionsByPiso: Record<string, string[]> = {}
+  for (let pi = 1; pi <= floors; pi += 1) {
+    const isLast = pi === floors
+    const n = isLast ? dt : doors
+    puertaOptionsByPiso[String(pi)] = doorLabelsForCount(scheme, n)
+  }
+  const puertaOptions = doorLabelsForCount(scheme, doors)
+  return { pisoOptions, puertaOptions, puertaOptionsByPiso }
 }
 
 export function buildDwellingByPortalIndex(
@@ -118,7 +163,14 @@ export function estimateDwellingUnitsFromPortalConfig(raw: unknown, portalCount:
     const e = cfg[i]!
     const f = typeof e.floors === 'number' && e.floors >= 1 ? e.floors : 0
     const d = typeof e.doorsPerFloor === 'number' && e.doorsPerFloor >= 1 ? e.doorsPerFloor : 0
-    if (f && d) sum += f * d
+    if (!f || !d) continue
+    const dt: number | null =
+      typeof e.doorsTopFloor === 'number' && e.doorsTopFloor >= 1 ? clampInt(e.doorsTopFloor, 1, d) : null
+    if (f < 2 || dt == null || dt >= d) {
+      sum += f * d
+      continue
+    }
+    sum += (f - 1) * d + dt
   }
   return sum > 0 ? sum : null
 }

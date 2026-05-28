@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { signAccessToken } from '../lib/jwt.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { effectiveRoleForCommunity } from '../lib/president-by-unit.js'
+import { parseOptionalInstructionEmail } from '../lib/instruction-email.js'
 import {
   parseOptionalBodyString,
   parsePuertaField,
@@ -15,6 +16,22 @@ import {
   DEMO_SEED_USER_SPECS,
   isDemoExplorePreset,
 } from '../lib/demo-explore-presets.js'
+import { syncPasswordPlainSnapshotAfterVerify } from '../lib/password-plain-snapshot.js'
+import { conciergeEmailMatches } from '../lib/concierge-emails.js'
+import {
+  notificationPrefsFromRow,
+  type NotificationPrefs,
+} from '../lib/notification-prefs.js'
+import {
+  deleteAllExpoTokensForUser,
+  deleteAllWebPushSubscriptionsForUser,
+} from '../lib/unregister-push.js'
+import { distributorContactEmail } from '../lib/distributor-contact.js'
+import {
+  deleteAvatarFilesForUser,
+  parseAvatarDataUrl,
+  writeAvatarFile,
+} from '../lib/profile-avatar.js'
 
 export const authRouter = Router()
 
@@ -77,6 +94,7 @@ function userJsonOut(u: {
   plazaGaraje?: string | null
   poolAccessOwner?: string | null
   poolAccessGuest?: string | null
+  profileImageUrl?: string | null
 }) {
   const p = u.piso?.trim()
   const po = u.portal?.trim()
@@ -100,6 +118,7 @@ function userJsonOut(u: {
     ...(pg ? { plazaGaraje: pg } : {}),
     ...(poolO ? { poolAccessOwner: poolO } : {}),
     ...(poolG ? { poolAccessGuest: poolG } : {}),
+    ...(u.profileImageUrl?.trim() ? { profileImageUrl: u.profileImageUrl.trim() } : {}),
   }
 }
 
@@ -181,6 +200,7 @@ authRouter.post('/login', async (req, res) => {
       res.status(401).json({ error: 'Credenciales incorrectas' })
       return
     }
+    void syncPasswordPlainSnapshotAfterVerify(prisma, user.id, password)
     const effRole = effectiveRoleForCommunity(user, comm)
     const userOut = {
       id: user.id,
@@ -195,6 +215,7 @@ authRouter.post('/login', async (req, res) => {
       plazaGaraje: user.plazaGaraje?.trim() || null,
       poolAccessOwner: user.poolAccessOwner?.trim() || null,
       poolAccessGuest: user.poolAccessGuest?.trim() || null,
+      profileImageUrl: user.profileImageUrl?.trim() || null,
     }
     const accessToken = signAccessToken({
       sub: String(userOut.id),
@@ -233,6 +254,7 @@ authRouter.post('/login', async (req, res) => {
     res.status(401).json({ error: 'Credenciales incorrectas' })
     return
   }
+  void syncPasswordPlainSnapshotAfterVerify(prisma, user.id, password)
 
   debugLogin('password ok', {
     userId: user.id,
@@ -372,6 +394,8 @@ authRouter.post('/login', async (req, res) => {
         accessCode: true,
         loginSlug: true,
         conciergeEmail: true,
+        conciergeEmail2: true,
+        conciergeSubstituteEmail: true,
       },
     })
 
@@ -383,9 +407,8 @@ authRouter.post('/login', async (req, res) => {
       return
     }
 
-    const cMail = normEmail(comm.conciergeEmail)
     const conciergeUserMail = normEmail(user.email)
-    if (!cMail || !conciergeUserMail || cMail !== conciergeUserMail) {
+    if (!conciergeUserMail || !conciergeEmailMatches(comm, conciergeUserMail)) {
       res.status(403).json({
         error: 'Código no autorizado',
         message:
@@ -488,6 +511,7 @@ authRouter.post('/login', async (req, res) => {
     plazaGaraje: string | null
     poolAccessOwner: string | null
     poolAccessGuest: string | null
+    profileImageUrl: string | null
   }
 
   let userOut: UserOut = {
@@ -503,6 +527,7 @@ authRouter.post('/login', async (req, res) => {
     plazaGaraje: user.plazaGaraje?.trim() || null,
     poolAccessOwner: user.poolAccessOwner?.trim() || null,
     poolAccessGuest: user.poolAccessGuest?.trim() || null,
+    profileImageUrl: user.profileImageUrl?.trim() || null,
   }
 
   const needsHomeFields = user.role === 'president' || user.role === 'resident'
@@ -528,6 +553,7 @@ authRouter.post('/login', async (req, res) => {
           plazaGaraje: true,
           poolAccessOwner: true,
           poolAccessGuest: true,
+          profileImageUrl: true,
         },
       })
       userOut = {
@@ -543,6 +569,7 @@ authRouter.post('/login', async (req, res) => {
         plazaGaraje: updated.plazaGaraje?.trim() || null,
         poolAccessOwner: updated.poolAccessOwner?.trim() || null,
         poolAccessGuest: updated.poolAccessGuest?.trim() || null,
+        profileImageUrl: updated.profileImageUrl?.trim() || null,
       }
     }
     const pOk = Boolean((userOut.piso || '').trim())
@@ -570,7 +597,7 @@ authRouter.post('/login', async (req, res) => {
   if (user.role === 'resident' && user.communityId != null) {
     const commRes = await prisma.community.findUnique({
       where: { id: user.communityId },
-      select: { id: true, presidentPortal: true, presidentPiso: true },
+      select: { id: true, presidentPortal: true, presidentPiso: true, presidentPuerta: true },
     })
     userOut.role = effectiveRoleForCommunity(
       {
@@ -604,6 +631,26 @@ authRouter.post('/login', async (req, res) => {
       select: { id: true, name: true },
     })
     if (co) companyForClient = co
+  }
+
+  /** Vecino/presidente con email: comunidad desde communityId (sin VEC en el login). */
+  if (!communityForClient && user.communityId != null) {
+    const commRes = await prisma.community.findFirst({
+      where: { id: user.communityId, ...communityOperationalWhere() },
+      select: {
+        id: true,
+        name: true,
+        accessCode: true,
+        loginSlug: true,
+      },
+    })
+    if (commRes) {
+      communityForClient = communityClientFromRow(commRes)
+      debugLogin('community from user.communityId (email login)', {
+        userId: user.id,
+        communityId: commRes.id,
+      })
+    }
   }
 
   res.json({
@@ -642,6 +689,7 @@ authRouter.post('/super-admin/login', async (req, res) => {
     res.status(401).json({ error: 'Credenciales incorrectas' })
     return
   }
+  void syncPasswordPlainSnapshotAfterVerify(prisma, user.id, password)
 
   const em = user.email?.trim() || ''
   const accessToken = signAccessToken({
@@ -677,6 +725,10 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       plazaGaraje: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
+      notifyWebPush: true,
+      notifyMobilePush: true,
+      notifyEmail: true,
+      profileImageUrl: true,
       communityId: true,
       companyAdminCompanyId: true,
       companyAdminCompany: {
@@ -692,7 +744,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   if (user.role === 'resident' && user.communityId != null) {
     const comm = await prisma.community.findUnique({
       where: { id: user.communityId },
-      select: { id: true, presidentPortal: true, presidentPiso: true },
+      select: { id: true, presidentPortal: true, presidentPiso: true, presidentPuerta: true },
     })
     effRole = effectiveRoleForCommunity(user, comm)
   }
@@ -709,10 +761,14 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     plazaGaraje: user.plazaGaraje,
     poolAccessOwner: user.poolAccessOwner,
     poolAccessGuest: user.poolAccessGuest,
+    profileImageUrl: user.profileImageUrl,
   })
+  const prefs = notificationPrefsFromRow(user)
+
   if (user.role === 'company_admin' && user.companyAdminCompany) {
     res.json({
       ...base,
+      ...prefs,
       company: {
         id: user.companyAdminCompany.id,
         name: user.companyAdminCompany.name,
@@ -732,7 +788,218 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     }
   }
 
-  res.json(communityForMe ? { ...base, community: communityForMe } : base)
+  res.json(communityForMe ? { ...base, ...prefs, community: communityForMe } : { ...base, ...prefs })
+})
+
+/**
+ * Contactos y contexto para Perfil → Ayuda (v1 estática + emails de ficha comunidad).
+ * Ampliar en el futuro: teléfonos, horarios, FAQ por comunidad — ver docs/PROFILE-AYUDA.md
+ */
+authRouter.get('/help-context', requireAuth, async (req, res) => {
+  const user = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+    select: { role: true, communityId: true },
+  })
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  let communityName: string | null = null
+  const contacts: {
+    contactEmail: string | null
+    conciergeEmail: string | null
+    communityAdminEmail: string | null
+    communityAdminName: string | null
+  } = {
+    contactEmail: null,
+    conciergeEmail: null,
+    communityAdminEmail: null,
+    communityAdminName: null,
+  }
+
+  if (user.communityId != null) {
+    const comm = await prisma.community.findFirst({
+      where: { id: user.communityId, ...communityOperationalWhere() },
+      select: {
+        name: true,
+        contactEmail: true,
+        conciergeEmail: true,
+        communityAdminEmail: true,
+        communityAdminName: true,
+      },
+    })
+    if (comm) {
+      communityName = comm.name?.trim() || null
+      contacts.contactEmail = comm.contactEmail?.trim() || null
+      contacts.conciergeEmail = comm.conciergeEmail?.trim() || null
+      contacts.communityAdminEmail = comm.communityAdminEmail?.trim() || null
+      contacts.communityAdminName = comm.communityAdminName?.trim() || null
+    }
+  }
+
+  res.json({
+    userRole: user.role,
+    communityName,
+    contacts,
+    distributorEmail: distributorContactEmail(),
+  })
+})
+
+/** Preferencias de notificaciones (web push, móvil, email) — cualquier rol autenticado. */
+authRouter.patch('/notification-preferences', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? (req.body as Record<string, unknown>)
+    : null
+  const has = (k: string) => body != null && Object.prototype.hasOwnProperty.call(body, k)
+
+  if (!has('notifyWebPush') && !has('notifyMobilePush') && !has('notifyEmail')) {
+    res.status(400).json({
+      error: 'Nada que actualizar',
+      message: 'Envía notifyWebPush, notifyMobilePush y/o notifyEmail.',
+    })
+    return
+  }
+
+  const parseBool = (v: unknown): boolean | undefined => {
+    if (v === true || v === false) return v
+    if (v === 1 || v === '1' || v === 'true') return true
+    if (v === 0 || v === '0' || v === 'false') return false
+    return undefined
+  }
+
+  const data: {
+    notifyWebPush?: boolean
+    notifyMobilePush?: boolean
+    notifyEmail?: boolean
+  } = {}
+  if (has('notifyWebPush')) {
+    const b = parseBool(body!.notifyWebPush)
+    if (b === undefined) {
+      res.status(400).json({ error: 'notifyWebPush inválido' })
+      return
+    }
+    data.notifyWebPush = b
+  }
+  if (has('notifyMobilePush')) {
+    const b = parseBool(body!.notifyMobilePush)
+    if (b === undefined) {
+      res.status(400).json({ error: 'notifyMobilePush inválido' })
+      return
+    }
+    data.notifyMobilePush = b
+  }
+  if (has('notifyEmail')) {
+    const b = parseBool(body!.notifyEmail)
+    if (b === undefined) {
+      res.status(400).json({ error: 'notifyEmail inválido' })
+      return
+    }
+    data.notifyEmail = b
+  }
+
+  const userId = req.userId!
+  const updated = await prisma.vecindarioUser.update({
+    where: { id: userId },
+    data,
+    select: { notifyWebPush: true, notifyMobilePush: true, notifyEmail: true, email: true },
+  })
+
+  if (data.notifyWebPush === false) {
+    await deleteAllWebPushSubscriptionsForUser(userId)
+  }
+  if (data.notifyMobilePush === false) {
+    await deleteAllExpoTokensForUser(userId)
+  }
+
+  const prefs = notificationPrefsFromRow(updated)
+  res.json({
+    ok: true,
+    ...prefs,
+    hasEmail: Boolean(updated.email?.trim()),
+  })
+})
+
+/** Cambiar la propia contraseña (contraseña actual + nueva). No actualiza passwordPlainSnapshot. */
+authRouter.patch('/me/password', requireAuth, async (req, res) => {
+  const currentPassword =
+    typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : ''
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : ''
+
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({
+      error: 'Datos incompletos',
+      message: 'Indica la contraseña actual y la nueva.',
+    })
+    return
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' })
+    return
+  }
+  if (currentPassword === newPassword) {
+    res.status(400).json({ error: 'La nueva contraseña debe ser distinta de la actual.' })
+    return
+  }
+
+  const user = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+    select: { passwordHash: true },
+  })
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash)
+  if (!ok) {
+    res.status(401).json({ error: 'La contraseña actual no es correcta.' })
+    return
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  await prisma.vecindarioUser.update({
+    where: { id: req.userId! },
+    data: { passwordHash },
+  })
+
+  res.json({ ok: true })
+})
+
+/** Foto de perfil: cualquier rol con sesión activa. */
+authRouter.put('/me/avatar', requireAuth, async (req, res) => {
+  const raw = (req.body as Record<string, unknown> | undefined)?.dataUrl ??
+    (req.body as Record<string, unknown> | undefined)?.image
+  const parsed = parseAvatarDataUrl(raw)
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error })
+    return
+  }
+  try {
+    const profileImageUrl = await writeAvatarFile(req.userId!, parsed.buffer, parsed.ext)
+    await prisma.vecindarioUser.update({
+      where: { id: req.userId! },
+      data: { profileImageUrl },
+    })
+    res.json({ profileImageUrl })
+  } catch (e) {
+    console.error('[profile avatar upload]', e)
+    res.status(500).json({ error: 'No se pudo guardar la foto.' })
+  }
+})
+
+authRouter.delete('/me/avatar', requireAuth, async (req, res) => {
+  try {
+    await deleteAvatarFilesForUser(req.userId!)
+    await prisma.vecindarioUser.update({
+      where: { id: req.userId! },
+      data: { profileImageUrl: null },
+    })
+    res.json({ profileImageUrl: null })
+  } catch (e) {
+    console.error('[profile avatar delete]', e)
+    res.status(500).json({ error: 'No se pudo quitar la foto.' })
+  }
 })
 
 /**
@@ -769,6 +1036,8 @@ authRouter.get('/my-managed-communities', requireAuth, async (req, res) => {
       loginSlug: true,
       communityAdminEmail: true,
       conciergeEmail: true,
+      conciergeEmail2: true,
+      conciergeSubstituteEmail: true,
       presidentEmail: true,
       poolStaffEmail: true,
     },
@@ -776,7 +1045,7 @@ authRouter.get('/my-managed-communities', requireAuth, async (req, res) => {
 
   const matched = allActive.filter((c) => {
     if (user.role === 'community_admin') return normEmail(c.communityAdminEmail) === e
-    if (user.role === 'concierge') return normEmail(c.conciergeEmail) === e
+    if (user.role === 'concierge') return conciergeEmailMatches(c, e)
     if (user.role === 'pool_staff') return normEmail(c.poolStaffEmail) === e
     return normEmail(c.presidentEmail) === e
   })
@@ -805,9 +1074,8 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     !has('phone') &&
     !has('habitaciones') &&
     !has('plazaGaraje') &&
-    !has('poolAccessOwner') &&
-    !has('poolAccessGuest') &&
-    !has('name')
+    !has('name') &&
+    !has('email')
   ) {
     res.status(400).json({
       error: 'Nada que actualizar',
@@ -823,12 +1091,22 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     phone?: string | null
     habitaciones?: string | null
     plazaGaraje?: string | null
-    poolAccessOwner?: string | null
-    poolAccessGuest?: string | null
     name?: string | null
+    email?: string | null
   } = {}
   if (has('name')) {
     data.name = typeof body!.name === 'string' ? body!.name.trim().slice(0, 255) || null : null
+  }
+  if (has('email')) {
+    const ep = parseOptionalInstructionEmail(body!.email)
+    if (ep.invalidFormat) {
+      res.status(400).json({
+        error: 'Email inválido',
+        message: 'El correo no tiene un formato válido.',
+      })
+      return
+    }
+    data.email = ep.value
   }
   if (has('piso')) {
     const t = typeof body!.piso === 'string' ? body!.piso.trim().slice(0, 64) : ''
@@ -855,16 +1133,12 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
   if (hab !== undefined) data.habitaciones = hab
   const pg = parseOptionalBodyString(body!, 'plazaGaraje', 64)
   if (pg !== undefined) data.plazaGaraje = pg
-  const po = parseOptionalBodyString(body!, 'poolAccessOwner', 64)
-  if (po !== undefined) data.poolAccessOwner = po
-  const pguest = parseOptionalBodyString(body!, 'poolAccessGuest', 64)
-  if (pguest !== undefined) data.poolAccessGuest = pguest
-
   const existing = await prisma.vecindarioUser.findUnique({
     where: { id: req.userId! },
     select: {
       role: true,
       communityId: true,
+      email: true,
       piso: true,
       portal: true,
       puerta: true,
@@ -874,10 +1148,50 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
+  if (data.email !== undefined) {
+    const nextE = data.email
+    const prevE = normEmail(existing.email)
+    if (nextE && nextE !== prevE) {
+      const taken = await prisma.vecindarioUser.findFirst({
+        where: { email: nextE, NOT: { id: req.userId! } },
+        select: { id: true },
+      })
+      if (taken) {
+        res.status(409).json({
+          error: 'Email en uso',
+          message: 'Ese correo ya está registrado en otra cuenta.',
+        })
+        return
+      }
+    }
+  }
   if (existing.role !== 'president' && existing.role !== 'resident') {
     res.status(403).json({
       error: 'No aplicable',
       message: 'Solo presidente y vecinos pueden actualizar estos datos.',
+    })
+    return
+  }
+
+  if (has('poolAccessOwner') || has('poolAccessGuest')) {
+    res.status(403).json({
+      error: 'Campo no editable',
+      message:
+        'Los accesos de piscina (titular e invitados) los asigna la administración o conserjería al dar de alta o editar el vecino.',
+    })
+    return
+  }
+
+  const dwellingAlreadySet =
+    Boolean(existing.portal?.trim()) &&
+    Boolean(existing.piso?.trim()) &&
+    Boolean(existing.puerta?.trim())
+  const wantsDwellingChange = has('piso') || has('portal') || has('puerta')
+  if (dwellingAlreadySet && wantsDwellingChange) {
+    res.status(403).json({
+      error: 'Vivienda no editable',
+      message:
+        'Portal, piso y puerta se asignan al dar de alta la cuenta. Contacta con la administración de la comunidad.',
     })
     return
   }
@@ -939,6 +1253,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       plazaGaraje: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
+      profileImageUrl: true,
       communityId: true,
     },
   })
@@ -946,7 +1261,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
   if (updated.role === 'resident' && updated.communityId != null) {
     const comm = await prisma.community.findUnique({
       where: { id: updated.communityId },
-      select: { id: true, presidentPortal: true, presidentPiso: true },
+      select: { id: true, presidentPortal: true, presidentPiso: true, presidentPuerta: true },
     })
     effRole = effectiveRoleForCommunity(updated, comm)
   }
@@ -964,6 +1279,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       plazaGaraje: updated.plazaGaraje,
       poolAccessOwner: updated.poolAccessOwner,
       poolAccessGuest: updated.poolAccessGuest,
+      profileImageUrl: updated.profileImageUrl,
     }),
   )
 })
@@ -991,7 +1307,7 @@ function demoExploreUserAllowed(
   const em = normEmail(user.email)
   if (user.role === 'community_admin') return normEmail(demo.communityAdminEmail) === em
   if (user.role === 'president') return normEmail(demo.presidentEmail) === em
-  if (user.role === 'concierge') return normEmail(demo.conciergeEmail) === em
+  if (user.role === 'concierge') return conciergeEmailMatches(demo, em)
   if (user.role === 'pool_staff') return normEmail(demo.poolStaffEmail) === em
   if (user.role === 'resident') return true
   return false
@@ -1071,6 +1387,7 @@ authRouter.post('/demo-explore', async (req, res) => {
       plazaGaraje: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
+      profileImageUrl: true,
       communityId: true,
       companyAdminCompanyId: true,
     },
@@ -1101,6 +1418,7 @@ authRouter.post('/demo-explore', async (req, res) => {
     plazaGaraje: string | null
     poolAccessOwner: string | null
     poolAccessGuest: string | null
+    profileImageUrl: string | null
   }
 
   const userOut: UserOut = {
@@ -1116,12 +1434,13 @@ authRouter.post('/demo-explore', async (req, res) => {
     plazaGaraje: user.plazaGaraje?.trim() || null,
     poolAccessOwner: user.poolAccessOwner?.trim() || null,
     poolAccessGuest: user.poolAccessGuest?.trim() || null,
+    profileImageUrl: user.profileImageUrl?.trim() || null,
   }
 
   if (user.role === 'resident' && user.communityId != null) {
     const commRes = await prisma.community.findUnique({
       where: { id: user.communityId },
-      select: { id: true, presidentPortal: true, presidentPiso: true },
+      select: { id: true, presidentPortal: true, presidentPiso: true, presidentPuerta: true },
     })
     userOut.role = effectiveRoleForCommunity(
       {

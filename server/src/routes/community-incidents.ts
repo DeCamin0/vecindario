@@ -9,6 +9,7 @@ import {
   userMayManageIncidents,
   userMayUseCommunityIncidents,
 } from '../lib/community-incidents-access.js'
+import { staffDisplayName } from '../lib/staff-display-name.js'
 
 export const communityIncidentsRouter = Router()
 
@@ -61,13 +62,25 @@ type IncidentWithReporter = {
   urgency: string
   status: string
   resolvedAt: Date | null
+  resolvedByUserId?: number | null
+  resolvedByName?: string | null
   photoMime: string | null
   photoBase64: string | null
   createdAt: Date
   commentsLocked: boolean
   reporter: Pick<VecindarioUser, 'email' | 'piso' | 'portal' | 'name'>
+  resolvedBy?: Pick<VecindarioUser, 'email' | 'name'> | null
   community?: import('@prisma/client').Community
   _count?: { comments: number }
+}
+
+function incidentResolverFields(row: IncidentWithReporter) {
+  if (row.status !== 'resuelta') {
+    return { resolvedByName: null as string | null, resolvedByEmail: null as string | null }
+  }
+  const name = row.resolvedByName?.trim() || row.resolvedBy?.name?.trim() || null
+  const email = row.resolvedBy?.email?.trim() || null
+  return { resolvedByName: name, resolvedByEmail: email }
 }
 
 type IncidentListViewer = { userId: number; mayManageIncidents: boolean }
@@ -116,6 +129,7 @@ function mapIncidentListRow(row: IncidentWithReporter, viewer: IncidentListViewe
     hasPhoto: Boolean(row.photoBase64 && row.photoBase64.length > 0),
     commentCount,
     commentsLocked: row.commentsLocked,
+    ...incidentResolverFields(row),
   }
   if (!showReporter) {
     return {
@@ -185,6 +199,7 @@ communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
     take: 200,
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
+      resolvedBy: { select: { email: true, name: true } },
       _count: { select: { comments: true } },
     },
   })
@@ -290,6 +305,7 @@ communityIncidentsRouter.get('/:id', requireAuth, async (req, res) => {
     where: { id },
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
+      resolvedBy: { select: { email: true, name: true } },
       community: true,
       _count: { select: { comments: true } },
     },
@@ -411,6 +427,7 @@ communityIncidentsRouter.post('/', requireAuth, async (req, res) => {
     },
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
+      resolvedBy: { select: { email: true, name: true } },
       _count: { select: { comments: true } },
     },
   })
@@ -487,6 +504,7 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
       staffData.status = status
       staffData.resolvedAt = status === 'resuelta' ? new Date() : null
       staffData.resolvedByUserId = status === 'resuelta' ? user.id : null
+      staffData.resolvedByName = status === 'resuelta' ? staffDisplayName(user) : null
     }
     if (wantsCommentsLock) {
       if (!userMayLockIncidentComments(user, rowPatch.community)) {
@@ -506,6 +524,7 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
       data: staffData,
       include: {
         reporter: { select: { email: true, piso: true, portal: true, name: true } },
+        resolvedBy: { select: { email: true, name: true } },
         _count: { select: { comments: true } },
       },
     })
@@ -583,6 +602,7 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
     data,
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
+      resolvedBy: { select: { email: true, name: true } },
       _count: { select: { comments: true } },
     },
   })

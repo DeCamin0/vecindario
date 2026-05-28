@@ -116,6 +116,22 @@
 
 .booking-my-records-item {
   padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.booking-my-records-item-main {
+  width: 100%;
+}
+
+.booking-cancel-error {
+  margin-bottom: var(--space-3);
+}
+
+.booking-cancel-btn {
+  flex-shrink: 0;
 }
 
 .booking-my-records-facility {
@@ -157,6 +173,14 @@
 
 .booking-management-card {
   padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.booking-management-card-main {
+  width: 100%;
 }
 
 .booking-management-facility {
@@ -647,6 +671,19 @@
 .booking-concierge-behalf,
 .booking-concierge-date-pick {
   margin-top: var(--space-3);
+}
+
+.booking-staff-history-toggle {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.booking-staff-history-panel {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
 }
 
 .booking-concierge-select,

@@ -2,7 +2,8 @@ import type { Community, VecindarioUser } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { isCommunityOperationalStatus } from './community-status.js'
 import { residentMatchesPresidentUnit } from './president-by-unit.js'
-import { userLinkedToCommunity } from './community-user-access.js'
+import { companyAdminOwnsCommunity, userLinkedToCommunity } from './community-user-access.js'
+import { conciergeEmailMatches } from './concierge-emails.js'
 
 export function normEmail(s: string | null | undefined): string | null {
   if (!s) return null
@@ -18,6 +19,7 @@ export function assertUserMayAccessCommunityStaff(
   if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   const e = normEmail(user.email)
   if (user.role === 'super_admin') return true
+  if (companyAdminOwnsCommunity(user, comm)) return true
   if (user.role === 'community_admin' && normEmail(comm.communityAdminEmail) === e) return true
   if (user.role === 'president' && normEmail(comm.presidentEmail) === e) return true
   if (
@@ -25,7 +27,7 @@ export function assertUserMayAccessCommunityStaff(
     residentMatchesPresidentUnit(comm, user)
   )
     return true
-  if (user.role === 'concierge' && normEmail(comm.conciergeEmail) === e) return true
+  if (user.role === 'concierge' && conciergeEmailMatches(comm, e)) return true
   return false
 }
 
@@ -50,11 +52,12 @@ export async function userMayUseCommunityIncidents(
 export function userMayManageIncidents(user: VecindarioUser, comm: Community): boolean {
   if (!isCommunityOperationalStatus(comm.status)) return false
   if (user.role === 'super_admin') return true
+  if (companyAdminOwnsCommunity(user, comm)) return true
   if (user.role === 'resident' && residentMatchesPresidentUnit(comm, user)) return true
   const e = normEmail(user.email)
   if (user.role === 'community_admin' && normEmail(comm.communityAdminEmail) === e) return true
   if (user.role === 'president' && normEmail(comm.presidentEmail) === e) return true
-  if (user.role === 'concierge' && normEmail(comm.conciergeEmail) === e) return true
+  if (user.role === 'concierge' && conciergeEmailMatches(comm, e)) return true
   return false
 }
 
@@ -63,7 +66,7 @@ export function userMayLockIncidentComments(user: VecindarioUser, comm: Communit
   if (!isCommunityOperationalStatus(comm.status)) return false
   if (user.role === 'super_admin') return true
   const e = normEmail(user.email)
-  if (user.role === 'concierge' && normEmail(comm.conciergeEmail) === e) return true
+  if (user.role === 'concierge' && conciergeEmailMatches(comm, e)) return true
   return false
 }
 

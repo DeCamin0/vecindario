@@ -16,7 +16,7 @@ const NotificationsContext = createContext(null)
 const POLL_MS = 120000
 
 export function NotificationsProvider({ children }) {
-  const { accessToken } = useAuth()
+  const { accessToken, user } = useAuth()
   const [unreadCount, setUnreadCount] = useState(0)
   const [items, setItems] = useState([])
   const [loadingList, setLoadingList] = useState(false)
@@ -63,7 +63,9 @@ export function NotificationsProvider({ children }) {
       return
     }
     void refreshUnread()
-    void tryRegisterWebPush(accessToken)
+    if (user?.notifyWebPush !== false) {
+      void tryRegisterWebPush(accessToken)
+    }
     const id = window.setInterval(() => void refreshUnread(), POLL_MS)
     const onVis = () => {
       if (!document.hidden) void refreshUnread()
@@ -73,7 +75,7 @@ export function NotificationsProvider({ children }) {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [accessToken, refreshUnread])
+  }, [accessToken, refreshUnread, user?.notifyWebPush])
 
   useEffect(() => {
     if (!accessToken) return

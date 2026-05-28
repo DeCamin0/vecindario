@@ -1,12 +1,16 @@
 import { Router } from 'express'
 import type { Community, VecindarioUser } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
-import { sendBookingCreatedNotifications } from '../lib/booking-confirmation-mail.js'
+import {
+  sendBookingCancelledNotifications,
+  sendBookingCreatedNotifications,
+} from '../lib/booking-confirmation-mail.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { juntaRoleForResident } from '../lib/community-board-junta.js'
-import { userLinkedToCommunity } from '../lib/community-user-access.js'
+import { companyAdminOwnsCommunity, userLinkedToCommunity } from '../lib/community-user-access.js'
 import { residentMatchesPresidentUnit } from '../lib/president-by-unit.js'
 import { isCommunityOperationalStatus } from '../lib/community-status.js'
+import { conciergeEmailMatches } from '../lib/concierge-emails.js'
 
 export const communityBookingsRouter = Router()
 
@@ -23,6 +27,7 @@ function assertUserMayAccessCommunity(
   if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   const e = normEmail(user.email)
   if (user.role === 'super_admin') return true
+  if (companyAdminOwnsCommunity(user, comm)) return true
   if (user.role === 'community_admin' && normEmail(comm.communityAdminEmail) === e) return true
   if (user.role === 'president' && normEmail(comm.presidentEmail) === e) return true
   if (
@@ -30,7 +35,7 @@ function assertUserMayAccessCommunity(
     residentMatchesPresidentUnit(comm, user)
   )
     return true
-  if (user.role === 'concierge' && normEmail(comm.conciergeEmail) === e) return true
+  if (user.role === 'concierge' && conciergeEmailMatches(comm, e)) return true
   return false
 }
 
@@ -56,15 +61,18 @@ function userSeesCommunityWideBookingActivity(user: VecindarioUser, comm: Commun
   const juntaFields = {
     presidentPortal: comm.presidentPortal,
     presidentPiso: comm.presidentPiso,
+    presidentPuerta: comm.presidentPuerta,
     boardVicePortal: comm.boardVicePortal,
     boardVicePiso: comm.boardVicePiso,
+    boardVicePuerta: comm.boardVicePuerta,
     boardVocalsJson: comm.boardVocalsJson,
   }
   if (assertUserMayAccessCommunity(user, comm)) return true
   const portal = user.portal?.trim() ?? ''
   const piso = user.piso?.trim() ?? ''
+  const puerta = user.puerta?.trim() ?? ''
   if (!portal || !piso) return false
-  return juntaRoleForResident(portal, piso, juntaFields) != null
+  return juntaRoleForResident(portal, piso, puerta, juntaFields) != null
 }
 
 function parseBookingDate(s: unknown): Date | null {
@@ -78,6 +86,70 @@ function parseMinute(n: unknown): number | null {
   const v = typeof n === 'number' ? n : typeof n === 'string' ? Number.parseInt(n, 10) : NaN
   if (!Number.isInteger(v) || v < 0 || v > 1440) return null
   return v
+}
+
+function bookedByDisplayName(user: VecindarioUser): string | null {
+  const name = user.name?.trim()
+  if (name) return name.slice(0, 255)
+  const mail = user.email?.trim()
+  return mail ? mail.slice(0, 255) : null
+}
+
+function mapBookingRowJson(r: {
+  id: number
+  communityId: number
+  facilityId: string
+  facilityName: string | null
+  bookingDate: Date
+  startMinute: number
+  endMinute: number
+  slotKey: string | null
+  slotLabel: string | null
+  actorEmail: string | null
+  actorPiso: string | null
+  actorPortal: string | null
+  bookedByUserId: number | null
+  bookedByName: string | null
+  vecindarioUserId: number | null
+  createdAt: Date
+  user?: { name: string | null; email: string | null } | null
+}) {
+  const residentName = r.user?.name?.trim() || null
+  const residentEmail = r.user?.email?.trim() || r.actorEmail?.trim() || null
+  return {
+    id: r.id,
+    communityId: r.communityId,
+    facilityId: r.facilityId,
+    facilityName: r.facilityName,
+    bookingDate: r.bookingDate.toISOString().slice(0, 10),
+    startMinute: r.startMinute,
+    endMinute: r.endMinute,
+    slotKey: r.slotKey,
+    slotLabel: r.slotLabel,
+    actorEmail: r.actorEmail,
+    actorPiso: r.actorPiso,
+    actorPortal: r.actorPortal,
+    residentName,
+    residentEmail,
+    bookedByUserId: r.bookedByUserId,
+    bookedByName: r.bookedByName,
+    vecindarioUserId: r.vecindarioUserId,
+    createdAt: r.createdAt.toISOString(),
+  }
+}
+
+/** Propia reserva o conserje de la comunidad. */
+function userMayCancelBooking(
+  user: VecindarioUser,
+  comm: Community,
+  row: { communityId: number; vecindarioUserId: number | null; actorEmail: string | null; status: string },
+): boolean {
+  if (row.status !== 'confirmed' || row.communityId !== comm.id) return false
+  if (user.role === 'concierge' && assertUserMayAccessCommunity(user, comm)) return true
+  if (row.vecindarioUserId != null && row.vecindarioUserId === user.id) return true
+  const actor = normEmail(row.actorEmail)
+  const self = normEmail(user.email)
+  return Boolean(actor && self && actor === self)
 }
 
 /** Reservas en BD + registros gimnasio solo del usuario actual (Mi actividad). */
@@ -119,7 +191,11 @@ communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
         actorEmail: true,
         actorPiso: true,
         actorPortal: true,
+        bookedByUserId: true,
+        bookedByName: true,
+        vecindarioUserId: true,
         createdAt: true,
+        user: { select: { name: true, email: true } },
       },
     }),
     prisma.communityGymAccessLog.findMany({
@@ -150,6 +226,11 @@ communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
     actorEmail?: string | null
     actorPiso?: string | null
     actorPortal?: string | null
+    bookedByUserId?: number | null
+    bookedByName?: string | null
+    vecindarioUserId?: number | null
+    residentName?: string | null
+    residentEmail?: string | null
   }
 
   const items: Act[] = [
@@ -165,6 +246,11 @@ communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
       actorEmail: r.actorEmail,
       actorPiso: r.actorPiso,
       actorPortal: r.actorPortal,
+      bookedByUserId: r.bookedByUserId,
+      bookedByName: r.bookedByName,
+      vecindarioUserId: r.vecindarioUserId,
+      residentName: r.user?.name?.trim() || null,
+      residentEmail: r.user?.email?.trim() || r.actorEmail,
     })),
     ...gymRows.map((r) => ({
       kind: 'gym_access' as const,
@@ -193,6 +279,10 @@ communityBookingsRouter.get('/neighbors', requireAuth, async (req, res) => {
   const comm = await prisma.community.findUnique({ where: { id: communityId } })
   if (!user || !comm || !assertUserMayAccessCommunity(user, comm)) {
     res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+  if (user.role !== 'concierge') {
+    res.status(403).json({ error: 'Solo el conserje puede consultar la lista de vecinos para reservas.' })
     return
   }
 
@@ -254,25 +344,10 @@ communityBookingsRouter.get('/', requireAuth, async (req, res) => {
     where: { communityId, status: 'confirmed' },
     orderBy: [{ bookingDate: 'desc' }, { startMinute: 'desc' }, { id: 'desc' }],
     take: 200,
+    include: { user: { select: { name: true, email: true } } },
   })
 
-  res.json(
-    rows.map((r) => ({
-      id: r.id,
-      communityId: r.communityId,
-      facilityId: r.facilityId,
-      facilityName: r.facilityName,
-      bookingDate: r.bookingDate.toISOString().slice(0, 10),
-      startMinute: r.startMinute,
-      endMinute: r.endMinute,
-      slotKey: r.slotKey,
-      slotLabel: r.slotLabel,
-      actorEmail: r.actorEmail,
-      actorPiso: r.actorPiso,
-      actorPortal: r.actorPortal,
-      createdAt: r.createdAt.toISOString(),
-    })),
-  )
+  res.json(rows.map(mapBookingRowJson))
 })
 
 communityBookingsRouter.post('/', requireAuth, async (req, res) => {
@@ -342,10 +417,12 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     typeof req.body?.actorPortal === 'string' && req.body.actorPortal.trim()
       ? req.body.actorPortal.trim().slice(0, 64)
       : null
+  let bookedByUserId: number | null = null
+  let bookedByName: string | null = null
 
   if (Number.isInteger(behalfId) && behalfId >= 1 && behalfId !== user.id) {
-    if (!assertUserMayAccessCommunity(user, comm)) {
-      res.status(403).json({ error: 'Solo personal de gestión puede reservar para un vecino.' })
+    if (user.role !== 'concierge') {
+      res.status(403).json({ error: 'Solo el conserje puede reservar en nombre de un vecino.' })
       return
     }
     const target = await prisma.vecindarioUser.findUnique({ where: { id: behalfId } })
@@ -361,6 +438,23 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     actorEmail = target.email
     actorPiso = target.piso?.trim() ? target.piso.trim().slice(0, 64) : null
     actorPortal = target.portal?.trim() ? target.portal.trim().slice(0, 64) : null
+    bookedByUserId = user.id
+    bookedByName = bookedByDisplayName(user)
+  }
+
+  const slotTaken = await prisma.communityBooking.findFirst({
+    where: {
+      communityId,
+      facilityId,
+      bookingDate,
+      startMinute,
+      status: 'confirmed',
+    },
+    select: { id: true },
+  })
+  if (slotTaken) {
+    res.status(409).json({ error: 'Ese tramo ya está reservado para esa fecha y espacio.' })
+    return
   }
 
   try {
@@ -375,32 +469,21 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
         slotKey,
         slotLabel,
         vecindarioUserId,
+        bookedByUserId,
+        bookedByName,
         actorEmail,
         actorPiso,
         actorPortal,
         status: 'confirmed',
       },
+      include: { user: { select: { name: true, email: true } } },
     })
 
     sendBookingCreatedNotifications({ row, community: comm }).catch((err) => {
       console.error('[booking-notification-email]', err)
     })
 
-    res.status(201).json({
-      id: row.id,
-      communityId: row.communityId,
-      facilityId: row.facilityId,
-      facilityName: row.facilityName,
-      bookingDate: row.bookingDate.toISOString().slice(0, 10),
-      startMinute: row.startMinute,
-      endMinute: row.endMinute,
-      slotKey: row.slotKey,
-      slotLabel: row.slotLabel,
-      actorEmail: row.actorEmail,
-      actorPiso: row.actorPiso,
-      actorPortal: row.actorPortal,
-      createdAt: row.createdAt.toISOString(),
-    })
+    res.status(201).json(mapBookingRowJson(row))
   } catch (e: unknown) {
     const code = typeof e === 'object' && e && 'code' in e ? String((e as { code: string }).code) : ''
     if (code === 'P2002') {
@@ -409,6 +492,50 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     }
     throw e
   }
+})
+
+/** Anular reserva: el vecino la suya; el conserje cualquiera de su comunidad. Libera el tramo al eliminar la fila. */
+communityBookingsRouter.delete('/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'id inválido' })
+    return
+  }
+
+  const user = await prisma.vecindarioUser.findUnique({ where: { id: req.userId! } })
+  if (!user) {
+    res.status(401).json({ error: 'No autorizado' })
+    return
+  }
+
+  const row = await prisma.communityBooking.findUnique({ where: { id } })
+  if (!row || row.status !== 'confirmed') {
+    res.status(404).json({ error: 'Reserva no encontrada' })
+    return
+  }
+
+  const comm = await prisma.community.findUnique({ where: { id: row.communityId } })
+  if (!comm || !(await userMayUseCommunityMemberBookingsFeatures(user, comm))) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+
+  if (!userMayCancelBooking(user, comm, row)) {
+    res.status(403).json({
+      error:
+        user.role === 'concierge'
+          ? 'No puedes cancelar esta reserva.'
+          : 'Solo puedes cancelar tus propias reservas. El conserje puede cancelar cualquier reserva de la comunidad.',
+    })
+    return
+  }
+
+  sendBookingCancelledNotifications({ row, community: comm, cancelledBy: user }).catch((err) => {
+    console.error('[booking-cancel-email]', err)
+  })
+
+  await prisma.communityBooking.delete({ where: { id } })
+  res.json({ ok: true, id })
 })
 
 /** Entrada / salida gimnasio persistida en BD (control de acceso). */

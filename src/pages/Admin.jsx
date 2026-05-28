@@ -7,8 +7,20 @@ import {
 } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { buildCommunityLoginUrl } from '../utils/communityLoginUrl.js'
+import {
+  conciergeEmailsFromCommunity,
+  conciergeEmailsSummary,
+  conciergePayloadFromForm,
+  hasAnyConciergeEmail,
+} from '../utils/conciergeEmailsForm.js'
 import CommunityLoginQrModal from '../components/CommunityLoginQrModal.jsx'
+import { useDialog } from '../context/DialogContext.jsx'
 import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
+import {
+  SERVICE_CATEGORIES,
+  defaultServiceCategoryModesRecord,
+} from '../constants/serviceRequests.js'
+import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
 import './Admin.css'
 
 function statusLabel(status) {
@@ -31,6 +43,42 @@ function slugFromNameClient(name) {
 
 function newUniqueSpaceId() {
   return `esp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** Emails de administradores de empresa (cuando la comunidad tiene companyId y no admin en ficha). */
+function companyAdminEmailsForCommunity(community, companiesList) {
+  const coId = community?.companyId != null ? Number(community.companyId) : null
+  if (!coId || !Array.isArray(companiesList)) return []
+  const co = companiesList.find((x) => Number(x.id) === coId)
+  if (!co || !Array.isArray(co.companyAdmins)) return []
+  return co.companyAdmins
+    .map((a) => (typeof a.email === 'string' ? a.email.trim() : ''))
+    .filter(Boolean)
+}
+
+function adminOnboardingMailSummary(community, companiesList, companyNameById) {
+  const ficha = community.communityAdminEmail?.trim()
+  if (ficha) return ficha
+  const companyEmails = companyAdminEmailsForCommunity(community, companiesList)
+  if (companyEmails.length) {
+    const coName =
+      community.companyId != null
+        ? companyNameById.get(Number(community.companyId)) || ''
+        : ''
+    const prefix = coName ? `empresa «${coName}»: ` : 'empresa: '
+    return `${prefix}${companyEmails.join(', ')}`
+  }
+  if (community.companyId != null) {
+    return 'sin email en ficha ni administradores en la empresa'
+  }
+  return 'sin email'
+}
+
+function hasAdminOnboardingMailTarget(community, companiesList) {
+  return (
+    Boolean(community.communityAdminEmail?.trim()) ||
+    companyAdminEmailsForCommunity(community, companiesList).length > 0
+  )
 }
 
 /** Valor válido para input type="time" (HH:mm). */
@@ -118,13 +166,36 @@ function normalizePortalDwellingDraftFromApi(raw, portalCount) {
   const arr = Array.isArray(raw) ? raw : []
   return Array.from({ length: n }, (_, i) => {
     const o = arr[i]
-    if (!o || typeof o !== 'object') return { floors: '', doorsPerFloor: '', doorScheme: 'letters' }
+    if (!o || typeof o !== 'object') {
+      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters' }
+    }
     const floors = typeof o.floors === 'number' && o.floors >= 1 ? String(o.floors) : ''
     const doorsPerFloor =
       typeof o.doorsPerFloor === 'number' && o.doorsPerFloor >= 1 ? String(o.doorsPerFloor) : ''
+    const doorsTopFloor =
+      typeof o.doorsTopFloor === 'number' && o.doorsTopFloor >= 1 ? String(o.doorsTopFloor) : ''
     const doorScheme = o.doorScheme === 'numbers' ? 'numbers' : 'letters'
-    return { floors, doorsPerFloor, doorScheme }
+    return { floors, doorsPerFloor, doorsTopFloor, doorScheme }
   })
+}
+
+/**
+ * Viviendas teóricas por portal según borrador (misma regla que el cupo automático en servidor:
+ * plantas × puertas, o (plantas−1)×puertas + última planta si aplica).
+ */
+function estimatePortalDwellingUnitsFromDraft(d) {
+  if (!d || typeof d !== 'object') return null
+  const f = parseInt(String(d.floors ?? '').trim(), 10)
+  const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
+  if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) return null
+
+  const dtRaw = String(d.doorsTopFloor ?? '').trim()
+  if (dtRaw === '' || f < 2) return f * dp
+
+  const dt = parseInt(dtRaw, 10)
+  if (!Number.isFinite(dt) || dt < 1 || dt > dp) return null
+  if (dt >= dp) return f * dp
+  return (f - 1) * dp + dt
 }
 
 /** Resumen en tarjeta: muestra alias o «Portal N». */
@@ -190,7 +261,11 @@ const emptyForm = {
   presidentPortal: '',
   presidentPiso: '',
   communityAdminEmail: '',
-  conciergeEmail: '',
+  communityAdminName: '',
+  conciergeCount: 1,
+  conciergeStaff: Array.from({ length: 5 }, () => ({ email: '', name: '' })),
+  conciergeSubstituteEmail: '',
+  conciergeSubstituteName: '',
   poolStaffEmail: '',
   status: 'active',
   portalCount: '1',
@@ -206,6 +281,9 @@ const emptyForm = {
   appNavIncidentsEnabled: true,
   appNavBookingsEnabled: true,
   appNavPoolAccessEnabled: false,
+  appNavPaqueteriaEnabled: false,
+  appNavCuadernoDiarioEnabled: false,
+  serviceCategoryModes: defaultServiceCategoryModesRecord(),
   padelCourtCount: '0',
   padelMaxHoursPerBooking: '2',
   padelMaxHoursApartmentDay: '4',
@@ -222,6 +300,7 @@ const emptyForm = {
 
 export default function Admin() {
   const { accessToken } = useAuth()
+  const { confirm, prompt } = useDialog()
   const [communities, setCommunities] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -229,6 +308,7 @@ export default function Admin() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const communityUsesCompanyAdmin = String(form.companyId ?? '').trim() !== ''
   const [saving, setSaving] = useState(false)
   const [onboardingMailOpen, setOnboardingMailOpen] = useState(false)
   const [onboardingMailCommunity, setOnboardingMailCommunity] = useState(null)
@@ -245,13 +325,15 @@ export default function Admin() {
   const [usersModalLoading, setUsersModalLoading] = useState(false)
   const [usersModalError, setUsersModalError] = useState('')
   const [usersActionBusyId, setUsersActionBusyId] = useState(null)
-  const [tempPasswordBanner, setTempPasswordBanner] = useState('')
+  const [usersBulkDeleteBusy, setUsersBulkDeleteBusy] = useState(false)
+  const [usersTempPasswordFlash, setUsersTempPasswordFlash] = useState('')
   const [portalsModalCommunity, setPortalsModalCommunity] = useState(null)
   const [portalsDraft, setPortalsDraft] = useState([])
   const [portalsDwellingDraft, setPortalsDwellingDraft] = useState([])
   const [portalsSaving, setPortalsSaving] = useState(false)
   const [portalsError, setPortalsError] = useState('')
   const [qrModal, setQrModal] = useState(null)
+  const [posterPdfBusyId, setPosterPdfBusyId] = useState(null)
   const [navTabSavingId, setNavTabSavingId] = useState(null)
   const [companiesList, setCompaniesList] = useState([])
   const [companiesLoading, setCompaniesLoading] = useState(false)
@@ -268,6 +350,8 @@ export default function Admin() {
   const [companyAdminFlash, setCompanyAdminFlash] = useState('')
   const [companyPasswordFlash, setCompanyPasswordFlash] = useState('')
   const [companyPasswordBusy, setCompanyPasswordBusy] = useState(null)
+  const [companyAdminLoginBusyId, setCompanyAdminLoginBusyId] = useState(null)
+  const [companyAdminDeleteBusyId, setCompanyAdminDeleteBusyId] = useState(null)
   const [passwordPickModal, setPasswordPickModal] = useState({
     open: false,
     companyId: null,
@@ -336,6 +420,12 @@ export default function Admin() {
     const t = setTimeout(() => setCompanyPasswordFlash(''), 120000)
     return () => clearTimeout(t)
   }, [companyPasswordFlash])
+
+  useEffect(() => {
+    if (!usersTempPasswordFlash) return
+    const t = setTimeout(() => setUsersTempPasswordFlash(''), 120000)
+    return () => clearTimeout(t)
+  }, [usersTempPasswordFlash])
 
   const runCompanyAdminPasswordReset = async (companyId, userId, sendEmailFlag) => {
     if (!accessToken) return
@@ -499,8 +589,10 @@ export default function Admin() {
       if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
       setCompanyAdminFlash(
         d.temporaryPassword
-          ? `Usuario creado. Contraseña temporal: ${d.temporaryPassword} (cópiala ahora).`
-          : 'Administrador de empresa creado.',
+          ? `${d.promoted ? 'Cuenta promovida a administrador de empresa' : 'Usuario creado'}. Contraseña temporal: ${d.temporaryPassword} (cópiala ahora).`
+          : d.promoted
+            ? 'Cuenta de administrador de comunidad promovida a administrador de empresa.'
+            : 'Administrador de empresa creado.',
       )
       setCompanyAdminForm({ open: false, companyId: null, email: '', name: '', password: '' })
       await loadCompaniesList()
@@ -545,6 +637,31 @@ export default function Admin() {
       setSuccessFlash('Enlace de acceso copiado al portapapeles.')
     } catch {
       setError('No se pudo copiar. Copia el enlace manualmente.')
+    }
+  }, [])
+
+  const downloadCommunityPoster = useCallback(async (community) => {
+    const slug = (community.loginSlug || '').trim()
+    if (!slug) {
+      setError('Configura el slug de acceso en la ficha antes de generar el cartel.')
+      return
+    }
+    setPosterPdfBusyId(community.id)
+    setError('')
+    try {
+      const { generateCommunityPosterPdf } = await import('../utils/generateCommunityPosterPdf.js')
+      await generateCommunityPosterPdf({
+        communityName: community.name,
+        address: community.address,
+        accessCode: community.accessCode,
+        loginUrl: buildCommunityLoginUrl(slug),
+        loginSlug: slug,
+      })
+      setSuccessFlash(`Cartel PDF descargado — ${community.name}.`)
+    } catch (e) {
+      setError(e.message || 'No se pudo generar el cartel PDF')
+    } finally {
+      setPosterPdfBusyId(null)
     }
   }, [])
 
@@ -633,12 +750,6 @@ export default function Admin() {
     return () => clearTimeout(t)
   }, [successFlash])
 
-  useEffect(() => {
-    if (!tempPasswordBanner) return
-    const t = setTimeout(() => setTempPasswordBanner(''), 120_000)
-    return () => clearTimeout(t)
-  }, [tempPasswordBanner])
-
   /** Alta nueva: rellenar código VEC propuesto por el servidor (editable). */
   useEffect(() => {
     if (!modalOpen || editingId != null || !accessToken) return undefined
@@ -681,7 +792,8 @@ export default function Admin() {
       presidentPortal: c.presidentPortal || '',
       presidentPiso: c.presidentPiso || '',
       communityAdminEmail: c.communityAdminEmail || '',
-      conciergeEmail: c.conciergeEmail || '',
+      communityAdminName: c.communityAdminName || '',
+      ...conciergeEmailsFromCommunity(c),
       poolStaffEmail: c.poolStaffEmail || '',
       status: c.status || 'active',
       portalCount: String(c.portalCount ?? 1),
@@ -697,6 +809,18 @@ export default function Admin() {
       appNavIncidentsEnabled: c.appNavIncidentsEnabled !== false,
       appNavBookingsEnabled: c.appNavBookingsEnabled !== false,
       appNavPoolAccessEnabled: c.appNavPoolAccessEnabled === true,
+      appNavPaqueteriaEnabled: c.appNavPaqueteriaEnabled === true,
+      appNavCuadernoDiarioEnabled: c.appNavCuadernoDiarioEnabled === true,
+      serviceCategoryModes: (() => {
+        const base = defaultServiceCategoryModesRecord()
+        const raw = c.serviceRequestCategoryModesJson
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const { id } of SERVICE_CATEGORIES) {
+            if (raw[id] === 'soon') base[id] = 'soon'
+          }
+        }
+        return base
+      })(),
       padelCourtCount: String(c.padelCourtCount ?? 0),
       padelMaxHoursPerBooking: String(c.padelMaxHoursPerBooking ?? 2),
       padelMaxHoursApartmentDay: String(c.padelMaxHoursPerApartmentPerDay ?? 4),
@@ -755,8 +879,11 @@ export default function Admin() {
     const t = draft[src] || {}
     const floors = String(t.floors ?? '').trim()
     const doorsPerFloor = String(t.doorsPerFloor ?? '').trim()
+    const doorsTopFloor = String(t.doorsTopFloor ?? '').trim()
     const doorScheme = t.doorScheme === 'numbers' ? 'numbers' : 'letters'
-    setPortalsDwellingDraft((prev) => prev.map(() => ({ floors, doorsPerFloor, doorScheme })))
+    setPortalsDwellingDraft((prev) =>
+      prev.map(() => ({ floors, doorsPerFloor, doorsTopFloor, doorScheme })),
+    )
   }
 
   const savePortalsModal = async () => {
@@ -772,7 +899,14 @@ export default function Admin() {
         }
         const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
         if (scheme === 'letters' && dp > 26) return {}
-        return { floors: f, doorsPerFloor: dp, doorScheme: scheme }
+        const base = { floors: f, doorsPerFloor: dp, doorScheme: scheme }
+        const dtRaw = String(d.doorsTopFloor ?? '').trim()
+        if (f < 2 || dtRaw === '') return base
+        const dt = parseInt(dtRaw, 10)
+        if (!Number.isFinite(dt) || dt < 1 || dt > dp) return base
+        if (dt >= dp) return base
+        if (scheme === 'letters' && dt > 26) return base
+        return { ...base, doorsTopFloor: dt }
       })
       const res = await fetch(apiUrl(`/api/admin/communities/${portalsModalCommunity.id}`), {
         method: 'PATCH',
@@ -922,10 +1056,9 @@ export default function Admin() {
         contactEmail: contact,
         presidentEmail: null,
         loginSlug: form.loginSlug.trim(),
-        presidentPortal: form.presidentPortal.trim() || null,
-        presidentPiso: form.presidentPiso.trim() || null,
-        communityAdminEmail: form.communityAdminEmail.trim(),
-        conciergeEmail: form.conciergeEmail.trim(),
+        communityAdminEmail: communityUsesCompanyAdmin ? null : form.communityAdminEmail.trim() || null,
+        communityAdminName: communityUsesCompanyAdmin ? null : form.communityAdminName.trim() || null,
+        ...conciergePayloadFromForm(form),
         poolStaffEmail: form.poolStaffEmail.trim(),
         status: form.status,
         companyId: companyIdPayload,
@@ -942,6 +1075,9 @@ export default function Admin() {
         appNavIncidentsEnabled: form.appNavIncidentsEnabled,
         appNavBookingsEnabled: form.appNavBookingsEnabled,
         appNavPoolAccessEnabled: form.appNavPoolAccessEnabled,
+        appNavPaqueteriaEnabled: form.appNavPaqueteriaEnabled,
+        appNavCuadernoDiarioEnabled: form.appNavCuadernoDiarioEnabled,
+        serviceRequestCategoryModes: form.serviceCategoryModes,
         padelCourtCount,
         padelMaxHoursPerBooking,
         padelMaxHoursPerApartmentPerDay,
@@ -978,7 +1114,9 @@ export default function Admin() {
         }
         setSuccessFlash(msg)
       } else {
-        let msg = 'Cambios guardados.'
+        let msg = `Cambios guardados (portales: ${d.portalCount ?? '—'}, cupo vecinos: ${
+          d.residentSlots != null ? d.residentSlots : '—'
+        }).`
         if (d.onboarding) {
           msg +=
             ' Emails de presidente / administrador / conserje / socorrista sincronizados con cuentas (sin enviar correos automáticos).'
@@ -998,7 +1136,28 @@ export default function Admin() {
           }
           msg += ` · Cuentas que ya no figuran en la ficha: pasadas a vecino — ${d.staffDemoted.map((x) => `${x.email} (era ${roleEs[x.previousRole] || x.previousRole})`).join('; ')}`
         }
-        msg += ` · Guardado en servidor: presidente ${formatPresidentOnCard(d)}, admin ${d.communityAdminEmail?.trim() || '—'}, conserje ${d.conciergeEmail?.trim() || '—'}, socorrista ${d.poolStaffEmail?.trim() || '—'}.`
+        const conserjes = conciergeEmailsFromCommunity(d)
+        const conserjesLabel = [
+          ...conserjes.conciergeStaff
+            .map((s) => {
+              const em = (s.email || '').trim()
+              if (!em) return ''
+              const nm = (s.name || '').trim()
+              return nm ? `${nm} <${em}>` : em
+            })
+            .filter(Boolean),
+          conserjes.conciergeSubstituteEmail
+            ? (() => {
+                const nm = (conserjes.conciergeSubstituteName || '').trim()
+                return nm
+                  ? `${nm} <${conserjes.conciergeSubstituteEmail}> (supl.)`
+                  : `${conserjes.conciergeSubstituteEmail} (supl.)`
+              })()
+            : '',
+        ]
+          .filter(Boolean)
+          .join(', ')
+        msg += ` · Guardado en servidor: presidente ${formatPresidentOnCard(d)}, admin ${d.communityAdminEmail?.trim() || '—'}, conserje ${conserjesLabel || '—'}, socorrista ${d.poolStaffEmail?.trim() || '—'}.`
         setSuccessFlash(msg)
       }
       closeModal()
@@ -1080,7 +1239,7 @@ export default function Admin() {
 
   const openCommunityUsers = (c) => {
     setUsersModalCommunity(c)
-    setTempPasswordBanner('')
+    setUsersTempPasswordFlash('')
     loadCommunityUsers(c)
   }
 
@@ -1088,7 +1247,69 @@ export default function Admin() {
     setUsersModalCommunity(null)
     setUsersModalData(null)
     setUsersModalError('')
-    setTempPasswordBanner('')
+    setUsersTempPasswordFlash('')
+    setUsersBulkDeleteBusy(false)
+  }
+
+  const deleteCompanyAdmin = async (companyId, admin, companyName) => {
+    if (!accessToken) return
+    const label = admin.email || admin.name || `usuario ${admin.id}`
+    const okConfirm = await confirm({
+      title: 'Eliminar administrador de empresa',
+      message: `¿Eliminar la cuenta de ${label} (${companyName || 'empresa'})?\n\nYa no podrá acceder como administrador de empresa. No se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    })
+    if (!okConfirm) return
+    setCompanyAdminDeleteBusyId(admin.id)
+    setError('')
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/companies/${companyId}/admins/${admin.id}`),
+        {
+          method: 'DELETE',
+          headers: jsonAuthHeaders(accessToken),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.message || d.error || `Error ${res.status}`)
+      setSuccessFlash(d.message || 'Administrador de empresa eliminado.')
+      await loadCompaniesList()
+    } catch (err) {
+      setError(err.message || 'No se pudo eliminar el administrador')
+    } finally {
+      setCompanyAdminDeleteBusyId(null)
+    }
+  }
+
+  const impersonateCompanyAdmin = async (companyId, userId, companyName) => {
+    if (!accessToken) return
+    setCompanyAdminLoginBusyId(userId)
+    setError('')
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/companies/${companyId}/admins/${userId}/impersonate`),
+        {
+          method: 'POST',
+          headers: jsonAuthHeaders(accessToken),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+      openVecindarioImpersonationTab({
+        accessToken: d.accessToken,
+        user: d.user,
+        company: d.company ?? { id: companyId, name: companyName || 'Empresa' },
+      })
+      setSuccessFlash(
+        'Se abrió una pestaña como administrador de empresa. Esta pestaña sigue siendo super administrador.',
+      )
+    } catch (err) {
+      setError(err.message || 'No se pudo iniciar sesión como administrador de empresa')
+    } finally {
+      setCompanyAdminLoginBusyId(null)
+    }
   }
 
   const impersonateUser = async (userId) => {
@@ -1175,14 +1396,101 @@ export default function Admin() {
     }
   }
 
-  const issueTemporaryPassword = async (userId, email) => {
+  const deleteAllCommunityResidents = async () => {
+    if (!accessToken || !usersModalCommunity || !(usersModalData?.residentsFromBookings?.length)) return
+    const name = String(usersModalCommunity.name || '').trim()
+    const ok = await confirm({
+      title: 'Eliminar todas las cuentas de vecinos',
+      message:
+        `¿Eliminar permanentemente todas las cuentas de vecinos (rol «residente») de «${name}»?\n\n` +
+        'No se borran administrador, presidente, conserje ni socorrista de la ficha.\n' +
+        'Las reservas se conservan pero quedarán sin usuario asociado.\n' +
+        'Las incidencias y solicitudes de servicio de esta comunidad creadas por esos vecinos se eliminan.\n\n' +
+        'Esta acción no se puede deshacer.',
+      confirmLabel: 'Continuar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    })
+    if (!ok) return
+    const typed = await prompt({
+      title: 'Confirmar nombre de la comunidad',
+      message: `Escribe el nombre exacto de la comunidad para confirmar:\n\n${name}`,
+      placeholder: name,
+      confirmLabel: 'Eliminar cuentas',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    })
+    if (typed == null) return
+    if (typed.trim().toLowerCase() !== name.toLowerCase()) {
+      setUsersModalError('El nombre no coincide. No se ha borrado nada.')
+      return
+    }
+    setUsersBulkDeleteBusy(true)
+    setUsersModalError('')
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/communities/${usersModalCommunity.id}/residents/bulk-delete`),
+        {
+          method: 'POST',
+          headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmCommunityName: name }),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+      setSuccessFlash(d.message || `Eliminadas ${d.deleted ?? 0} cuenta(s) de vecino.`)
+      await loadCommunityUsers(usersModalCommunity)
+    } catch (err) {
+      setUsersModalError(err.message || 'No se pudieron borrar las cuentas')
+    } finally {
+      setUsersBulkDeleteBusy(false)
+    }
+  }
+
+  const deleteCommunityUser = async (userId, label) => {
     if (!accessToken || !usersModalCommunity) return
-    const okConfirm = window.confirm(
-      `¿Generar una contraseña nueva para ${email}? La anterior dejará de valer.`,
-    )
+    const okConfirm = await confirm({
+      title: 'Eliminar cuenta',
+      message: `¿Eliminar la cuenta de ${label}?\n\nSi figura en la ficha de la comunidad, su correo también se quitará de esos campos. No se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    })
     if (!okConfirm) return
     setUsersActionBusyId(userId)
     setUsersModalError('')
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/communities/${usersModalCommunity.id}/users/${userId}`),
+        {
+          method: 'DELETE',
+          headers: jsonAuthHeaders(accessToken),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+      setUsersTempPasswordFlash(d.message || 'Cuenta eliminada.')
+      await loadCommunityUsers(usersModalCommunity)
+    } catch (err) {
+      setUsersModalError(err.message || 'No se pudo eliminar la cuenta')
+    } finally {
+      setUsersActionBusyId(null)
+    }
+  }
+
+  const issueTemporaryPassword = async (userId, label) => {
+    if (!accessToken || !usersModalCommunity) return
+    const okConfirm = await confirm({
+      title: 'Contraseña temporal',
+      message: `¿Generar una contraseña temporal nueva para ${label}? La contraseña anterior dejará de valer.`,
+      confirmLabel: 'Generar',
+      cancelLabel: 'Cancelar',
+      variant: 'warning',
+    })
+    if (!okConfirm) return
+    setUsersActionBusyId(userId)
+    setUsersModalError('')
+    setUsersTempPasswordFlash('')
     try {
       const res = await fetch(
         apiUrl(`/api/admin/communities/${usersModalCommunity.id}/temporary-password`),
@@ -1194,9 +1502,14 @@ export default function Admin() {
       )
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
-      setTempPasswordBanner(`${email} → ${d.temporaryPassword}`)
+      const pw = d.temporaryPassword
+      setUsersTempPasswordFlash(
+        pw
+          ? `Contraseña temporal para ${label}: ${pw} — cópiala ahora; la anterior ya no vale.`
+          : d.message || 'Contraseña actualizada.',
+      )
     } catch (err) {
-      setUsersModalError(err.message || 'No se pudo generar la contraseña')
+      setUsersModalError(err.message || 'No se pudo generar la contraseña temporal')
     } finally {
       setUsersActionBusyId(null)
     }
@@ -1204,7 +1517,13 @@ export default function Admin() {
 
   const removeCommunity = async (c) => {
     if (!accessToken) return
-    const ok = window.confirm(`¿Eliminar la comunidad «${c.name}»? Esta acción no se puede deshacer.`)
+    const ok = await confirm({
+      title: 'Eliminar comunidad',
+      message: `¿Eliminar la comunidad «${c.name}»? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    })
     if (!ok) return
     setError('')
     try {
@@ -1492,12 +1811,40 @@ export default function Admin() {
                         <ul className="admin-company-admins-block__list">
                           {co.companyAdmins.map((a) => (
                             <li key={a.id} className="admin-company-admins-block__item">
-                              <span className="admin-company-admins-block__email">
-                                {a.email || `— (usuario id ${a.id})`}
-                              </span>
-                              {a.name ? (
-                                <span className="admin-company-admins-block__name">{a.name}</span>
-                              ) : null}
+                              <div className="admin-company-admins-block__item-main">
+                                <span className="admin-company-admins-block__email">
+                                  {a.email || `— (usuario id ${a.id})`}
+                                </span>
+                                {a.name ? (
+                                  <span className="admin-company-admins-block__name">{a.name}</span>
+                                ) : null}
+                              </div>
+                              <div className="admin-company-admins-block__actions">
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost btn--sm"
+                                  disabled={
+                                    companyAdminLoginBusyId === a.id ||
+                                    companyAdminDeleteBusyId === a.id
+                                  }
+                                  title="Abrir el panel de administrador de empresa en una pestaña nueva (sesión aislada)"
+                                  onClick={() => void impersonateCompanyAdmin(co.id, a.id, co.name)}
+                                >
+                                  {companyAdminLoginBusyId === a.id ? '…' : 'Entrar como…'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost btn--sm admin-row-btn admin-row-btn--danger"
+                                  disabled={
+                                    companyAdminDeleteBusyId === a.id ||
+                                    companyAdminLoginBusyId === a.id
+                                  }
+                                  title="Eliminar esta cuenta de administrador de empresa"
+                                  onClick={() => void deleteCompanyAdmin(co.id, a, co.name)}
+                                >
+                                  {companyAdminDeleteBusyId === a.id ? '…' : 'Eliminar'}
+                                </button>
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -1672,6 +2019,14 @@ export default function Admin() {
                                 >
                                   QR
                                 </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--secondary btn--sm"
+                                  disabled={posterPdfBusyId === community.id}
+                                  onClick={() => void downloadCommunityPoster(community)}
+                                >
+                                  {posterPdfBusyId === community.id ? 'PDF…' : 'Cartel PDF'}
+                                </button>
                               </span>
                             </span>
                           ) : (
@@ -1699,8 +2054,41 @@ export default function Admin() {
                           <span className="admin-email-lines">
                             <span>Comunidad: {community.contactEmail || '—'}</span>
                             <span>Presidente: {formatPresidentOnCard(community)}</span>
-                            <span>Admin: {community.communityAdminEmail || '—'}</span>
-                            <span>Conserje: {community.conciergeEmail || '—'}</span>
+                            <span>
+                              Admin:{' '}
+                              {community.communityAdminName?.trim()
+                                ? `${community.communityAdminName.trim()} · `
+                                : ''}
+                              {community.communityAdminEmail?.trim() ||
+                                (companyAdminEmailsForCommunity(community, companiesList).length
+                                  ? `empresa — ${companyAdminEmailsForCommunity(community, companiesList).join(', ')}`
+                                  : community.companyId != null
+                                    ? '— (gestión por empresa)'
+                                    : '—')}
+                            </span>
+                            <span>
+                              Conserje:{' '}
+                              {(() => {
+                                const cf = conciergeEmailsFromCommunity(community)
+                                const parts = cf.conciergeStaff
+                                  .map((s) => {
+                                    const em = (s.email || '').trim()
+                                    if (!em) return ''
+                                    const nm = (s.name || '').trim()
+                                    return nm ? `${nm} <${em}>` : em
+                                  })
+                                  .filter(Boolean)
+                                if (cf.conciergeSubstituteEmail) {
+                                  const nm = (cf.conciergeSubstituteName || '').trim()
+                                  parts.push(
+                                    nm
+                                      ? `${nm} <${cf.conciergeSubstituteEmail}> (supl.)`
+                                      : `${cf.conciergeSubstituteEmail} (supl.)`,
+                                  )
+                                }
+                                return parts.length ? parts.join(', ') : '—'
+                              })()}
+                            </span>
                             <span>Socorrista: {community.poolStaffEmail || '—'}</span>
                           </span>
                         </span>
@@ -1800,6 +2188,32 @@ export default function Admin() {
                             />
                             <span>Acceso piscina</span>
                           </label>
+                          <label className="admin-nav-tab-check">
+                            <input
+                              type="checkbox"
+                              checked={community.appNavPaqueteriaEnabled === true}
+                              disabled={navTabSavingId === community.id}
+                              onChange={(e) =>
+                                patchCommunityNavTabs(community, {
+                                  appNavPaqueteriaEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Paquetería</span>
+                          </label>
+                          <label className="admin-nav-tab-check">
+                            <input
+                              type="checkbox"
+                              checked={community.appNavCuadernoDiarioEnabled === true}
+                              disabled={navTabSavingId === community.id}
+                              onChange={(e) =>
+                                patchCommunityNavTabs(community, {
+                                  appNavCuadernoDiarioEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Cuaderno diario</span>
+                          </label>
                         </div>
                         <p className="admin-field-hint admin-field-hint--block" style={{ marginTop: '0.35rem' }}>
                           Solo se muestran en la app las pestañas marcadas; el acceso directo por URL también se
@@ -1821,12 +2235,33 @@ export default function Admin() {
                       >
                         Usuarios y acceso
                       </button>
+                      <Link
+                        to={`/admin/communities/${community.id}/vecinos`}
+                        className="btn btn--primary admin-row-btn"
+                      >
+                        Alta de vecinos
+                      </Link>
                       <button
                         type="button"
                         className="btn btn--secondary admin-row-btn"
                         onClick={() => openOnboardingMail(community)}
                       >
                         Enviar correos de alta
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary admin-row-btn"
+                        disabled={
+                          !(community.loginSlug || '').trim() || posterPdfBusyId === community.id
+                        }
+                        title={
+                          (community.loginSlug || '').trim()
+                            ? 'Cartel A4 para imprimir en conserjería (QR, VEC y privacidad)'
+                            : 'Requiere slug de acceso en la ficha'
+                        }
+                        onClick={() => void downloadCommunityPoster(community)}
+                      >
+                        {posterPdfBusyId === community.id ? 'Generando PDF…' : 'Cartel PDF'}
                       </button>
                       <button
                         type="button"
@@ -1883,14 +2318,14 @@ export default function Admin() {
               {usersModalData?.note ||
                 'Carga la lista para ver cuentas vinculadas a esta comunidad (ficha, vecinos con community_id y vecinos con reservas).'}
             </p>
-            {tempPasswordBanner && (
-              <p className="admin-banner-success admin-users-temp-pw" role="status">
-                Contraseña temporal (cópiala ahora): <code>{tempPasswordBanner}</code>
-              </p>
-            )}
             {usersModalError && (
               <p className="admin-banner-error" role="alert">
                 {usersModalError}
+              </p>
+            )}
+            {usersTempPasswordFlash && (
+              <p className="admin-banner-success" role="alert">
+                {usersTempPasswordFlash}
               </p>
             )}
             {usersModalLoading ? (
@@ -1985,13 +2420,35 @@ export default function Admin() {
                                   {row.user.role !== 'super_admin' && (
                                     <button
                                       type="button"
-                                      className="btn btn--ghost btn--sm"
+                                      className="btn btn--secondary btn--sm"
                                       disabled={usersActionBusyId === row.user.id}
+                                      title="Genera una contraseña temporal nueva (la anterior deja de valer)"
                                       onClick={() =>
-                                        issueTemporaryPassword(row.user.id, row.user.email)
+                                        void issueTemporaryPassword(
+                                          row.user.id,
+                                          row.user.email || row.user.name || 'este usuario',
+                                        )
                                       }
                                     >
-                                      Contraseña temporal
+                                      {usersActionBusyId === row.user.id
+                                        ? '…'
+                                        : 'Contraseña temporal'}
+                                    </button>
+                                  )}
+                                  {row.user.role !== 'super_admin' && (
+                                    <button
+                                      type="button"
+                                      className="btn admin-row-btn--danger btn--sm"
+                                      disabled={usersActionBusyId === row.user.id}
+                                      title="Elimina la cuenta y quita el correo de la ficha si aplica"
+                                      onClick={() =>
+                                        void deleteCommunityUser(
+                                          row.user.id,
+                                          row.user.email || row.user.name || 'este usuario',
+                                        )
+                                      }
+                                    >
+                                      {usersActionBusyId === row.user.id ? '…' : 'Eliminar cuenta'}
                                     </button>
                                   )}
                                 </>
@@ -2018,6 +2475,23 @@ export default function Admin() {
                     Cuentas con <code>community_id</code> en esta comunidad y/o con reservas guardadas aquí. La columna
                     Reservas es 0 si aún no tienen ninguna en el servidor.
                   </p>
+                  {(usersModalData.residentsFromBookings || []).length > 0 ? (
+                    <div className="admin-users-bulk-actions">
+                      <button
+                        type="button"
+                        className="btn admin-row-btn--danger"
+                        disabled={usersBulkDeleteBusy || usersActionBusyId != null}
+                        onClick={() => void deleteAllCommunityResidents()}
+                      >
+                        {usersBulkDeleteBusy ? 'Borrando…' : 'Eliminar todas las cuentas de vecinos'}
+                      </button>
+                      <p className="admin-field-hint admin-users-bulk-actions-hint">
+                        Útil si hubo un error al configurar portales o viviendas: borra solo usuarios con rol{' '}
+                        <strong>residente</strong> vinculados aquí (misma lista que la tabla). Luego puedes dar de alta
+                        de nuevo o usar el alta masiva.
+                      </p>
+                    </div>
+                  ) : null}
                   {(usersModalData.residentsFromBookings || []).length === 0 ? (
                     <p className="admin-empty-hint">No hay vecinos vinculados (ni por alta ni por reservas).</p>
                   ) : (
@@ -2082,13 +2556,25 @@ export default function Admin() {
                                       {row.user.role !== 'super_admin' && (
                                         <button
                                           type="button"
-                                          className="btn btn--ghost btn--sm"
+                                          className="btn btn--secondary btn--sm"
                                           disabled={usersActionBusyId === row.user.id}
-                                          onClick={() =>
-                                            issueTemporaryPassword(row.user.id, pwLabel)
-                                          }
+                                          title="Genera una contraseña temporal nueva (la anterior deja de valer)"
+                                          onClick={() => void issueTemporaryPassword(row.user.id, pwLabel)}
                                         >
-                                          Contraseña temporal
+                                          {usersActionBusyId === row.user.id
+                                            ? '…'
+                                            : 'Contraseña temporal'}
+                                        </button>
+                                      )}
+                                      {row.user.role !== 'super_admin' && (
+                                        <button
+                                          type="button"
+                                          className="btn admin-row-btn--danger btn--sm"
+                                          disabled={usersActionBusyId === row.user.id}
+                                          title="Elimina la cuenta de vecino"
+                                          onClick={() => void deleteCommunityUser(row.user.id, pwLabel)}
+                                        >
+                                          {usersActionBusyId === row.user.id ? '…' : 'Eliminar cuenta'}
                                         </button>
                                       )}
                                     </>
@@ -2105,6 +2591,15 @@ export default function Admin() {
               </>
             ) : null}
             <div className="admin-modal-actions admin-modal-actions--footer">
+              {usersModalCommunity ? (
+                <Link
+                  to={`/admin/communities/${usersModalCommunity.id}/vecinos`}
+                  className="btn btn--primary"
+                  onClick={closeCommunityUsers}
+                >
+                  Alta de vecinos (entrega)
+                </Link>
+              ) : null}
               <button type="button" className="btn btn--ghost" onClick={closeCommunityUsers}>
                 Cerrar
               </button>
@@ -2127,8 +2622,9 @@ export default function Admin() {
             <p className="admin-field-hint admin-field-hint--block">
               <strong>{portalsDraft.length}</strong> portal(es) según la ficha. Pon un alias por acceso (ej.{' '}
               <em>34</em>, <em>36</em> o <em>P1</em>, <em>P2</em>). Opcionalmente, bajo cada portal define cuántas
-              plantas hay, cuántas puertas por planta y si las puertas van en <strong>letras</strong> (A, B, C…) o{' '}
-              <strong>números</strong> (1, 2, 3…). Eso genera listas en el alta de vecinos y en el login. Para cambiar
+              plantas hay, cuántas puertas por planta (y opcionalmente menos en la <strong>última planta</strong>, típico
+              en áticos), y si las puertas van en <strong>letras</strong> (A, B, C…) o <strong>números</strong> (1, 2, 3…).
+              Eso genera listas en el alta de vecinos y en el login. Para cambiar
               el número total de portales, usa «Edit» en la comunidad.
             </p>
             {portalsError && (
@@ -2147,13 +2643,30 @@ export default function Admin() {
                   Misma estructura en todos los portales
                 </button>
                 <p className="admin-portals-replicate-hint">
-                  Copia <strong>plantas</strong>, <strong>puertas por planta</strong> y <strong>etiquetas</strong> desde el
-                  primer portal que tenga alguno de esos datos. Los alias (32, 34…) no cambian.
+                  Copia <strong>plantas</strong>, <strong>puertas por planta</strong>,{' '}
+                  <strong>puertas última planta</strong> (si aplica) y <strong>etiquetas</strong> desde el primer portal
+                  que tenga alguno de esos datos. Los alias (32, 34…) no cambian.
                 </p>
               </div>
             ) : null}
             <div className="admin-portals-fields">
-              {portalsDraft.map((val, i) => (
+              {portalsDraft.map((val, i) => {
+                const dwelling = portalsDwellingDraft[i] ?? {}
+                const est = estimatePortalDwellingUnitsFromDraft(dwelling)
+                const fNum = parseInt(String(dwelling.floors ?? '').trim(), 10)
+                const dpNum = parseInt(String(dwelling.doorsPerFloor ?? '').trim(), 10)
+                const dtRaw = String(dwelling.doorsTopFloor ?? '').trim()
+                const dtNum = parseInt(dtRaw, 10)
+                const showAtticBreakdown =
+                  est != null &&
+                  dtRaw !== '' &&
+                  Number.isFinite(fNum) &&
+                  fNum >= 2 &&
+                  Number.isFinite(dtNum) &&
+                  Number.isFinite(dpNum) &&
+                  dtNum < dpNum
+
+                return (
                 <div key={`portal-${portalsModalCommunity.id}-${i}`} className="admin-modal-field">
                   <label className="admin-label" htmlFor={`portal-alias-${portalsModalCommunity.id}-${i}`}>
                     Portal {i + 1} — alias
@@ -2218,6 +2731,48 @@ export default function Admin() {
                         })
                       }}
                     />
+                    <label className="admin-label" htmlFor={`portal-doors-top-${portalsModalCommunity.id}-${i}`}>
+                      Puertas última planta (ático, opcional)
+                    </label>
+                    <input
+                      id={`portal-doors-top-${portalsModalCommunity.id}-${i}`}
+                      type="number"
+                      min={1}
+                      max={26}
+                      className="admin-input"
+                      placeholder="Vacío = igual que «por planta»"
+                      value={portalsDwellingDraft[i]?.doorsTopFloor ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setPortalsDwellingDraft((prev) => {
+                          const next = [...prev]
+                          next[i] = { ...(next[i] || {}), doorsTopFloor: v }
+                          return next
+                        })
+                      }}
+                    />
+                    <p className="admin-portal-dwelling-hint">
+                      Si rellenas un número <strong>menor</strong> que «puertas por planta», la última planta (piso más
+                      alto) tendrá solo esas puertas (mismas letras/números desde A o 1). Solo aplica con 2+ plantas.
+                    </p>
+                    <p className="admin-portal-dwelling-total" role="status">
+                      {est != null ? (
+                        <>
+                          <strong>{est}</strong> viviendas teóricas en este portal
+                          {showAtticBreakdown ? (
+                            <span className="admin-portal-dwelling-total-formula">
+                              {' '}
+                              ({fNum - 1}×{dpNum} + {dtNum})
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="admin-users-muted">
+                          Total viviendas: completa plantas y puertas por planta (revisa también «última planta» si la
+                          rellenaste).
+                        </span>
+                      )}
+                    </p>
                     <label className="admin-label" htmlFor={`portal-scheme-${portalsModalCommunity.id}-${i}`}>
                       Etiquetas de puerta
                     </label>
@@ -2239,7 +2794,8 @@ export default function Admin() {
                     </select>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             <div className="admin-modal-actions admin-modal-actions--footer">
               <button type="button" className="btn btn--ghost" onClick={closePortalsModal}>
@@ -2298,12 +2854,23 @@ export default function Admin() {
                     onChange={(e) =>
                       setOnboardingMailSel((s) => ({ ...s, inviteAdmin: e.target.checked }))
                     }
-                    disabled={!onboardingMailCommunity.communityAdminEmail?.trim()}
+                    disabled={
+                      !hasAdminOnboardingMailTarget(onboardingMailCommunity, companiesList)
+                    }
                   />
                   <span>
-                    Administrador de comunidad{' '}
+                    {onboardingMailCommunity.companyId != null &&
+                    !onboardingMailCommunity.communityAdminEmail?.trim()
+                      ? 'Administrador de empresa'
+                      : 'Administrador de comunidad'}{' '}
                     <span className="admin-onboarding-mail-addr">
-                      ({onboardingMailCommunity.communityAdminEmail?.trim() || 'sin email'})
+                      (
+                      {adminOnboardingMailSummary(
+                        onboardingMailCommunity,
+                        companiesList,
+                        companyNameById,
+                      )}
+                      )
                     </span>
                   </span>
                 </label>
@@ -2314,12 +2881,12 @@ export default function Admin() {
                     onChange={(e) =>
                       setOnboardingMailSel((s) => ({ ...s, inviteConcierge: e.target.checked }))
                     }
-                    disabled={!onboardingMailCommunity.conciergeEmail?.trim()}
+                    disabled={!hasAnyConciergeEmail(onboardingMailCommunity)}
                   />
                   <span>
-                    Conserje{' '}
+                    Conserje(s){' '}
                     <span className="admin-onboarding-mail-addr">
-                      ({onboardingMailCommunity.conciergeEmail?.trim() || 'sin email'})
+                      ({conciergeEmailsSummary(onboardingMailCommunity) || 'sin emails'})
                     </span>
                   </span>
                 </label>
@@ -2499,6 +3066,9 @@ export default function Admin() {
                     value={form.portalCount}
                     onChange={(e) => setForm((f) => ({ ...f, portalCount: e.target.value }))}
                   />
+                  <p className="admin-field-hint">
+                    Cuántos accesos tiene el edificio. Los alias por portal: «Editar portales».
+                  </p>
                 </div>
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-slots">Nº vecinos (cupo previsto)</label>
@@ -2512,6 +3082,10 @@ export default function Admin() {
                     onChange={(e) => setForm((f) => ({ ...f, residentSlots: e.target.value }))}
                     placeholder="Opcional"
                   />
+                  <p className="admin-field-hint">
+                    Se guarda el valor que indiques aquí. Solo «Editar portales» puede recalcular cupo (plantas ×
+                    puertas).
+                  </p>
                 </div>
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-padel">Pistas de pádel</label>
@@ -2751,6 +3325,77 @@ export default function Admin() {
                       <span>Pestaña Acceso piscina</span>
                     </label>
                   </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.appNavPaqueteriaEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, appNavPaqueteriaEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Pestaña Paquetería</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.appNavCuadernoDiarioEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, appNavCuadernoDiarioEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Pestaña Cuaderno diario</span>
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset className="admin-modal-fieldset">
+                  <legend className="admin-fieldset-legend">Tipos de servicio (solicitud vecinos)</legend>
+                  <p className="admin-field-hint admin-field-hint--block">
+                    Solo aplica si la pestaña «Servicios» está activa. «Disponible» permite enviar la solicitud;
+                    «Pronto» muestra la tarjeta con la etiqueta Pronto y no se puede elegir.
+                  </p>
+                  <ul className="admin-service-category-modes">
+                    {SERVICE_CATEGORIES.map((cat) => (
+                      <li key={cat.id} className="admin-service-category-modes__row">
+                        <span className="admin-service-category-modes__name">
+                          {cat.icon ? <span aria-hidden="true">{cat.icon} </span> : null}
+                          {cat.name}
+                        </span>
+                        <span className="admin-service-category-modes__radios" role="group" aria-label={cat.name}>
+                          <label className="admin-radio-inline">
+                            <input
+                              type="radio"
+                              name={`admin-svc-mode-${cat.id}`}
+                              checked={form.serviceCategoryModes[cat.id] === 'active'}
+                              onChange={() =>
+                                setForm((f) => ({
+                                  ...f,
+                                  serviceCategoryModes: { ...f.serviceCategoryModes, [cat.id]: 'active' },
+                                }))
+                              }
+                            />
+                            <span>Disponible</span>
+                          </label>
+                          <label className="admin-radio-inline">
+                            <input
+                              type="radio"
+                              name={`admin-svc-mode-${cat.id}`}
+                              checked={form.serviceCategoryModes[cat.id] === 'soon'}
+                              onChange={() =>
+                                setForm((f) => ({
+                                  ...f,
+                                  serviceCategoryModes: { ...f.serviceCategoryModes, [cat.id]: 'soon' },
+                                }))
+                              }
+                            />
+                            <span>Pronto</span>
+                          </label>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </fieldset>
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-salon-mode">
@@ -2823,11 +3468,11 @@ export default function Admin() {
               <fieldset className="admin-modal-fieldset">
                 <legend className="admin-fieldset-legend">Emails para instrucciones de alta</legend>
                 <p className="admin-field-hint admin-field-hint--block">
-                  Solo el <strong>email de contacto</strong> es obligatorio (avisos generales). Indica la{' '}
-                  <strong>vivienda del presidente</strong> (portal + piso): ese vecino entra como siempre
-                  con VEC + portal + piso y obtiene permisos de presidente (p. ej. rotación anual). El{' '}
-                  <strong>administrador</strong> se puede añadir después y enviarle acceso por correo. El{' '}
-                  <strong>conserje</strong> puede usar el mismo correo que el contacto de la comunidad.
+                  Solo el <strong>email de contacto</strong> es obligatorio (avisos generales). El{' '}
+                  <strong>presidente de la junta</strong> (portal + piso) se asigna después en la app, desde{' '}
+                  <strong>Lista de vecinos</strong> (conserje o administrador). El{' '}
+                  <strong>administrador</strong> y el <strong>conserje</strong> se definen aquí por correo
+                  (VEC + email en el login).
                 </p>
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-email">
@@ -2847,79 +3492,157 @@ export default function Admin() {
                     Comunicación general y envío de instrucciones orientadas a vecinos.
                   </p>
                 </div>
-                <div className="admin-modal-row">
+                {communityUsesCompanyAdmin ? (
                   <div className="admin-modal-field">
-                    <label className="admin-label" htmlFor="comm-president-portal">
-                      Portal del presidente (vivienda actual)
-                    </label>
-                    <input
-                      id="comm-president-portal"
-                      type="text"
-                      className="admin-input"
-                      value={form.presidentPortal}
-                      onChange={(e) => setForm((f) => ({ ...f, presidentPortal: e.target.value }))}
-                      placeholder="Ej. 34, P1 (mismo valor que en el alta del vecino)"
-                      maxLength={64}
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div className="admin-modal-field">
-                    <label className="admin-label" htmlFor="comm-president-piso">
-                      Piso / puerta del presidente
-                    </label>
-                    <input
-                      id="comm-president-piso"
-                      type="text"
-                      className="admin-input"
-                      value={form.presidentPiso}
-                      onChange={(e) => setForm((f) => ({ ...f, presidentPiso: e.target.value }))}
-                      placeholder="Ej. 3º B"
-                      maxLength={64}
-                      autoComplete="off"
-                    />
                     <p className="admin-field-hint">
-                      Deben coincidir con la cuenta de vecino. Vacíos = sin presidente por vivienda (solo
-                      admin/conserje por correo si aplica).
+                      Esta comunidad está vinculada a una <strong>empresa de administración</strong>. La gestión la
+                      hacen los administradores de empresa (sección Empresas), no un administrador en la ficha.
                     </p>
                   </div>
+                ) : (
+                  <div className="admin-modal-field admin-concierge-slot">
+                    <p className="admin-label admin-concierge-slot-title">Administrador de comunidad</p>
+                    <div className="admin-modal-row">
+                      <div className="admin-modal-field">
+                        <label className="admin-label" htmlFor="comm-admin-name">
+                          Nombre o empresa (opcional)
+                        </label>
+                        <input
+                          id="comm-admin-name"
+                          type="text"
+                          className="admin-input"
+                          value={form.communityAdminName}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, communityAdminName: e.target.value }))
+                          }
+                          placeholder="Ej. Gestoría Mandataria S.L."
+                          autoComplete="organization"
+                        />
+                        <p className="admin-field-hint">
+                          Aparece en correos de alta y en la cuenta creada para el administrador.
+                        </p>
+                      </div>
+                      <div className="admin-modal-field">
+                        <label className="admin-label" htmlFor="comm-admin-email">
+                          Email (opcional)
+                        </label>
+                        <input
+                          id="comm-admin-email"
+                          type="email"
+                          className="admin-input"
+                          value={form.communityAdminEmail}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, communityAdminEmail: e.target.value }))
+                          }
+                          placeholder="admin@gestoria.es"
+                          autoComplete="email"
+                        />
+                        <p className="admin-field-hint">
+                          Gestión (incidencias, reservas). «Enviar correos de alta» cuando quieras.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="admin-modal-field">
+                  <label className="admin-label" htmlFor="comm-concierge-count">
+                    Número de conserjes (portería)
+                  </label>
+                  <select
+                    id="comm-concierge-count"
+                    className="admin-input auth-select"
+                    value={String(form.conciergeCount)}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        conciergeCount: Math.min(5, Math.max(1, Number(e.target.value) || 1)),
+                      }))
+                    }
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={String(n)}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="admin-field-hint">
+                    Cada correo crea cuenta <strong>Conserje</strong> (VEC + email). Mismos permisos en la
+                    app.
+                  </p>
                 </div>
-                <div className="admin-modal-row">
-                  <div className="admin-modal-field">
-                    <label className="admin-label" htmlFor="comm-admin-email">
-                      Email administrador de comunidad (opcional)
+                {Array.from({ length: form.conciergeCount }, (_, i) => i + 1).map((n) => (
+                  <div key={n} className="admin-modal-field admin-concierge-slot">
+                    <p className="admin-label admin-concierge-slot-title">Conserje {n}</p>
+                    <label className="admin-label" htmlFor={`comm-concierge-name-${n}`}>
+                      Nombre (opcional)
                     </label>
                     <input
-                      id="comm-admin-email"
+                      id={`comm-concierge-name-${n}`}
+                      type="text"
+                      className="admin-input"
+                      value={form.conciergeStaff?.[n - 1]?.name ?? ''}
+                      onChange={(e) =>
+                        setForm((f) => {
+                          const next = [...(f.conciergeStaff || Array.from({ length: 5 }, () => ({ email: '', name: '' })))]
+                          next[n - 1] = { ...next[n - 1], name: e.target.value }
+                          return { ...f, conciergeStaff: next }
+                        })
+                      }
+                      placeholder="Ej. María García"
+                      autoComplete="name"
+                    />
+                    <label className="admin-label" htmlFor={`comm-concierge-email-${n}`}>
+                      Email
+                    </label>
+                    <input
+                      id={`comm-concierge-email-${n}`}
                       type="email"
                       className="admin-input"
-                      value={form.communityAdminEmail}
-                      onChange={(e) => setForm((f) => ({ ...f, communityAdminEmail: e.target.value }))}
-                      placeholder="admin@gestoria.es"
+                      value={form.conciergeStaff?.[n - 1]?.email ?? ''}
+                      onChange={(e) =>
+                        setForm((f) => {
+                          const next = [...(f.conciergeStaff || Array.from({ length: 5 }, () => ({ email: '', name: '' })))]
+                          next[n - 1] = { ...next[n - 1], email: e.target.value }
+                          return { ...f, conciergeStaff: next }
+                        })
+                      }
+                      placeholder={n === 1 ? 'conserje@ejemplo.es' : `conserje${n}@ejemplo.es`}
                       autoComplete="email"
                     />
-                    <p className="admin-field-hint">
-                      Gestión (incidencias, reservas). Puedes añadirlo más tarde y usar «Enviar correos de
-                      alta». El presidente por vivienda no necesita correo; con admin basta para gestión
-                      por email.
-                    </p>
                   </div>
-                </div>
-                <div className="admin-modal-field">
-                  <label className="admin-label" htmlFor="comm-concierge-email">
-                    Email conserje / portería (opcional)
+                ))}
+                <div className="admin-modal-field admin-concierge-slot">
+                  <p className="admin-label admin-concierge-slot-title">Conserje suplente (opcional)</p>
+                  <label className="admin-label" htmlFor="comm-concierge-sub-name">
+                    Nombre (opcional)
                   </label>
                   <input
-                    id="comm-concierge-email"
+                    id="comm-concierge-sub-name"
+                    type="text"
+                    className="admin-input"
+                    value={form.conciergeSubstituteName}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, conciergeSubstituteName: e.target.value }))
+                    }
+                    placeholder="Ej. Juan López"
+                    autoComplete="name"
+                  />
+                  <label className="admin-label" htmlFor="comm-concierge-substitute">
+                    Email
+                  </label>
+                  <input
+                    id="comm-concierge-substitute"
                     type="email"
                     className="admin-input"
-                    value={form.conciergeEmail}
-                    onChange={(e) => setForm((f) => ({ ...f, conciergeEmail: e.target.value }))}
-                    placeholder="conserje@ejemplo.es"
+                    value={form.conciergeSubstituteEmail}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, conciergeSubstituteEmail: e.target.value }))
+                    }
+                    placeholder="suplente@ejemplo.es"
                     autoComplete="email"
                   />
                   <p className="admin-field-hint">
-                    Opcional. Crea usuario <strong>Conserje</strong> (VEC + este correo). Puede ser el mismo
-                    email que el contacto de la comunidad.
+                    Refuerzo o relevo: misma app y permisos; cada persona entra con su correo y el VEC.
                   </p>
                 </div>
                 <div className="admin-modal-field">
@@ -2978,7 +3701,16 @@ export default function Admin() {
                   id="comm-company-id"
                   className="admin-input admin-select"
                   value={form.companyId}
-                  onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setForm((f) => ({
+                      ...f,
+                      companyId: next,
+                      ...(next.trim() !== ''
+                        ? { communityAdminEmail: '', communityAdminName: '' }
+                        : {}),
+                    }))
+                  }}
                 >
                   <option value="">— Sin empresa —</option>
                   {companiesList.map((co) => (

@@ -5,7 +5,7 @@ import {
   COMMUNITY_MGMT_NAV_DEFAULT,
   useCommunityManagementStats,
 } from '../hooks/useCommunityManagementStats.js'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, canActAsResident } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { SERVICE_STATUS_LABELS } from '../constants/serviceRequests.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
@@ -56,7 +56,14 @@ function formatRecentTime(isoDate) {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
 }
 
-const HOME_NAV_DEFAULT = { services: true, incidents: true, bookings: true, poolAccess: false }
+const HOME_NAV_DEFAULT = {
+  services: true,
+  incidents: true,
+  bookings: true,
+  poolAccess: false,
+  paqueteria: false,
+  cuadernoDiario: false,
+}
 
 /** Mismos roles que /community-admin (RequireRole). */
 const HOME_MANAGEMENT_STATS_ROLES = new Set([
@@ -83,8 +90,11 @@ export default function Home() {
   const [serverIncidents, setServerIncidents] = useState([])
   const [serverServices, setServerServices] = useState([])
   const roleLabel = ROLE_LABEL_ES[userRole] ?? userRole
+  const displayName = user?.name?.trim() || null
+  const emailLabel = user?.email?.trim() || null
   const pisoLabel = user?.piso?.trim() || null
   const portalLabel = user?.portal?.trim() || null
+  const puertaLabel = user?.puerta?.trim() || null
   const navFlags = appNavFlagsReady ? appNavFlags : HOME_NAV_DEFAULT
   const showActivityLinks = !appNavFlagsReady || hasActivityPage(navFlags)
   const showHomeManagementStats =
@@ -144,7 +154,35 @@ export default function Home() {
           },
         ]
       : []
-  const actions = [...poolQuick, ...allActions.filter((a) => navFlags[a.navKey])]
+  const paqueteriaNeighbor = userRole === 'resident' || userRole === 'president'
+  const paqueteriaStaff = userRole === 'concierge' || userRole === 'community_admin'
+  const paqueteriaQuick =
+    navFlags.paqueteria && (paqueteriaNeighbor || paqueteriaStaff)
+      ? [
+          {
+            to: '/paqueteria',
+            title: 'Paquetería',
+            description:
+              userRole === 'community_admin'
+                ? 'Consultar paquetes de la comunidad'
+                : paqueteriaStaff && !paqueteriaNeighbor
+                  ? 'Registrar paquetes y ver recogidas con firma'
+                  : 'Paquetes en conserjería; recogida con firma',
+            icon: 'paqueteria',
+            color: 'primary',
+            navKey: '_paqueteria',
+          },
+        ]
+      : []
+  const actions = [
+    ...poolQuick,
+    ...paqueteriaQuick,
+    ...allActions.filter((a) => {
+      if (!navFlags[a.navKey]) return false
+      if (a.navKey === 'services' && userRole === 'community_admin') return false
+      return true
+    }),
+  ]
 
   useEffect(() => {
     let cancelled = false
@@ -201,7 +239,12 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      if (!accessToken || communityId == null || !navFlags.services) {
+      if (
+        !accessToken ||
+        communityId == null ||
+        !navFlags.services ||
+        !canActAsResident(userRole)
+      ) {
         if (!cancelled) setServerServices([])
         return
       }
@@ -221,7 +264,7 @@ export default function Home() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, communityId, navFlags.services])
+  }, [accessToken, communityId, navFlags.services, userRole])
 
   const recentActivity = useMemo(() => {
     const fromLocal = [
@@ -277,7 +320,9 @@ export default function Home() {
   return (
     <div className="page-container home-page">
       <section className="welcome-section">
-        <h1 className="welcome-title">Bienvenido a Vecindario</h1>
+        <h1 className="welcome-title">
+          {displayName ? `Hola, ${displayName}` : 'Bienvenido a Vecindario'}
+        </h1>
         <p className="welcome-community">
           {community ? (
             <>
@@ -295,6 +340,12 @@ export default function Home() {
             <span className="welcome-meta-key">Rol</span>
             <span className="welcome-meta-value">{roleLabel}</span>
           </li>
+          {emailLabel ? (
+            <li className="welcome-meta-chip">
+              <span className="welcome-meta-key">Correo</span>
+              <span className="welcome-meta-value">{emailLabel}</span>
+            </li>
+          ) : null}
           {portalLabel ? (
             <li className="welcome-meta-chip">
               <span className="welcome-meta-key">Portal</span>
@@ -303,8 +354,14 @@ export default function Home() {
           ) : null}
           {pisoLabel ? (
             <li className="welcome-meta-chip">
-              <span className="welcome-meta-key">Piso / puerta</span>
+              <span className="welcome-meta-key">Piso</span>
               <span className="welcome-meta-value">{pisoLabel}</span>
+            </li>
+          ) : null}
+          {puertaLabel ? (
+            <li className="welcome-meta-chip">
+              <span className="welcome-meta-key">Puerta</span>
+              <span className="welcome-meta-value">{puertaLabel}</span>
             </li>
           ) : null}
         </ul>
@@ -357,6 +414,7 @@ export default function Home() {
                   {icon === 'incidents' && '⚠️'}
                   {icon === 'bookings' && '📅'}
                   {icon === 'pool' && '🏊'}
+                  {icon === 'paqueteria' && '📦'}
                 </span>
                 <div className="action-card-content">
                   <span className="action-card-title">{title}</span>
@@ -438,7 +496,29 @@ export default function Home() {
               <span className="shortcut-label">Piscina</span>
             </Link>
           ) : null}
-          {navFlags.services ? (
+          {navFlags.paqueteria &&
+          (userRole === 'resident' ||
+            userRole === 'president' ||
+            userRole === 'concierge' ||
+            userRole === 'community_admin') ? (
+            <Link to="/paqueteria" className="shortcut-card shortcut-card--primary">
+              <span className="shortcut-card-glow" aria-hidden="true" />
+              <span className="shortcut-icon shortcut-icon--services" aria-hidden="true">
+                📦
+              </span>
+              <span className="shortcut-label">Paquetería</span>
+            </Link>
+          ) : null}
+          {navFlags.services && userRole === 'community_admin' ? (
+            <Link to="/community-admin/servicios" className="shortcut-card shortcut-card--primary">
+              <span className="shortcut-card-glow" aria-hidden="true" />
+              <span className="shortcut-icon shortcut-icon--services" aria-hidden="true">
+                🔧
+              </span>
+              <span className="shortcut-label">Servicios vecinos</span>
+            </Link>
+          ) : null}
+          {navFlags.services && canActAsResident(userRole) ? (
             <Link to="/services" className="shortcut-card shortcut-card--primary">
               <span className="shortcut-card-glow" aria-hidden="true" />
               <span className="shortcut-icon shortcut-icon--services" aria-hidden="true">

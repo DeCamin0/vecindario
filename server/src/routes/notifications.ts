@@ -4,24 +4,6 @@ import { requireAuth } from '../middleware/require-auth.js'
 
 export const notificationsRouter = Router()
 
-const notifDb = prisma as unknown as {
-  vecindarioNotification: {
-    findMany(args: unknown): Promise<
-      {
-        id: number
-        type: string
-        title: string
-        body: string
-        readAt: Date | null
-        serviceRequestId: number | null
-        createdAt: Date
-      }[]
-    >
-    count(args: unknown): Promise<number>
-    updateMany(args: unknown): Promise<{ count: number }>
-  }
-}
-
 function mapRow(n: {
   id: number
   type: string
@@ -29,6 +11,7 @@ function mapRow(n: {
   body: string
   readAt: Date | null
   serviceRequestId: number | null
+  parcelId: number | null
   createdAt: Date
 }) {
   return {
@@ -38,6 +21,7 @@ function mapRow(n: {
     body: n.body,
     read: n.readAt != null,
     serviceRequestId: n.serviceRequestId,
+    parcelId: n.parcelId,
     createdAt: n.createdAt.toISOString(),
   }
 }
@@ -46,7 +30,7 @@ function mapRow(n: {
 notificationsRouter.get('/', requireAuth, async (req, res) => {
   const uid = req.userId!
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40))
-  const rows = await notifDb.vecindarioNotification.findMany({
+  const rows = await prisma.vecindarioNotification.findMany({
     where: { recipientUserId: uid },
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -57,7 +41,7 @@ notificationsRouter.get('/', requireAuth, async (req, res) => {
 /** GET /api/notifications/unread-count */
 notificationsRouter.get('/unread-count', requireAuth, async (req, res) => {
   const uid = req.userId!
-  const count = await notifDb.vecindarioNotification.count({
+  const count = await prisma.vecindarioNotification.count({
     where: { recipientUserId: uid, readAt: null },
   })
   res.json({ count })
@@ -71,7 +55,7 @@ notificationsRouter.patch('/:id/read', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'id inválido' })
     return
   }
-  const r = await notifDb.vecindarioNotification.updateMany({
+  const r = await prisma.vecindarioNotification.updateMany({
     where: { id, recipientUserId: uid, readAt: null },
     data: { readAt: new Date() },
   })
@@ -85,7 +69,7 @@ notificationsRouter.patch('/:id/read', requireAuth, async (req, res) => {
 /** POST /api/notifications/mark-all-read */
 notificationsRouter.post('/mark-all-read', requireAuth, async (req, res) => {
   const uid = req.userId!
-  await notifDb.vecindarioNotification.updateMany({
+  await prisma.vecindarioNotification.updateMany({
     where: { recipientUserId: uid, readAt: null },
     data: { readAt: new Date() },
   })

@@ -42,9 +42,16 @@ export function formatBookingMeta(item) {
   const regTime = formatRecordedTime(item.recordedAt)
   if (regTime) parts.push(`registro ${regTime}`)
   const who = []
-  if (item.userName || item.userEmail) {
-    who.push(item.userName || item.userEmail)
-  }
+  const displayName =
+    (item.residentName && String(item.residentName).trim()) ||
+    (item.userName && String(item.userName).trim()) ||
+    null
+  const displayEmail =
+    (item.residentEmail && String(item.residentEmail).trim()) ||
+    (item.userEmail && String(item.userEmail).trim()) ||
+    null
+  if (displayName) who.push(displayName)
+  else if (displayEmail) who.push(displayEmail)
   if (item.portal?.trim()) {
     who.push(`Portal ${item.portal.trim()}`)
   }
@@ -52,6 +59,9 @@ export function formatBookingMeta(item) {
     who.push(`Piso ${item.piso.trim()}`)
   }
   if (who.length) parts.push(who.join(' · '))
+  if (item.bookedByName?.trim()) {
+    parts.push(`registrado por ${item.bookedByName.trim()} (conserje)`)
+  }
   return parts.join(' · ')
 }
 
@@ -80,6 +90,8 @@ export function mapActivityApiItem(row) {
     row.facilityName ||
     row.facilityId ||
     '—'
+  const residentEmail = row.residentEmail || row.actorEmail
+  const residentName = row.residentName?.trim() || null
   return {
     id: `bk-${row.id}`,
     facility: row.facilityName || row.facilityId || 'Reserva',
@@ -88,8 +100,16 @@ export function mapActivityApiItem(row) {
     timeSlot: row.slotKey || 'booking',
     timeSlotLabel: slotLabel,
     recordedAt: row.recordedAt,
-    ...(row.actorEmail ? { userEmail: row.actorEmail, userName: String(row.actorEmail).split('@')[0] } : {}),
+    ...(residentEmail
+      ? {
+          userEmail: residentEmail,
+          userName: residentName || String(residentEmail).split('@')[0],
+        }
+      : {}),
+    ...(residentName ? { residentName } : {}),
+    ...(residentEmail ? { residentEmail } : {}),
     ...(row.actorPiso ? { piso: row.actorPiso } : {}),
     ...(row.actorPortal ? { portal: row.actorPortal } : {}),
+    ...(row.bookedByName?.trim() ? { bookedByName: row.bookedByName.trim() } : {}),
   }
 }

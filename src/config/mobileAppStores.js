@@ -26,3 +26,9 @@ export function getPreferredStoreUrl(platform) {
   if (platform === 'android') return getAndroidStoreUrl()
   return ''
 }
+
+/** false por defecto → aviso «próximamente en Google Play» en login. Pon true cuando esté publicada. */
+export function isAndroidPlayStorePublished() {
+  const v = import.meta.env.VITE_VECINDARIO_ANDROID_PLAY_STORE_PUBLISHED
+  return v === 'true' || v === '1'
+}

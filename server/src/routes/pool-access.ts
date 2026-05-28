@@ -3,7 +3,8 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { assertStaffOwnsCommunity } from '../lib/community-staff-gate.js'
-import { normEmail } from '../lib/community-user-access.js'
+import { companyAdminOwnsCommunity, normEmail } from '../lib/community-user-access.js'
+import { conciergeEmailMatches } from '../lib/concierge-emails.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
 import { parseBool } from '../lib/community-create-parsers.js'
 import {
@@ -211,13 +212,13 @@ poolAccessRouter.get('/me', requireAuth, async (req, res) => {
 /** Conserje / admin comunidad: estado piscina + aforo (sin código personal). */
 poolAccessRouter.get('/staff-pool-summary', requireAuth, async (req, res) => {
   const role = req.userRole!
-  if (role !== 'concierge' && role !== 'community_admin') {
+  if (role !== 'concierge' && role !== 'community_admin' && role !== 'company_admin') {
     res.status(403).json({ error: 'No disponible.' })
     return
   }
   const staff = await prisma.vecindarioUser.findUnique({
     where: { id: req.userId! },
-    select: { email: true, communityId: true },
+    select: { email: true, communityId: true, role: true, companyAdminCompanyId: true },
   })
   const e = normEmail(staff?.email)
   if (!e) {
@@ -236,6 +237,9 @@ poolAccessRouter.get('/staff-pool-summary', requireAuth, async (req, res) => {
     poolMaxOccupancy: true,
     communityAdminEmail: true,
     conciergeEmail: true,
+    conciergeEmail2: true,
+    conciergeSubstituteEmail: true,
+    companyId: true,
   } as const
 
   type StaffPoolCommRow = {
@@ -249,33 +253,57 @@ poolAccessRouter.get('/staff-pool-summary', requireAuth, async (req, res) => {
     poolMaxOccupancy: number | null
     communityAdminEmail: string | null
     conciergeEmail: string | null
+    conciergeEmail2: string | null
+    conciergeSubstituteEmail: string | null
   }
   let comm: StaffPoolCommRow | null = null
 
-  if (staff?.communityId != null) {
+  if (role === 'company_admin' && staff) {
+    const qCid = Number(req.query.communityId)
+    const byCo = await prisma.community.findFirst({
+      where:
+        Number.isInteger(qCid) && qCid >= 1
+          ? {
+              id: qCid,
+              companyId: staff.companyAdminCompanyId ?? undefined,
+              ...communityOperationalWhere(),
+            }
+          : {
+              companyId: staff.companyAdminCompanyId ?? undefined,
+              ...communityOperationalWhere(),
+            },
+      select: commSelect,
+      orderBy: { id: 'asc' },
+    })
+    if (!byCo || !companyAdminOwnsCommunity(staff, byCo)) {
+      res.status(404).json({
+        error: 'No hay una comunidad activa de tu empresa para consultar la piscina.',
+      })
+      return
+    }
+    comm = byCo
+  }
+
+  if (!comm && staff?.communityId != null) {
     const byId = await prisma.community.findFirst({
       where: { id: staff.communityId, ...communityOperationalWhere() },
       select: commSelect,
     })
     if (byId) {
-      const okConcierge = role === 'concierge' && normEmail(byId.conciergeEmail) === e
+      const okConcierge = role === 'concierge' && conciergeEmailMatches(byId, e)
       const okAdmin = role === 'community_admin' && normEmail(byId.communityAdminEmail) === e
       if (okConcierge || okAdmin) comm = byId
     }
   }
 
-  if (!comm) {
-    const emailField = role === 'concierge' ? 'conciergeEmail' : 'communityAdminEmail'
+  if (!comm && role !== 'company_admin') {
     const candidates = await prisma.community.findMany({
-      where: {
-        ...communityOperationalWhere(),
-        [emailField]: { not: null },
-      },
+      where: communityOperationalWhere(),
       select: commSelect,
     })
     comm =
       role === 'concierge'
-        ? candidates.find((c) => normEmail(c.conciergeEmail) === e) ?? null
+        ? candidates.find((c) => conciergeEmailMatches(c, e)) ?? null
         : candidates.find((c) => normEmail(c.communityAdminEmail) === e) ?? null
   }
 
@@ -284,7 +312,9 @@ poolAccessRouter.get('/staff-pool-summary', requireAuth, async (req, res) => {
       error:
         role === 'concierge'
           ? 'No figuras como conserje en ninguna comunidad activa (revisa el correo en la ficha de la comunidad).'
-          : 'No figuras como administrador en ninguna comunidad activa (revisa el correo en la ficha).',
+          : role === 'company_admin'
+            ? 'No hay una comunidad activa de tu empresa para consultar la piscina.'
+            : 'No figuras como administrador en ninguna comunidad activa (revisa el correo en la ficha).',
     })
     return
   }

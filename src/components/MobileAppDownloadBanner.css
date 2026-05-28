@@ -67,3 +67,24 @@
   color: var(--text, #f8fafc);
   background: rgba(148, 163, 184, 0.12);
 }
+
+/* Login en navegador móvil: texto y botones alineados al centro del card. */
+@media (max-width: 560px) {
+  .auth-login-panel .mobile-app-banner__inner {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .auth-login-panel .mobile-app-banner__text {
+    flex: none;
+    width: 100%;
+    text-align: center;
+  }
+
+  .auth-login-panel .mobile-app-banner__actions {
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+}

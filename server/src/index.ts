@@ -12,6 +12,8 @@ import { requireCompanyAdmin } from './middleware/require-company-admin.js'
 import { publicCommunitiesRouter } from './routes/public-communities.js'
 import { communityBookingsRouter } from './routes/community-bookings.js'
 import { communityResidentsRouter } from './routes/community-residents.js'
+import { communityParcelsRouter } from './routes/community-parcels.js'
+import { communityDiarioRouter } from './routes/community-diario.js'
 import { communityIncidentsRouter } from './routes/community-incidents.js'
 import { communityServicesRouter } from './routes/community-services.js'
 import { notificationsRouter } from './routes/notifications.js'
@@ -21,6 +23,7 @@ import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
 import { poolAccessRouter } from './routes/pool-access.js'
 import { adminQuoteRequestsRouter } from './routes/quote-requests-admin.js'
+import { AVATARS_DIR } from './lib/profile-avatar.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
@@ -40,6 +43,8 @@ app.use(
 )
 app.use(express.json({ limit: '4mb' }))
 
+app.use('/api/uploads/avatars', express.static(AVATARS_DIR, { maxAge: '7d', immutable: false }))
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'vecindario-api' })
 })
@@ -52,6 +57,8 @@ app.use('/api/services', communityServicesRouter)
 app.use('/api/notifications', notificationsRouter)
 app.use('/api/push', pushRouter)
 app.use('/api/community', communityResidentsRouter)
+app.use('/api/community', communityParcelsRouter)
+app.use('/api/community', communityDiarioRouter)
 app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireSuperAdmin, adminCommunitiesRouter)
 app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)

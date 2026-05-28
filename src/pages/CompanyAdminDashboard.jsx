@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
@@ -12,15 +12,229 @@ import {
 import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
 import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
 import { buildCompanyCommunityCreateBody } from '../utils/companyCommunityCreateBody.js'
+import { conciergeEmailsFromCommunity } from '../utils/conciergeEmailsForm.js'
 import { getSignInPath } from '../utils/signInWebPath.js'
 import './Admin.css'
+import './CompanyAdminDashboard.css'
 
-function statusBadge(status) {
+/** Alta desde panel de empresa: desactivado de momento (solo super admin o más adelante). */
+const COMPANY_CREATE_COMMUNITY_ENABLED = false
+
+function statusMeta(status) {
   if (status === 'pending_approval')
-    return { label: 'Pendiente de aprobación', cls: 'admin-community-status--pending_approval' }
-  if (status === 'inactive') return { label: 'Inactiva', cls: 'admin-community-status--inactive' }
-  if (status === 'demo') return { label: 'Demo', cls: 'admin-community-status--demo' }
-  return { label: 'Activa', cls: 'admin-community-status--active' }
+    return { label: 'Pendiente de aprobación', tone: 'pending_approval' }
+  if (status === 'inactive') return { label: 'Inactiva', tone: 'inactive' }
+  if (status === 'demo') return { label: 'Demo', tone: 'demo' }
+  return { label: 'Activa', tone: 'active' }
+}
+
+function FeaturePill({ on, children }) {
+  return (
+    <span className={`ca-feature-pill ${on ? 'ca-feature-pill--on' : 'ca-feature-pill--off'}`}>
+      {children}
+    </span>
+  )
+}
+
+function CompanyCommunityCard({ community: c, enterBusy, onEnter }) {
+  const st = statusMeta(c.status)
+  const loginUrl = (c.loginSlug || '').trim() ? buildCommunityLoginUrl(c.loginSlug) : ''
+  const canOpenManagement = c.status === 'active' || c.status === 'demo'
+  let enterDisabledTitle = ''
+  if (c.status === 'pending_approval') {
+    enterDisabledTitle =
+      'La comunidad debe ser activada por un super administrador antes de abrir el panel de gestión.'
+  } else if (c.status === 'inactive') {
+    enterDisabledTitle = 'Comunidad inactiva: no se puede abrir el panel de gestión.'
+  }
+
+  const cf = conciergeEmailsFromCommunity(c)
+  const conciergeItems = cf.conciergeStaff
+    .map((s) => {
+      const em = (s.email || '').trim()
+      if (!em) return null
+      return { name: (s.name || '').trim(), email: em }
+    })
+    .filter(Boolean)
+  if (cf.conciergeSubstituteEmail) {
+    conciergeItems.push({
+      name: (cf.conciergeSubstituteName || '').trim() || 'Suplente',
+      email: cf.conciergeSubstituteEmail,
+      substitute: true,
+    })
+  }
+
+  const copyLoginUrl = async () => {
+    if (!loginUrl) return
+    try {
+      await navigator.clipboard.writeText(loginUrl)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <article className={`ca-comm-card ca-comm-card--${st.tone}`}>
+      <div className="ca-comm-card__stripe" aria-hidden />
+      <div className="ca-comm-card__top">
+        <div className="ca-comm-card__identity">
+          <h3 className="ca-comm-card__name">{c.name}</h3>
+          {c.address?.trim() ? (
+            <p className="ca-comm-card__address">{c.address.trim()}</p>
+          ) : (
+            <p className="ca-comm-card__address">Sin dirección en ficha</p>
+          )}
+        </div>
+        <span className={`ca-comm-card__status ca-comm-card__status--${st.tone}`}>{st.label}</span>
+      </div>
+
+      <div className="ca-comm-card__metrics">
+        <span className="ca-metric-chip ca-metric-chip--vec" title="Código VEC">
+          {c.accessCode || '—'}
+        </span>
+        <span className="ca-metric-chip">
+          <span className="ca-metric-chip__icon" aria-hidden>
+            🏢
+          </span>
+          {c.portalCount ?? 1} portal{(c.portalCount ?? 1) === 1 ? '' : 'es'}
+        </span>
+        <span className="ca-metric-chip">
+          <span className="ca-metric-chip__icon" aria-hidden>
+            👥
+          </span>
+          {c.residentSlots != null ? `${c.residentSlots} cupo` : 'Cupo —'}
+        </span>
+        <span className="ca-metric-chip">
+          <span className="ca-metric-chip__icon" aria-hidden>
+            📅
+          </span>
+          Plan: {formatPlanExpiresForCard(c.planExpiresOn) || 'sin fecha'}
+        </span>
+        {Number(c.padelCourtCount) > 0 ? (
+          <span className="ca-metric-chip">
+            <span className="ca-metric-chip__icon" aria-hidden>
+              🎾
+            </span>
+            {c.padelCourtCount} pádel
+          </span>
+        ) : null}
+      </div>
+
+      <div className="ca-comm-card__panels">
+        <div className="ca-info-panel">
+          <h4 className="ca-info-panel__title">Acceso vecinos</h4>
+          {loginUrl ? (
+            <div className="ca-info-panel__row">
+              <span className="ca-info-panel__label">Enlace de login</span>
+              <div className="ca-login-row">
+                <code className="ca-login-link">{loginUrl}</code>
+                <button type="button" className="ca-copy-btn" onClick={() => void copyLoginUrl()}>
+                  Copiar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="ca-info-panel__value">Sin slug — el super administrador puede configurarlo</p>
+          )}
+          <div className="ca-info-panel__row">
+            <span className="ca-info-panel__label">Contacto comunidad</span>
+            <span className="ca-info-panel__value">{c.contactEmail || '—'}</span>
+          </div>
+        </div>
+
+        <div className="ca-info-panel">
+          <h4 className="ca-info-panel__title">App vecinos</h4>
+          <div className="ca-feature-pills">
+            <FeaturePill on={c.appNavServicesEnabled !== false}>Servicios</FeaturePill>
+            <FeaturePill on={c.appNavIncidentsEnabled !== false}>Incidencias</FeaturePill>
+            <FeaturePill on={c.appNavBookingsEnabled !== false}>Reservas</FeaturePill>
+            <FeaturePill on={c.appNavPoolAccessEnabled === true}>Piscina</FeaturePill>
+            <FeaturePill on={c.appNavPaqueteriaEnabled === true}>Paquetería</FeaturePill>
+            <FeaturePill on={c.gymAccessEnabled === true}>Gimnasio</FeaturePill>
+          </div>
+          <div className="ca-info-panel__row" style={{ marginTop: 'var(--space-3)' }}>
+            <span className="ca-info-panel__label">Espacios</span>
+            <span className="ca-info-panel__value">{spacesPreview(c.customLocations)}</span>
+          </div>
+        </div>
+      </div>
+
+      {conciergeItems.length > 0 ? (
+        <div className="ca-info-panel">
+          <h4 className="ca-info-panel__title">Conserjería ({conciergeItems.length})</h4>
+          <ul className="ca-concierge-list">
+            {conciergeItems.map((item) => (
+              <li key={`${item.email}-${item.substitute ? 'sub' : 'main'}`}>
+                <span className="ca-concierge-list__name">
+                  {item.name}
+                  {item.substitute ? ' (suplente)' : ''}
+                </span>
+                <span className="ca-concierge-list__email">{item.email}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <details className="ca-comm-card__details">
+        <summary>Más detalles de ficha</summary>
+        <div className="ca-comm-card__details-body">
+          <div className="ca-comm-card__details-grid">
+            <div>
+              <span className="ca-info-panel__label">ID</span>
+              <p className="ca-info-panel__value">{c.id}</p>
+            </div>
+            <div>
+              <span className="ca-info-panel__label">NIF/CIF</span>
+              <p className="ca-info-panel__value">{c.nifCif || '—'}</p>
+            </div>
+            <div>
+              <span className="ca-info-panel__label">Presidente</span>
+              <p className="ca-info-panel__value">{formatPresidentOnCard(c)}</p>
+            </div>
+            <div>
+              <span className="ca-info-panel__label">Socorrista</span>
+              <p className="ca-info-panel__value">{c.poolStaffEmail || '—'}</p>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <span className="ca-info-panel__label">Portales</span>
+              <p className="ca-info-panel__value">
+                {portalsAliasesPreview(c.portalCount, c.portalLabels)}
+              </p>
+            </div>
+            {Number(c.padelCourtCount) > 0 ? (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <span className="ca-info-panel__label">Pádel</span>
+                <p className="ca-info-panel__value">
+                  {c.padelCourtCount} pista(s) · {c.padelOpenTime || '08:00'}–{c.padelCloseTime || '22:00'}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </details>
+
+      {c.dashboardStats ? (
+        <CommunityDashboardStats stats={c.dashboardStats} residentSlots={c.residentSlots} />
+      ) : null}
+
+      <footer className="ca-comm-card__footer">
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={!canOpenManagement || enterBusy}
+          title={canOpenManagement ? 'Abrir panel de gestión de la comunidad' : enterDisabledTitle}
+          onClick={() => void onEnter(c)}
+        >
+          {enterBusy ? 'Abriendo…' : 'Entrar en comunidad →'}
+        </button>
+        <p className="ca-comm-card__footer-hint">
+          Abre el panel de gestión de esta comunidad con tu cuenta de administrador de empresa. La lista de
+          comunidades sigue abierta aquí.
+        </p>
+      </footer>
+    </article>
+  )
 }
 
 export default function CompanyAdminDashboard() {
@@ -46,7 +260,11 @@ export default function CompanyAdminDashboard() {
     boardVicePortal: '',
     boardVicePiso: '',
     communityAdminEmail: '',
-    conciergeEmail: '',
+    communityAdminName: '',
+    conciergeCount: 1,
+    conciergeStaff: Array.from({ length: 5 }, () => ({ email: '', name: '' })),
+    conciergeSubstituteEmail: '',
+    conciergeSubstituteName: '',
     poolStaffEmail: '',
     portalCount: '1',
     planExpiresOn: '',
@@ -56,6 +274,8 @@ export default function CompanyAdminDashboard() {
     appNavIncidentsEnabled: true,
     appNavBookingsEnabled: true,
     appNavPoolAccessEnabled: false,
+    appNavPaqueteriaEnabled: false,
+    appNavCuadernoDiarioEnabled: false,
     padelCourtCount: '0',
     padelMaxHoursPerBooking: '2',
     padelMaxHoursPerApartmentPerDay: '4',
@@ -153,7 +373,7 @@ export default function CompanyAdminDashboard() {
         relativePath: 'community-admin',
       })
       setSuccessFlash(
-        'Se abrió el panel de gestión de la comunidad en una pestaña nueva. Aquí sigues como administrador de empresa.',
+        `Panel de gestión abierto para «${c.name}» (sesión de administrador de empresa). Esta pestaña sigue en el listado de comunidades.`,
       )
     } catch (e) {
       setError(e.message || 'No se pudo abrir el panel de la comunidad')
@@ -164,8 +384,20 @@ export default function CompanyAdminDashboard() {
 
   const companyName = user?.company?.name || 'Tu empresa'
 
+  const summary = useMemo(() => {
+    let active = 0
+    let pending = 0
+    let inactive = 0
+    for (const c of communities) {
+      if (c.status === 'active' || c.status === 'demo') active += 1
+      else if (c.status === 'pending_approval') pending += 1
+      else if (c.status === 'inactive') inactive += 1
+    }
+    return { total: communities.length, active, pending, inactive }
+  }, [communities])
+
   return (
-    <div className="admin-dashboard">
+    <div className="admin-dashboard ca-page">
       <header className="admin-dashboard-header">
         <div className="admin-dashboard-header-inner">
           <div className="admin-dashboard-brand">
@@ -204,21 +436,58 @@ export default function CompanyAdminDashboard() {
           )}
 
           <section className="admin-section">
-            <div className="admin-section-head">
-              <h2 className="admin-section-title">Comunidades de tu empresa</h2>
+            {!loading && communities.length > 0 ? (
+              <div className="ca-summary" aria-label="Resumen de comunidades">
+                <div className="ca-summary__tile ca-summary__tile--accent">
+                  <span className="ca-summary__value">{summary.total}</span>
+                  <span className="ca-summary__label">Comunidades</span>
+                </div>
+                <div className="ca-summary__tile">
+                  <span className="ca-summary__value">{summary.active}</span>
+                  <span className="ca-summary__label">Activas</span>
+                </div>
+                <div className="ca-summary__tile">
+                  <span className="ca-summary__value">{summary.pending}</span>
+                  <span className="ca-summary__label">Pendientes</span>
+                </div>
+                <div className="ca-summary__tile">
+                  <span className="ca-summary__value">{summary.inactive}</span>
+                  <span className="ca-summary__label">Inactivas</span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="ca-section-toolbar">
+              <div>
+                <h2 className="ca-section-toolbar__title">Comunidades de tu empresa</h2>
+                <p className="ca-section-toolbar__hint">
+                  Gestiona el alta y entra al panel de cada comunidad cuando esté activa.
+                </p>
+              </div>
               <button
                 type="button"
                 className="btn btn--primary"
+                disabled={!COMPANY_CREATE_COMMUNITY_ENABLED}
+                title={
+                  COMPANY_CREATE_COMMUNITY_ENABLED
+                    ? 'Dar de alta una nueva comunidad (pendiente de aprobación)'
+                    : 'El alta de comunidades desde aquí estará disponible próximamente. El super administrador puede crearlas desde su panel.'
+                }
                 onClick={() => {
+                  if (!COMPANY_CREATE_COMMUNITY_ENABLED) return
                   setFormOpen((v) => !v)
                   setError('')
                 }}
               >
-                {formOpen ? 'Cerrar formulario' : 'Crear comunidad'}
+                {COMPANY_CREATE_COMMUNITY_ENABLED
+                  ? formOpen
+                    ? 'Cerrar formulario'
+                    : '+ Crear comunidad'
+                  : 'Próximamente'}
               </button>
             </div>
 
-            {formOpen && (
+            {COMPANY_CREATE_COMMUNITY_ENABLED && formOpen && (
               <form
                 className="card company-admin-create-form"
                 onSubmit={submitCreate}
@@ -340,29 +609,105 @@ export default function CompanyAdminDashboard() {
                         autoComplete="email"
                       />
                     </div>
+                    <p className="admin-field-hint">
+                      La gestión de esta comunidad la realizan los administradores de tu empresa (arriba en esta
+                      pantalla), no hace falta un administrador adicional en la ficha.
+                    </p>
                     <div className="admin-modal-field">
-                      <label className="admin-label" htmlFor="ca-adm">
-                        Email administrador de comunidad (opcional)
+                      <label className="admin-label" htmlFor="ca-concierge-count">
+                        Número de conserjes
                       </label>
-                      <input
-                        id="ca-adm"
-                        type="email"
-                        className="admin-input"
-                        value={form.communityAdminEmail}
-                        onChange={(e) => setForm((f) => ({ ...f, communityAdminEmail: e.target.value }))}
-                        autoComplete="email"
-                      />
+                      <select
+                        id="ca-concierge-count"
+                        className="admin-input auth-select"
+                        value={String(form.conciergeCount)}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            conciergeCount: Math.min(5, Math.max(1, Number(e.target.value) || 1)),
+                          }))
+                        }
+                      >
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={String(n)}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="admin-modal-field">
-                      <label className="admin-label" htmlFor="ca-conc">
-                        Email conserje (opcional)
+                    {Array.from({ length: form.conciergeCount }, (_, i) => i + 1).map((n) => (
+                      <div key={n} className="admin-modal-field admin-concierge-slot">
+                        <p className="admin-label admin-concierge-slot-title">Conserje {n}</p>
+                        <label className="admin-label" htmlFor={`ca-conc-name-${n}`}>
+                          Nombre (opcional)
+                        </label>
+                        <input
+                          id={`ca-conc-name-${n}`}
+                          type="text"
+                          className="admin-input"
+                          value={form.conciergeStaff?.[n - 1]?.name ?? ''}
+                          onChange={(e) =>
+                            setForm((f) => {
+                              const next = [
+                                ...(f.conciergeStaff ||
+                                  Array.from({ length: 5 }, () => ({ email: '', name: '' }))),
+                              ]
+                              next[n - 1] = { ...next[n - 1], name: e.target.value }
+                              return { ...f, conciergeStaff: next }
+                            })
+                          }
+                          autoComplete="name"
+                        />
+                        <label className="admin-label" htmlFor={`ca-conc-${n}`}>
+                          Email
+                        </label>
+                        <input
+                          id={`ca-conc-${n}`}
+                          type="email"
+                          className="admin-input"
+                          value={form.conciergeStaff?.[n - 1]?.email ?? ''}
+                          onChange={(e) =>
+                            setForm((f) => {
+                              const next = [
+                                ...(f.conciergeStaff ||
+                                  Array.from({ length: 5 }, () => ({ email: '', name: '' }))),
+                              ]
+                              next[n - 1] = { ...next[n - 1], email: e.target.value }
+                              return { ...f, conciergeStaff: next }
+                            })
+                          }
+                          autoComplete="email"
+                        />
+                      </div>
+                    ))}
+                    <div className="admin-modal-field admin-concierge-slot">
+                      <p className="admin-label admin-concierge-slot-title">
+                        Conserje suplente (opcional)
+                      </p>
+                      <label className="admin-label" htmlFor="ca-conc-sub-name">
+                        Nombre (opcional)
                       </label>
                       <input
-                        id="ca-conc"
+                        id="ca-conc-sub-name"
+                        type="text"
+                        className="admin-input"
+                        value={form.conciergeSubstituteName}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, conciergeSubstituteName: e.target.value }))
+                        }
+                        autoComplete="name"
+                      />
+                      <label className="admin-label" htmlFor="ca-conc-sub">
+                        Email
+                      </label>
+                      <input
+                        id="ca-conc-sub"
                         type="email"
                         className="admin-input"
-                        value={form.conciergeEmail}
-                        onChange={(e) => setForm((f) => ({ ...f, conciergeEmail: e.target.value }))}
+                        value={form.conciergeSubstituteEmail}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, conciergeSubstituteEmail: e.target.value }))
+                        }
                         autoComplete="email"
                       />
                     </div>
@@ -398,32 +743,6 @@ export default function CompanyAdminDashboard() {
                         placeholder="1"
                         autoComplete="off"
                       />
-                    </div>
-                    <div className="admin-modal-row">
-                      <div className="admin-modal-field">
-                        <label className="admin-label" htmlFor="ca-pres-portal">
-                          Presidente — portal (vivienda)
-                        </label>
-                        <input
-                          id="ca-pres-portal"
-                          className="admin-input"
-                          value={form.presidentPortal}
-                          onChange={(e) => setForm((f) => ({ ...f, presidentPortal: e.target.value }))}
-                          maxLength={64}
-                        />
-                      </div>
-                      <div className="admin-modal-field">
-                        <label className="admin-label" htmlFor="ca-pres-piso">
-                          Presidente — piso
-                        </label>
-                        <input
-                          id="ca-pres-piso"
-                          className="admin-input"
-                          value={form.presidentPiso}
-                          onChange={(e) => setForm((f) => ({ ...f, presidentPiso: e.target.value }))}
-                          maxLength={64}
-                        />
-                      </div>
                     </div>
                     <div className="admin-modal-row">
                       <div className="admin-modal-field">
@@ -540,6 +859,30 @@ export default function CompanyAdminDashboard() {
                           }
                         />{' '}
                         App: pestaña Acceso piscina
+                      </label>
+                    </div>
+                    <div className="admin-modal-field admin-modal-field--checkbox">
+                      <label className="admin-label admin-label--inline">
+                        <input
+                          type="checkbox"
+                          checked={form.appNavPaqueteriaEnabled}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, appNavPaqueteriaEnabled: e.target.checked }))
+                          }
+                        />{' '}
+                        App: pestaña Paquetería
+                      </label>
+                    </div>
+                    <div className="admin-modal-field admin-modal-field--checkbox">
+                      <label className="admin-label admin-label--inline">
+                        <input
+                          type="checkbox"
+                          checked={form.appNavCuadernoDiarioEnabled}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, appNavCuadernoDiarioEnabled: e.target.checked }))
+                          }
+                        />{' '}
+                        App: pestaña Cuaderno diario
                       </label>
                     </div>
                     <div className="admin-modal-row">
@@ -689,7 +1032,7 @@ export default function CompanyAdminDashboard() {
                         onChange={(e) =>
                           setForm((f) => ({ ...f, portalDwellingConfigJson: e.target.value }))
                         }
-                        placeholder='[{ "floors": 5, "doorsPerFloor": 4, "doorScheme": "letters" }]'
+                        placeholder='[{ "floors": 5, "doorsPerFloor": 4, "doorScheme": "letters", "doorsTopFloor": 2 }]'
                       />
                     </div>
                     <div className="admin-modal-field">
@@ -732,142 +1075,50 @@ export default function CompanyAdminDashboard() {
             )}
 
             {loading ? (
-              <p className="admin-empty-hint">Cargando…</p>
+              <div className="ca-loading" role="status">
+                <span className="ca-loading__dot" />
+                <span className="ca-loading__dot" />
+                <span className="ca-loading__dot" />
+                Cargando comunidades…
+              </div>
             ) : communities.length === 0 ? (
-              <div className="admin-empty card">
-                <p className="admin-empty-title">Aún no hay comunidades</p>
-                <p className="admin-empty-hint">Pulsa «Crear comunidad» para dar de alta la primera.</p>
+              <div className="ca-empty">
+                <div className="ca-empty__icon" aria-hidden>
+                  🏘️
+                </div>
+                <p className="ca-empty__title">Aún no hay comunidades</p>
+                <p className="ca-empty__hint">
+                  {COMPANY_CREATE_COMMUNITY_ENABLED
+                    ? 'Crea la primera comunidad de tu empresa. Quedará pendiente hasta que un super administrador la active.'
+                    : 'El alta de comunidades desde el panel de empresa estará disponible próximamente. Contacta con el super administrador para dar de alta una comunidad.'}
+                </p>
+                {COMPANY_CREATE_COMMUNITY_ENABLED ? (
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => {
+                      setFormOpen(true)
+                      setError('')
+                    }}
+                  >
+                    + Crear comunidad
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn--primary" disabled>
+                    Próximamente
+                  </button>
+                )}
               </div>
             ) : (
-              <div className="admin-communities">
-                {communities.map((c) => {
-                  const st = statusBadge(c.status)
-                  const loginUrl = (c.loginSlug || '').trim() ? buildCommunityLoginUrl(c.loginSlug) : ''
-                  const canOpenManagement = c.status === 'active' || c.status === 'demo'
-                  let enterDisabledTitle = ''
-                  if (c.status === 'pending_approval') {
-                    enterDisabledTitle =
-                      'La comunidad debe ser activada por un super administrador antes de abrir el panel de gestión.'
-                  } else if (c.status === 'inactive') {
-                    enterDisabledTitle = 'Comunidad inactiva: no se puede abrir el panel de gestión.'
-                  }
-                  return (
-                    <article key={c.id} className="admin-community-row card">
-                      <div className="admin-community-info">
-                        <div className="admin-community-head">
-                          <h3 className="admin-community-name">{c.name}</h3>
-                          <span className={`admin-community-status ${st.cls}`}>{st.label}</span>
-                        </div>
-                        <div className="admin-community-details">
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">ID</span>
-                            {c.id}
-                          </span>
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">VEC</span>
-                            <code>{c.accessCode || '—'}</code>
-                          </span>
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">NIF/CIF</span>
-                            {c.nifCif || '—'}
-                          </span>
-                          <span className="admin-community-detail admin-community-detail--block">
-                            <span className="admin-community-detail-label">Dirección</span>
-                            <span className="admin-address-preview">{c.address?.trim() || '—'}</span>
-                          </span>
-                          <span className="admin-community-detail admin-community-detail--block">
-                            <span className="admin-community-detail-label">Enlace acceso (vecinos)</span>
-                            {loginUrl ? (
-                              <code className="admin-code-break">{loginUrl}</code>
-                            ) : (
-                              <span className="admin-field-hint">Sin slug — el super admin puede configurarlo</span>
-                            )}
-                          </span>
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">Plan hasta</span>
-                            {formatPlanExpiresForCard(c.planExpiresOn) || 'Sin fecha'}
-                          </span>
-                          <span className="admin-community-detail admin-community-detail--block">
-                            <span className="admin-community-detail-label">Emails</span>
-                            <span className="admin-email-lines">
-                              <span>Comunidad: {c.contactEmail || '—'}</span>
-                              <span>Presidente: {formatPresidentOnCard(c)}</span>
-                              <span>Admin: {c.communityAdminEmail || '—'}</span>
-                              <span>Conserje: {c.conciergeEmail || '—'}</span>
-                              <span>Socorrista: {c.poolStaffEmail || '—'}</span>
-                            </span>
-                          </span>
-                          <span className="admin-community-detail admin-community-detail--block">
-                            <span className="admin-community-detail-label">Portales</span>
-                            <span>
-                              {c.portalCount ?? 1} —{' '}
-                              <span
-                                className="admin-portals-preview"
-                                title={portalsAliasesPreview(c.portalCount, c.portalLabels)}
-                              >
-                                {portalsAliasesPreview(c.portalCount, c.portalLabels)}
-                              </span>
-                            </span>
-                          </span>
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">Cupo vecinos</span>
-                            {c.residentSlots != null ? c.residentSlots : '—'}
-                          </span>
-                          <span className="admin-community-detail">
-                            <span className="admin-community-detail-label">Gimnasio</span>
-                            {c.gymAccessEnabled ? 'Sí' : 'No'}
-                          </span>
-                          <span className="admin-community-detail admin-community-detail--block">
-                            <span className="admin-community-detail-label">Pádel</span>
-                            {Number(c.padelCourtCount) || 0} pista(s) · {c.padelOpenTime || '08:00'}–
-                            {c.padelCloseTime || '22:00'}
-                          </span>
-                          <p className="admin-community-spaces-preview" title={spacesPreview(c.customLocations)}>
-                            <span className="admin-community-detail-label">Espacios</span>
-                            {spacesPreview(c.customLocations)}
-                          </p>
-                          <div className="admin-community-detail admin-community-detail--block admin-community-nav-tabs">
-                            <span className="admin-community-detail-label">Pestañas app vecinos</span>
-                            <span className="admin-email-lines">
-                              <span>Servicios: {c.appNavServicesEnabled !== false ? 'Sí' : 'No'}</span>
-                              <span>Incidencias: {c.appNavIncidentsEnabled !== false ? 'Sí' : 'No'}</span>
-                              <span>Reservas: {c.appNavBookingsEnabled !== false ? 'Sí' : 'No'}</span>
-                              <span>Piscina: {c.appNavPoolAccessEnabled === true ? 'Sí' : 'No'}</span>
-                            </span>
-                          </div>
-                        </div>
-                        <div className="admin-company-enter-bar">
-                          <div className="admin-company-enter-bar__actions">
-                            <button
-                              type="button"
-                              className="btn btn--primary btn--sm"
-                              disabled={!canOpenManagement || enterBusyId === c.id}
-                              title={
-                                canOpenManagement
-                                  ? 'Abre el mismo panel que el administrador de comunidad (incidencias, reservas, vecinos…). Requiere cuenta vinculada en la ficha.'
-                                  : enterDisabledTitle
-                              }
-                              onClick={() => void enterCommunityManagement(c)}
-                            >
-                              {enterBusyId === c.id ? 'Abriendo…' : 'Entrar en comunidad'}
-                            </button>
-                          </div>
-                          <p className="admin-field-hint admin-company-enter-bar__hint">
-                            «Entrar en comunidad» abre una pestaña con la sesión del administrador de comunidad,
-                            presidente o conserje definidos en la ficha (en ese orden), para ver y gestionar
-                            igual que ellos. Tu sesión de empresa no se cierra aquí.
-                          </p>
-                        </div>
-                        {c.dashboardStats ? (
-                          <CommunityDashboardStats
-                            stats={c.dashboardStats}
-                            residentSlots={c.residentSlots}
-                          />
-                        ) : null}
-                      </div>
-                    </article>
-                  )
-                })}
+              <div className="ca-comm-grid">
+                {communities.map((c) => (
+                  <CompanyCommunityCard
+                    key={c.id}
+                    community={c}
+                    enterBusy={enterBusyId === c.id}
+                    onEnter={enterCommunityManagement}
+                  />
+                ))}
               </div>
             )}
           </section>

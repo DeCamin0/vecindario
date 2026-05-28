@@ -1,10 +1,31 @@
 import type { Community, VecindarioUser } from '@prisma/client'
 import { prisma } from './prisma.js'
+import { conciergeEmailMatches } from './concierge-emails.js'
 
 export function normEmail(s: string | null | undefined): string | null {
   if (!s) return null
   const t = s.trim().toLowerCase()
   return t || null
+}
+
+/** Comunidad ligada a empresa de administración: gestión vía company_admin, no ficha. */
+export function communityManagedByCompany(
+  comm: Pick<Community, 'companyId'>,
+): boolean {
+  return comm.companyId != null && comm.companyId >= 1
+}
+
+/** Administrador de empresa con acceso a todas las comunidades de su companyId. */
+export function companyAdminOwnsCommunity(
+  user: Pick<VecindarioUser, 'role' | 'companyAdminCompanyId'>,
+  comm: Pick<Community, 'companyId'>,
+): boolean {
+  return (
+    user.role === 'company_admin' &&
+    user.companyAdminCompanyId != null &&
+    communityManagedByCompany(comm) &&
+    user.companyAdminCompanyId === comm.companyId
+  )
 }
 
 const STAFF_ROLES = new Set(['president', 'community_admin', 'concierge'])
@@ -44,7 +65,7 @@ export async function userLinkedToCommunity(
   if (user.role === 'president' && normEmail(community.presidentEmail) === e) return true
   if (user.role === 'community_admin' && normEmail(community.communityAdminEmail) === e)
     return true
-  if (user.role === 'concierge' && normEmail(community.conciergeEmail) === e) return true
+  if (user.role === 'concierge' && conciergeEmailMatches(community, e)) return true
 
   return false
 }

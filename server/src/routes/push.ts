@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { deleteAllExpoTokensForUser } from '../lib/unregister-push.js'
 import { sha256EndpointKey } from '../lib/push-delivery.js'
 import { requireAuth } from '../middleware/require-auth.js'
 
@@ -34,6 +35,12 @@ pushRouter.post('/expo', requireAuth, async (req, res) => {
     create: { userId, token },
     update: {},
   })
+  res.json({ ok: true })
+})
+
+/** DELETE /api/push/expo — quitar todos los tokens Expo del usuario (desactivar push móvil). */
+pushRouter.delete('/expo', requireAuth, async (req, res) => {
+  await deleteAllExpoTokensForUser(req.userId!)
   res.json({ ok: true })
 })
 

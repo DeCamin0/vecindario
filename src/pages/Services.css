@@ -91,6 +91,38 @@
   color: var(--color-primary);
 }
 
+.category-card--soon {
+  opacity: 0.78;
+  cursor: not-allowed;
+  position: relative;
+}
+
+.category-card--soon:hover,
+.category-card--soon:active {
+  transform: none;
+  border-color: var(--color-border-light);
+  background: var(--color-bg-elevated);
+  box-shadow: none;
+}
+
+.category-card--soon.category-card--selected {
+  border-color: var(--color-border-light);
+  background: var(--color-bg-elevated);
+  box-shadow: none;
+}
+
+.category-card-badge-soon {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--color-bg-subtle);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-full);
+  margin-top: 0.15rem;
+}
+
 /* Request form */
 .service-form {
   padding: var(--space-6);
@@ -145,6 +177,16 @@
 
 .form-required {
   color: var(--color-error);
+}
+
+.form-optional {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.sr-new-form__step {
+  margin-top: 0;
+  margin-bottom: var(--space-2);
 }
 
 .form-input {

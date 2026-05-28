@@ -490,13 +490,31 @@
 
 .admin-company-admins-block__item {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   font-size: var(--text-sm);
   padding: var(--space-2) var(--space-3);
   background: var(--color-bg-elevated);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-light);
+}
+
+.admin-company-admins-block__item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-company-admins-block__actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  justify-content: flex-end;
 }
 
 .admin-company-admins-block__email {
@@ -1112,6 +1130,52 @@
   cursor: wait;
 }
 
+.admin-service-category-modes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.admin-service-category-modes__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.admin-service-category-modes__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.admin-service-category-modes__name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-heading);
+  min-width: 8rem;
+}
+
+.admin-service-category-modes__radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+}
+
+.admin-radio-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-body);
+  cursor: pointer;
+}
+
 .admin-email-lines {
   display: flex;
   flex-direction: column;
@@ -1475,6 +1539,19 @@
   color: var(--text-heading);
 }
 
+.admin-users-bulk-actions {
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.admin-users-bulk-actions-hint {
+  margin: 0;
+  max-width: 48rem;
+}
+
 .admin-users-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-border);
@@ -1615,4 +1692,17 @@
   color: var(--color-text-muted, #64748b);
   margin: 0;
   line-height: 1.35;
+}
+
+.admin-portal-dwelling-total {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text, #0f172a);
+  line-height: 1.4;
+}
+
+.admin-portal-dwelling-total-formula {
+  font-weight: 500;
+  color: var(--color-text-muted, #64748b);
 }

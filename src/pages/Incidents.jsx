@@ -799,6 +799,18 @@ export default function Incidents() {
                               .join(' · ') || '—'}
                           </p>
                         ) : null}
+                        {item.status === 'resuelta' &&
+                        (item.resolvedByName?.trim() || item.resolvedByEmail) ? (
+                          <p className="incident-resolver-line">
+                            <strong>Resuelta por:</strong>{' '}
+                            {[item.resolvedByName?.trim(), item.resolvedByEmail]
+                              .filter(Boolean)
+                              .join(' · ')}
+                            {item.resolvedAt
+                              ? ` · ${formatDate(item.resolvedAt)}`
+                              : ''}
+                          </p>
+                        ) : null}
                         <p className="incident-management-meta">
                           Urgencia: {URGENCY_OPTIONS.find((o) => o.value === item.urgency)?.label ?? item.urgency}
                           {' · '}

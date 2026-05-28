@@ -1,0 +1,34 @@
+.login-play-store-notice {
+  margin: 1rem 0 0;
+  padding: 0.65rem 0.85rem;
+  text-align: center;
+  font-size: var(--text-sm, 0.875rem);
+  line-height: 1.45;
+  color: var(--text-muted, #64748b);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: var(--radius-md, 12px);
+}
+
+.login-play-store-notice__icon {
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.75rem;
+  color: #16a34a;
+  vertical-align: 0.05em;
+}
+
+.login-play-store-notice strong {
+  font-weight: 600;
+  color: var(--text-body, #334155);
+}
+
+.login-play-store-notice__link {
+  font-weight: 600;
+  color: var(--color-primary, #2563eb);
+  text-decoration: none;
+}
+
+.login-play-store-notice__link:hover {
+  text-decoration: underline;
+}

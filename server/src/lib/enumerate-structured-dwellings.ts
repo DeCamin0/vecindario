@@ -3,6 +3,19 @@ import { communityPortalSelectOptions } from './portal-labels.js'
 
 export type StructuredDwellingUnit = { portal: string; piso: string; puerta: string }
 
+function puertasForPiso(
+  block: { pisoOptions?: string[]; puertaOptions?: string[]; puertaOptionsByPiso?: Record<string, string[]> },
+  piso: string,
+): string[] {
+  const by = block.puertaOptionsByPiso
+  const key = String(piso).trim()
+  if (by && typeof by === 'object' && key && Array.isArray(by[key])) {
+    return by[key]!.filter((x) => typeof x === 'string' && String(x).trim() !== '')
+  }
+  const flat = block.puertaOptions ?? []
+  return flat.filter((x) => typeof x === 'string' && String(x).trim() !== '')
+}
+
 /**
  * Todas las combinaciones portal × piso × puerta definidas en la ficha (Super Admin).
  * Omite portales sin plantas/puertas configuradas. Si no hay lista de portales (texto libre), devuelve [].
@@ -19,10 +32,11 @@ export function enumerateStructuredDwellings(
   for (let i = 0; i < portals.length; i += 1) {
     const block = byPortal[i]
     const pisoOpts = block?.pisoOptions ?? []
-    const puertaOpts = block?.puertaOptions ?? []
-    if (!pisoOpts.length || !puertaOpts.length) continue
+    if (!pisoOpts.length) continue
     const portalLabel = portals[i]
     for (const piso of pisoOpts) {
+      const puertaOpts = puertasForPiso(block ?? {}, piso)
+      if (!puertaOpts.length) continue
       for (const puerta of puertaOpts) {
         out.push({ portal: portalLabel, piso, puerta })
       }

@@ -8,7 +8,7 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // https://vite.dev/config/
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version || '0.1.0'),
+    __APP_VERSION__: JSON.stringify(pkg.version || '2.0.0'),
   },
   // DeCamino (u otro front) suele ir en 5173; Vecindario va en 5175 para poder correr ambos.
   // URL local: http://localhost:5175/

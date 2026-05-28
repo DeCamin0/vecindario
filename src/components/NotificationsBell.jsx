@@ -79,6 +79,26 @@ export default function NotificationsBell({ variant = 'header' }) {
                           })}
                         </time>
                       </Link>
+                    ) : n.parcelId ? (
+                      <Link
+                        to={`/paqueteria/${n.parcelId}`}
+                        className="notif-bell__item-link"
+                        onClick={() => {
+                          if (!n.read) void markRead(n.id)
+                          setOpen(false)
+                        }}
+                      >
+                        <span className="notif-bell__item-title">{n.title}</span>
+                        <span className="notif-bell__item-body">{n.body}</span>
+                        <time className="notif-bell__item-time" dateTime={n.createdAt}>
+                          {new Date(n.createdAt).toLocaleString('es-ES', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </time>
+                      </Link>
                     ) : (
                       <button
                         type="button"

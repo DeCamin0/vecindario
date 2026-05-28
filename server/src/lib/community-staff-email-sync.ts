@@ -1,29 +1,40 @@
 import type { Community } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { normEmail } from './community-user-access.js'
+import { parseConciergeEmailsList } from './concierge-emails.js'
 
 type PickStaffEmails = Pick<
   Community,
-  'presidentEmail' | 'communityAdminEmail' | 'conciergeEmail' | 'poolStaffEmail'
+  | 'presidentEmail'
+  | 'communityAdminEmail'
+  | 'conciergeEmail'
+  | 'conciergeEmail2'
+  | 'conciergeSubstituteEmail'
+  | 'conciergeEmailsJson'
+  | 'poolStaffEmail'
 >
 
 type StaffSlotRole = 'president' | 'community_admin' | 'concierge' | 'pool_staff'
 
-/**
- * Emails que dejan de ocupar un puesto en la ficha de ESTA comunidad
- * y ya no siguen en otro puesto de la misma ficha (tras el PATCH).
- */
+type StaffSlotKey =
+  | 'presidentEmail'
+  | 'communityAdminEmail'
+  | 'poolStaffEmail'
+
+function emailStillOnCommunityConciergeSlots(
+  emailNorm: string,
+  after: PickStaffEmails,
+): boolean {
+  return parseConciergeEmailsList(after).includes(emailNorm)
+}
+
 function collectStaffRemovalCandidates(
   before: PickStaffEmails,
   after: PickStaffEmails,
 ): { emailNorm: string; role: StaffSlotRole }[] {
-  const slots: {
-    key: keyof PickStaffEmails
-    role: StaffSlotRole
-  }[] = [
+  const slots: { key: StaffSlotKey; role: StaffSlotRole }[] = [
     { key: 'presidentEmail', role: 'president' },
     { key: 'communityAdminEmail', role: 'community_admin' },
-    { key: 'conciergeEmail', role: 'concierge' },
     { key: 'poolStaffEmail', role: 'pool_staff' },
   ]
   const seen = new Set<string>()
@@ -37,8 +48,8 @@ function collectStaffRemovalCandidates(
     const stillOnThisCommunity =
       o === normEmail(after.presidentEmail) ||
       o === normEmail(after.communityAdminEmail) ||
-      o === normEmail(after.conciergeEmail) ||
-      o === normEmail(after.poolStaffEmail)
+      o === normEmail(after.poolStaffEmail) ||
+      emailStillOnCommunityConciergeSlots(o, after)
     if (stillOnThisCommunity) continue
 
     const k = `${o}::${role}`
@@ -46,6 +57,27 @@ function collectStaffRemovalCandidates(
     seen.add(k)
     out.push({ emailNorm: o, role })
   }
+
+  const beforeMain = new Set(parseConciergeEmailsList(before))
+  const afterMain = new Set(parseConciergeEmailsList(after))
+  for (const o of beforeMain) {
+    if (afterMain.has(o)) continue
+    const k = `${o}::concierge`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push({ emailNorm: o, role: 'concierge' })
+  }
+
+  const beforeSub = normEmail(before.conciergeSubstituteEmail)
+  const afterSub = normEmail(after.conciergeSubstituteEmail)
+  if (beforeSub && beforeSub !== afterSub && !afterMain.has(beforeSub) && beforeSub !== afterSub) {
+    const k = `${beforeSub}::concierge`
+    if (!seen.has(k)) {
+      seen.add(k)
+      out.push({ emailNorm: beforeSub, role: 'concierge' })
+    }
+  }
+
   return out
 }
 
@@ -58,6 +90,9 @@ async function emailStillListedWithStaffRole(
       presidentEmail: true,
       communityAdminEmail: true,
       conciergeEmail: true,
+      conciergeEmail2: true,
+      conciergeSubstituteEmail: true,
+      conciergeEmailsJson: true,
       poolStaffEmail: true,
     },
   })
@@ -65,7 +100,10 @@ async function emailStillListedWithStaffRole(
     if (role === 'president' && normEmail(r.presidentEmail) === emailNorm) return true
     if (role === 'community_admin' && normEmail(r.communityAdminEmail) === emailNorm)
       return true
-    if (role === 'concierge' && normEmail(r.conciergeEmail) === emailNorm) return true
+    if (role === 'concierge') {
+      if (parseConciergeEmailsList(r).includes(emailNorm)) return true
+      if (normEmail(r.conciergeSubstituteEmail) === emailNorm) return true
+    }
     if (role === 'pool_staff' && normEmail(r.poolStaffEmail) === emailNorm) return true
   }
   return false
@@ -73,10 +111,6 @@ async function emailStillListedWithStaffRole(
 
 export type DemotedStaffEntry = { email: string; previousRole: StaffSlotRole }
 
-/**
- * Cuentas que ya no tienen ninguna comunidad donde sigan como presidente/admin/conserje/socorrista
- * pasan a rol vecino (resident), para que no queden «presidentes huérfanos».
- */
 export async function demoteOrphanedStaffAfterEmailChange(
   before: PickStaffEmails,
   after: PickStaffEmails,

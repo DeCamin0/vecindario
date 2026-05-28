@@ -1,11 +1,15 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.decamino.vecindario",
       "sha256_cert_fingerprints": [
-        "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C"
+        "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+        "27:1B:4E:09:A7:40:B1:E0:63:AF:16:5C:E1:C6:07:31:F3:16:E5:14:26:C1:36:F5:2E:DE:EB:9E:EB:18:CF:5A"
       ]
     }
   }

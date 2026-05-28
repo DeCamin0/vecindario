@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { apiUrl } from '../config/api.js'
+import { userFromMeResponse } from '../utils/userFromMeResponse.js'
 import {
   LAST_LOGIN_SLUG_STORAGE_KEY,
   clearLastLoginSlug,
@@ -32,7 +33,14 @@ const VALID_ROLES = [
 
 const STAFF_MANAGED_COMMUNITY_ROLES = new Set(['community_admin', 'concierge', 'president'])
 
-const DEFAULT_APP_NAV_FLAGS = { services: true, incidents: true, bookings: true, poolAccess: false }
+const DEFAULT_APP_NAV_FLAGS = {
+  services: true,
+  incidents: true,
+  bookings: true,
+  poolAccess: false,
+  paqueteria: false,
+  cuadernoDiario: false,
+}
 
 /** loginSlug del API (login / me) → storage para PWA y getSignInPath. */
 function syncLoginSlugFromServerCommunity(community) {
@@ -99,7 +107,35 @@ function clearIsolatedTabSession() {
 
 /** True if role can access Management panel and manage community (incidents, bookings). */
 export function canManageCommunity(role) {
-  return role === 'community_admin' || role === 'president'
+  return role === 'community_admin' || role === 'president' || role === 'company_admin'
+}
+
+/** Ver lista de vecinos (conserje, administrador y presidente). */
+export function canViewCommunityResidents(role) {
+  return (
+    role === 'community_admin' ||
+    role === 'president' ||
+    role === 'concierge' ||
+    role === 'company_admin'
+  )
+}
+
+/**
+ * Crear cuentas de vecino (formulario manual o masivo según portales/plantas en Super Admin).
+ * Solo super administrador; el presidente y el resto del personal no dan de alta.
+ */
+export function canManageResidentsAlta(role) {
+  return role === 'super_admin'
+}
+
+/** Junta y cupos de piscina en ficha (conserje, administrador y presidente). */
+export function canEditResidentFichaFields(role) {
+  return (
+    role === 'concierge' ||
+    role === 'community_admin' ||
+    role === 'president' ||
+    role === 'company_admin'
+  )
 }
 
 /** Incidencias: marcar pendiente / resuelta (incluye conserje y super admin). */
@@ -108,6 +144,7 @@ export function canResolveIncidents(role) {
     role === 'community_admin' ||
     role === 'president' ||
     role === 'concierge' ||
+    role === 'company_admin' ||
     role === 'super_admin'
   )
 }
@@ -129,6 +166,11 @@ export function canActAsResident(role) {
     role === 'super_admin' ||
     role === 'concierge'
   )
+}
+
+/** Reservar en nombre de otro vecino (selector «Reserva para»): solo conserje. */
+export function canBookOnBehalfOfNeighbor(role) {
+  return role === 'concierge'
 }
 
 /** Presidente y vecino deben completar piso y portal (campos separados). */
@@ -282,26 +324,37 @@ export function AuthProvider({ children }) {
   const [authReady, setAuthReady] = useState(false)
   const [appNavFlags, setAppNavFlags] = useState(DEFAULT_APP_NAV_FLAGS)
   const [appNavFlagsReady, setAppNavFlagsReady] = useState(false)
+  /** Record categoryId → 'active'|'soon' desde community-config; null hasta cargar o sin comunidad. */
+  const [serviceRequestCategoryModes, setServiceRequestCategoryModes] = useState(null)
   const [managedCommunities, setManagedCommunities] = useState([])
   const [managedCommunitiesLoading, setManagedCommunitiesLoading] = useState(false)
+  /** none | read | write — permiso cuaderno diario en la comunidad activa. */
+  const [cuadernoDiarioAccess, setCuadernoDiarioAccess] = useState('none')
+  /** false hasta resolver permiso (evita redirect a / al refrescar /cuaderno-diario). */
+  const [cuadernoDiarioAccessReady, setCuadernoDiarioAccessReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     const id = communityId
     if (id == null || !Number.isFinite(Number(id)) || Number(id) < 1) {
       setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+      setServiceRequestCategoryModes(null)
+      setCuadernoDiarioAccess('none')
+      setCuadernoDiarioAccessReady(true)
       setAppNavFlagsReady(true)
       return () => {
         cancelled = true
       }
     }
     setAppNavFlagsReady(false)
+    setServiceRequestCategoryModes(null)
     fetch(apiUrl(`/api/public/community-config?communityId=${id}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled) return
         if (!data || typeof data !== 'object') {
           setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+          setServiceRequestCategoryModes(null)
           setAppNavFlagsReady(true)
           return
         }
@@ -310,12 +363,19 @@ export function AuthProvider({ children }) {
           incidents: data.appNavIncidentsEnabled !== false,
           bookings: data.appNavBookingsEnabled !== false,
           poolAccess: data.appNavPoolAccessEnabled === true,
+          paqueteria: data.appNavPaqueteriaEnabled === true,
+          cuadernoDiario: data.appNavCuadernoDiarioEnabled === true,
         })
+        const scm = data.serviceRequestCategoryModes
+        setServiceRequestCategoryModes(
+          scm && typeof scm === 'object' && !Array.isArray(scm) ? scm : null,
+        )
         setAppNavFlagsReady(true)
       })
       .catch(() => {
         if (!cancelled) {
           setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+          setServiceRequestCategoryModes(null)
           setAppNavFlagsReady(true)
         }
       })
@@ -323,6 +383,48 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [communityId])
+
+  useEffect(() => {
+    let cancelled = false
+    const id = communityId
+    if (id == null || !appNavFlagsReady || !appNavFlags.cuadernoDiario) {
+      setCuadernoDiarioAccess('none')
+      setCuadernoDiarioAccessReady(true)
+      return () => {
+        cancelled = true
+      }
+    }
+    if (!accessToken) {
+      setCuadernoDiarioAccess('none')
+      setCuadernoDiarioAccessReady(false)
+      return () => {
+        cancelled = true
+      }
+    }
+    setCuadernoDiarioAccessReady(false)
+    const q = new URLSearchParams({ communityId: String(id) })
+    const ac = communityAccessCode?.trim()
+    if (ac) q.set('accessCode', ac.toUpperCase())
+    fetch(apiUrl(`/api/community/diario/access?${q}`), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('access'))))
+      .then((data) => {
+        if (cancelled) return
+        const a = data?.access
+        setCuadernoDiarioAccess(a === 'write' || a === 'read' ? a : 'none')
+        setCuadernoDiarioAccessReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCuadernoDiarioAccess('none')
+          setCuadernoDiarioAccessReady(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [communityId, accessToken, communityAccessCode, appNavFlagsReady, appNavFlags.cuadernoDiario])
 
   useEffect(() => {
     let cancelled = false
@@ -408,6 +510,10 @@ export function AuthProvider({ children }) {
               : ''
           const emailMe =
             data.email != null && String(data.email).trim() ? String(data.email).trim() : ''
+          const avatarMe =
+            data.profileImageUrl != null && String(data.profileImageUrl).trim()
+              ? String(data.profileImageUrl).trim()
+              : ''
           const nameMe =
             data.name?.trim() ||
             (emailMe ? emailMe.split('@')[0] : portalMe && pisoMe ? `${portalMe} · ${pisoMe}` : 'Vecino')
@@ -428,6 +534,7 @@ export function AuthProvider({ children }) {
             id: data.id,
             ...(emailMe ? { email: emailMe } : {}),
             name: nameMe,
+            ...(avatarMe ? { profileImageUrl: avatarMe } : {}),
             ...(pisoMe ? { piso: pisoMe } : {}),
             ...(portalMe ? { portal: portalMe } : {}),
             ...(puertaMe ? { puerta: puertaMe } : {}),
@@ -437,6 +544,9 @@ export function AuthProvider({ children }) {
             ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
             ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
             ...(companyMe ? { company: companyMe } : {}),
+            notifyWebPush: data.notifyWebPush !== false,
+            notifyMobilePush: data.notifyMobilePush !== false,
+            notifyEmail: data.notifyEmail !== false,
           })
           setUserRoleState(data.role)
           saveUserRole(data.role)
@@ -496,28 +606,34 @@ export function AuthProvider({ children }) {
             return
           }
 
+          const isCompanyAdminSession = p.user.role === 'company_admin'
           const comm = p.community && typeof p.community === 'object' ? p.community : {}
-          const name = typeof comm.name === 'string' ? comm.name.trim() : ''
-          const idNum = comm.id != null ? Number(comm.id) : NaN
-          const acRaw = comm.accessCode != null ? String(comm.accessCode).trim() : ''
+          const commName = typeof comm.name === 'string' ? comm.name.trim() : ''
+          const commId = comm.id != null ? Number(comm.id) : NaN
+          const companyAdminManagingCommunity =
+            isCompanyAdminSession && commName && Number.isFinite(commId) && commId >= 1
 
           try {
             sessionStorage.setItem(TAB_SESSION_ISOLATED, '1')
           } catch { /* ignore */ }
           saveAccessToken(p.accessToken)
           saveUserRole(p.user.role)
-          if (name) {
-            saveCommunity(name)
-            if (!cancelled) setCommunityState(name)
-          }
-          if (Number.isFinite(idNum) && idNum >= 1) {
-            saveCommunityId(idNum)
-            if (!cancelled) setCommunityIdState(idNum)
-          }
-          if (acRaw) {
-            const u = acRaw.toUpperCase()
-            saveCommunityAccessCode(u)
-            if (!cancelled) setCommunityAccessCodeState(u)
+
+          if (!isCompanyAdminSession || companyAdminManagingCommunity) {
+            const acRaw = comm.accessCode != null ? String(comm.accessCode).trim() : ''
+            if (commName) {
+              saveCommunity(commName)
+              if (!cancelled) setCommunityState(commName)
+            }
+            if (Number.isFinite(commId) && commId >= 1) {
+              saveCommunityId(commId)
+              if (!cancelled) setCommunityIdState(commId)
+            }
+            if (acRaw) {
+              const u = acRaw.toUpperCase()
+              saveCommunityAccessCode(u)
+              if (!cancelled) setCommunityAccessCodeState(u)
+            }
           }
 
           try {
@@ -680,10 +796,15 @@ export function AuthProvider({ children }) {
     const nameVal =
       userPayload.name?.trim() ||
       (emailVal ? emailVal.split('@')[0] : po && p ? `${po} · ${p}` : 'Vecino')
+    const avatarVal =
+      userPayload.profileImageUrl != null && String(userPayload.profileImageUrl).trim()
+        ? String(userPayload.profileImageUrl).trim()
+        : ''
     setUser({
       id: userPayload.id,
       ...(emailVal ? { email: emailVal } : {}),
       name: nameVal,
+      ...(avatarVal ? { profileImageUrl: avatarVal } : {}),
       ...(p ? { piso: p } : {}),
       ...(po ? { portal: po } : {}),
       ...(pt ? { puerta: pt } : {}),
@@ -703,6 +824,9 @@ export function AuthProvider({ children }) {
             },
           }
         : {}),
+      notifyWebPush: userPayload.notifyWebPush !== false,
+      notifyMobilePush: userPayload.notifyMobilePush !== false,
+      notifyEmail: userPayload.notifyEmail !== false,
     })
     setUserRoleState(userPayload.role)
     saveUserRole(userPayload.role)
@@ -713,11 +837,15 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  /** PATCH /me: envía solo las claves que quieras actualizar (piso y/o portal, no vacíos). */
+  /** PATCH /api/auth/me — campos de perfil (vecino / presidente). */
   const saveResidentHomePatch = useCallback(async (fields) => {
     const token = accessToken
     if (!token) throw new Error('No hay sesión')
     const body = {}
+    if (fields.name !== undefined) {
+      body.name =
+        typeof fields.name === 'string' ? fields.name.trim().slice(0, 255) || null : null
+    }
     if (fields.piso != null) {
       const t = String(fields.piso).trim().slice(0, 64)
       if (t) body.piso = t
@@ -729,6 +857,21 @@ export function AuthProvider({ children }) {
     if (fields.puerta !== undefined) {
       const t = String(fields.puerta ?? '').trim().slice(0, 64)
       body.puerta = t || null
+    }
+    if (fields.phone !== undefined) {
+      const t = String(fields.phone ?? '').trim().slice(0, 40)
+      body.phone = t || null
+    }
+    if (fields.habitaciones !== undefined) {
+      const t = String(fields.habitaciones ?? '').trim().slice(0, 64)
+      body.habitaciones = t || null
+    }
+    if (fields.plazaGaraje !== undefined) {
+      const t = String(fields.plazaGaraje ?? '').trim().slice(0, 64)
+      body.plazaGaraje = t || null
+    }
+    if (fields.email !== undefined) {
+      body.email = typeof fields.email === 'string' ? fields.email.trim() : ''
     }
     if (Object.keys(body).length === 0) {
       throw new Error('Indica al menos un campo')
@@ -747,41 +890,21 @@ export function AuthProvider({ children }) {
         [data.message, data.error].filter(Boolean).join(' ') || 'No se pudo guardar',
       )
     }
-    const pisoVal =
-      data.piso != null && String(data.piso).trim() ? String(data.piso).trim() : ''
-    const portalVal =
-      data.portal != null && String(data.portal).trim() ? String(data.portal).trim() : ''
-    const puertaVal =
-      data.puerta != null && String(data.puerta).trim() ? String(data.puerta).trim() : ''
-    const phoneVal =
-      data.phone != null && String(data.phone).trim() ? String(data.phone).trim() : ''
-    setUser((prev) =>
-      prev
-        ? {
-            ...prev,
-            ...(pisoVal ? { piso: pisoVal } : {}),
-            ...(portalVal ? { portal: portalVal } : {}),
-            ...(puertaVal ? { puerta: puertaVal } : {}),
-            ...(phoneVal ? { phone: phoneVal } : {}),
-          }
-        : {
-            id: data.id,
-            ...(data.email != null && String(data.email).trim()
-              ? { email: String(data.email).trim() }
-              : {}),
-            name:
-              data.name?.trim() ||
-              (data.email != null && String(data.email).trim()
-                ? String(data.email).split('@')[0]
-                : portalVal && pisoVal
-                  ? `${portalVal} · ${pisoVal}`
-                  : 'Vecino'),
-            ...(pisoVal ? { piso: pisoVal } : {}),
-            ...(portalVal ? { portal: portalVal } : {}),
-            ...(puertaVal ? { puerta: puertaVal } : {}),
-            ...(phoneVal ? { phone: phoneVal } : {}),
-          },
-    )
+    const nextUser = userFromMeResponse(data)
+    if (nextUser) {
+      setUser((prev) => {
+        const merged = prev ? { ...prev, ...nextUser } : nextUser
+        if (Object.prototype.hasOwnProperty.call(data, 'email')) {
+          const em =
+            data.email != null && String(data.email).trim()
+              ? String(data.email).trim()
+              : null
+          if (em) merged.email = em
+          else delete merged.email
+        }
+        return merged
+      })
+    }
     return data
   }, [accessToken])
 
@@ -816,6 +939,20 @@ export function AuthProvider({ children }) {
     return true
   }
 
+  const setUserNotificationPrefs = useCallback((prefs) => {
+    setUser((prev) => (prev ? { ...prev, ...prefs } : prev))
+  }, [])
+
+  const setProfileImageUrl = useCallback((url) => {
+    setUser((prev) => {
+      if (!prev) return prev
+      const next = { ...prev }
+      if (url) next.profileImageUrl = url
+      else delete next.profileImageUrl
+      return next
+    })
+  }, [])
+
   const logout = useCallback(() => {
     setUser(null)
     setAccessTokenState(null)
@@ -840,11 +977,16 @@ export function AuthProvider({ children }) {
     authReady,
     appNavFlags,
     appNavFlagsReady,
+    cuadernoDiarioAccess,
+    cuadernoDiarioAccessReady,
+    serviceRequestCategoryModes,
     managedCommunities,
     managedCommunitiesLoading,
     login,
     applyServerSession,
     saveResidentHomePatch,
+    setUserNotificationPrefs,
+    setProfileImageUrl,
     register,
     logout,
   }

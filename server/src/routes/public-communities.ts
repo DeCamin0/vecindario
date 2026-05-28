@@ -51,6 +51,8 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
       appNavIncidentsEnabled: true,
       appNavBookingsEnabled: true,
       appNavPoolAccessEnabled: true,
+      appNavPaqueteriaEnabled: true,
+      appNavCuadernoDiarioEnabled: true,
       serviceRequestCategoryModesJson: true,
       portalCount: true,
       portalLabels: true,
@@ -79,6 +81,8 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
     appNavIncidentsEnabled: row.appNavIncidentsEnabled,
     appNavBookingsEnabled: row.appNavBookingsEnabled,
     appNavPoolAccessEnabled: row.appNavPoolAccessEnabled === true,
+    appNavPaqueteriaEnabled: row.appNavPaqueteriaEnabled === true,
+    appNavCuadernoDiarioEnabled: row.appNavCuadernoDiarioEnabled === true,
     serviceRequestCategoryModes: normalizeServiceCategoryModes(row.serviceRequestCategoryModesJson),
     portalSelectOptions: communityPortalSelectOptions(row.portalCount, row.portalLabels),
     dwellingByPortalIndex: buildDwellingByPortalIndex(row.portalCount, row.portalDwellingConfig),
@@ -195,6 +199,7 @@ publicCommunitiesRouter.get('/community-bookings', async (req, res) => {
     where: { communityId, status: 'confirmed' },
     orderBy: [{ bookingDate: 'desc' }, { startMinute: 'desc' }, { id: 'desc' }],
     take: 200,
+    include: { user: { select: { name: true, email: true } } },
   })
 
   res.json(
@@ -210,6 +215,11 @@ publicCommunitiesRouter.get('/community-bookings', async (req, res) => {
       slotLabel: r.slotLabel,
       actorEmail: r.actorEmail,
       actorPiso: r.actorPiso,
+      actorPortal: r.actorPortal,
+      residentName: r.user?.name?.trim() || null,
+      residentEmail: r.user?.email?.trim() || r.actorEmail,
+      bookedByUserId: r.bookedByUserId,
+      bookedByName: r.bookedByName,
       createdAt: r.createdAt.toISOString(),
     })),
   )

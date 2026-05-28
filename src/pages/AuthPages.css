@@ -483,13 +483,27 @@
 @media (max-width: 959px) {
   .auth-login-hero {
     text-align: center;
-    max-width: 28rem;
+    width: 100%;
+    max-width: min(22.5rem, 100%);
     margin: 0 auto;
+    padding-inline: var(--space-2);
+    box-sizing: border-box;
   }
 
+  .auth-login-hero__inner {
+    max-width: none;
+    margin-inline: auto;
+  }
+
+  /* Mismo eje visual que titular y lead: lista centrada (antes quedaba a la izquierda). */
   .auth-login-hero__ticks {
-    text-align: left;
-    display: inline-block;
+    text-align: center;
+    display: block;
+    width: 100%;
+    max-width: min(21rem, 100%);
+    margin: 0 auto;
+    padding-left: 0;
+    list-style-position: inside;
   }
 }
 
@@ -667,6 +681,76 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
   animation: auth-role-picker-in 0.45s ease-out;
+}
+
+/* Pantalla inicial login: 2×2 (vecino, conserje, piscina, administración) */
+.auth-role-picker--quad {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.auth-role-picker--quad .auth-role-btn {
+  min-height: 5.25rem;
+}
+
+.auth-role-picker--admin {
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.auth-role-picker--admin .auth-role-btn {
+  min-height: 3.75rem;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.auth-role-picker--admin .auth-role-btn__icon {
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+
+.auth-role-picker--admin .auth-role-btn__text,
+.auth-role-picker--admin .auth-role-btn__sub {
+  text-align: left;
+}
+
+.auth-role-picker--admin .auth-role-btn__text {
+  font-size: 0.78rem;
+}
+
+.auth-role-picker--admin .auth-role-btn__sub {
+  font-size: 0.68rem;
+}
+
+.auth-label--center {
+  display: block;
+  text-align: center;
+  width: 100%;
+}
+
+.auth-login-home-demo {
+  margin: 0.75rem 0 0;
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.auth-link--button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  color: var(--color-primary, #2563eb);
+}
+
+.auth-role-btn--pick:hover {
+  transform: translateY(-2px) scale(1.01);
+  border-color: #93c5fd;
 }
 
 @keyframes auth-role-picker-in {

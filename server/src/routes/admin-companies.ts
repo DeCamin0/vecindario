@@ -3,6 +3,9 @@ import { Router } from 'express'
 import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma.js'
 import { isMailConfigured, sendMail } from '../lib/mail.js'
+import { signAccessToken } from '../lib/jwt.js'
+import { deleteAvatarFilesForUser } from '../lib/profile-avatar.js'
+import { vecindarioLoginHint } from '../lib/public-app-url.js'
 
 export const adminCompaniesRouter = Router()
 
@@ -130,15 +133,91 @@ adminCompaniesRouter.post('/:id/admins', async (req, res) => {
     res.status(400).json({ error: 'Email obligatorio y válido.' })
     return
   }
-  const existing = await prisma.vecindarioUser.findUnique({ where: { email } })
-  if (existing) {
-    res.status(409).json({ error: 'Ya existe un usuario con ese email.' })
-    return
-  }
   const nameRaw =
     typeof req.body?.name === 'string' && req.body.name.trim()
       ? req.body.name.trim().slice(0, 255)
       : null
+  const existing = await prisma.vecindarioUser.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      role: true,
+      name: true,
+      companyAdminCompanyId: true,
+    },
+  })
+  if (existing) {
+    if (existing.role === 'company_admin') {
+      if (existing.companyAdminCompanyId === id) {
+        res.status(409).json({ error: 'Este usuario ya es administrador de esta empresa.' })
+        return
+      }
+      res.status(409).json({
+        error: 'Ya existe un usuario con ese email como administrador de otra empresa.',
+      })
+      return
+    }
+    if (existing.role === 'community_admin') {
+      const companyCommunities = await prisma.community.findMany({
+        where: { companyId: id, communityAdminEmail: { not: null } },
+        select: { id: true, communityAdminEmail: true },
+      })
+      const linked = companyCommunities.some(
+        (c) => normEmail(c.communityAdminEmail) === email,
+      )
+      if (!linked) {
+        res.status(409).json({
+          error: 'Ya existe un usuario con ese email.',
+          message:
+            'Ese correo ya tiene cuenta de administrador de comunidad, pero no figura en la ficha de ninguna comunidad de esta empresa. Quita el administrador de la ficha o asigna la empresa a la comunidad.',
+        })
+        return
+      }
+      let plain =
+        typeof req.body?.password === 'string' && req.body.password.length >= 8
+          ? req.body.password
+          : ''
+      let generated = false
+      if (!plain) {
+        plain = generateTemporaryPasswordPlain()
+        generated = true
+      }
+      const passwordHash = await bcrypt.hash(plain, 12)
+      const user = await prisma.vecindarioUser.update({
+        where: { id: existing.id },
+        data: {
+          role: 'company_admin',
+          companyAdminCompanyId: id,
+          communityId: null,
+          passwordHash,
+          ...(nameRaw ? { name: nameRaw } : {}),
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          companyAdminCompanyId: true,
+          createdAt: true,
+        },
+      })
+      for (const c of companyCommunities) {
+        if (normEmail(c.communityAdminEmail) !== email) continue
+        await prisma.community.update({
+          where: { id: c.id },
+          data: { communityAdminEmail: null, communityAdminName: null },
+        })
+      }
+      res.status(201).json({
+        user,
+        promoted: true,
+        ...(generated ? { temporaryPassword: plain } : {}),
+      })
+      return
+    }
+    res.status(409).json({ error: 'Ya existe un usuario con ese email.' })
+    return
+  }
   let plain =
     typeof req.body?.password === 'string' && req.body.password.length >= 8
       ? req.body.password
@@ -174,15 +253,170 @@ adminCompaniesRouter.post('/:id/admins', async (req, res) => {
 })
 
 function publicLoginHint(): string {
-  const u =
-    (process.env.VECINDARIO_PUBLIC_URL || process.env.PUBLIC_APP_URL || '').trim().replace(/\/$/, '') ||
-    (process.env.CORS_ORIGIN || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)[0] ||
-    ''
-  return u || 'el enlace de acceso a Vecindario (web)'
+  return vecindarioLoginHint()
 }
+
+/**
+ * Sesión JWT del administrador de empresa (solo super admin, misma empresa).
+ */
+adminCompaniesRouter.post('/:companyId/admins/:userId/impersonate', async (req, res) => {
+  const companyId = Number(req.params.companyId)
+  const userId = Number(req.params.userId)
+  if (!Number.isInteger(companyId) || companyId < 1 || !Number.isInteger(userId) || userId < 1) {
+    res.status(400).json({ error: 'Parámetros inválidos' })
+    return
+  }
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, name: true },
+  })
+  if (!company) {
+    res.status(404).json({ error: 'Empresa no encontrada' })
+    return
+  }
+  const target = await prisma.vecindarioUser.findFirst({
+    where: {
+      id: userId,
+      role: 'company_admin',
+      companyAdminCompanyId: companyId,
+    },
+  })
+  if (!target) {
+    res.status(404).json({ error: 'Administrador de empresa no encontrado en esta empresa' })
+    return
+  }
+  const accessToken = signAccessToken({
+    sub: String(target.id),
+    email: target.email || '',
+    role: target.role,
+    companyId,
+  })
+  const em = target.email?.trim()
+  res.json({
+    accessToken,
+    user: {
+      id: target.id,
+      ...(em ? { email: em } : {}),
+      name: target.name?.trim() || (em ? em.split('@')[0] : 'Administrador'),
+      role: target.role,
+    },
+    company: { id: company.id, name: company.name },
+  })
+})
+
+/**
+ * Eliminar cuenta de administrador de empresa (solo super admin).
+ */
+adminCompaniesRouter.delete('/:companyId/admins/:userId', async (req, res) => {
+  const companyId = Number(req.params.companyId)
+  const userId = Number(req.params.userId)
+  if (!Number.isInteger(companyId) || companyId < 1 || !Number.isInteger(userId) || userId < 1) {
+    res.status(400).json({ error: 'Parámetros inválidos' })
+    return
+  }
+  const actorId = req.userId!
+  if (userId === actorId) {
+    res.status(400).json({ error: 'No puedes eliminar tu propia cuenta desde el panel.' })
+    return
+  }
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, name: true },
+  })
+  if (!company) {
+    res.status(404).json({ error: 'Empresa no encontrada' })
+    return
+  }
+  const target = await prisma.vecindarioUser.findFirst({
+    where: {
+      id: userId,
+      role: 'company_admin',
+      companyAdminCompanyId: companyId,
+    },
+    select: { id: true, email: true, name: true },
+  })
+  if (!target) {
+    res.status(404).json({ error: 'Administrador de empresa no encontrado en esta empresa' })
+    return
+  }
+
+  const parcelLinks = await prisma.communityConciergeParcel.count({
+    where: {
+      OR: [
+        { recipientUserId: userId },
+        { createdByUserId: userId },
+        { pickedUpByUserId: userId },
+      ],
+    },
+  })
+  if (parcelLinks > 0) {
+    res.status(409).json({
+      error: 'Paquetería vinculada',
+      message:
+        'Hay registros de paquetería asociados a esta cuenta. Resuélvelos o reasígnalos antes de borrarla.',
+    })
+    return
+  }
+
+  const diarioCount = await prisma.communityDiarioEntry.count({
+    where: { createdByUserId: userId },
+  })
+  if (diarioCount > 0) {
+    res.status(409).json({
+      error: 'Cuaderno diario vinculado',
+      message:
+        'Esta cuenta tiene entradas en el cuaderno diario. Reasígnalas o elimínalas antes de borrar el usuario.',
+    })
+    return
+  }
+
+  const emailNorm = normEmail(target.email)
+  let clearedFicha = false
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.communityIncidentComment.deleteMany({ where: { authorUserId: userId } })
+      await tx.communityIncident.deleteMany({ where: { reporterUserId: userId } })
+      await tx.communityServiceRequestMessage.deleteMany({ where: { authorUserId: userId } })
+      await tx.communityServiceRequest.deleteMany({ where: { requesterUserId: userId } })
+
+      if (emailNorm) {
+        const comms = await tx.community.findMany({
+          where: { companyId, communityAdminEmail: { not: null } },
+          select: { id: true, communityAdminEmail: true },
+        })
+        for (const c of comms) {
+          if (normEmail(c.communityAdminEmail) !== emailNorm) continue
+          await tx.community.update({
+            where: { id: c.id },
+            data: { communityAdminEmail: null, communityAdminName: null },
+          })
+          clearedFicha = true
+        }
+      }
+
+      await tx.vecindarioUser.delete({ where: { id: userId } })
+    })
+    try {
+      await deleteAvatarFilesForUser(userId)
+    } catch {
+      /* optional */
+    }
+    res.json({
+      ok: true,
+      clearedFicha,
+      message: clearedFicha
+        ? 'Cuenta eliminada. Si figuraba como administrador en alguna ficha de comunidad de la empresa, el correo se quitó.'
+        : 'Cuenta de administrador de empresa eliminada.',
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    res.status(500).json({
+      error: 'No se pudo eliminar la cuenta',
+      message: msg,
+    })
+  }
+})
 
 /**
  * Nueva contraseña temporal para un company_admin de la empresa (solo super admin).
@@ -215,9 +449,13 @@ adminCompaniesRouter.post('/:companyId/admins/:userId/reset-password', async (re
   }
   const plain = generateTemporaryPasswordPlain()
   const passwordHash = await bcrypt.hash(plain, 12)
+  const { capturePasswordPlainSnapshot } = await import('../lib/password-plain-snapshot.js')
   await prisma.vecindarioUser.update({
     where: { id: user.id },
-    data: { passwordHash },
+    data: {
+      passwordHash,
+      passwordPlainSnapshot: capturePasswordPlainSnapshot(plain),
+    },
   })
   const emailTo = user.email.trim()
   const loginHint = publicLoginHint()

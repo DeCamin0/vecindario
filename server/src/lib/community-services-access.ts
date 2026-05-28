@@ -1,5 +1,8 @@
 import type { Community, VecindarioUser } from '@prisma/client'
-import { userMayUseCommunityIncidents } from './community-incidents-access.js'
+import {
+  userMayManageIncidents,
+  userMayUseCommunityIncidents,
+} from './community-incidents-access.js'
 import { isCommunityOperationalStatus } from './community-status.js'
 
 const SERVICE_STATUSES = new Set([
@@ -23,7 +26,19 @@ export async function userMayCreateServiceRequest(
   if (!comm || !isCommunityOperationalStatus(comm.status)) return false
   if (comm.appNavServicesEnabled === false) return false
   if (user.role === 'super_admin') return false
+  /** Presupuestos vecino ↔ De Camino; el administrador de comunidad solo consulta en Gestión. */
+  if (user.role === 'community_admin') return false
   return userMayUseCommunityIncidents(user, comm)
+}
+
+/** Lista de solicitudes de la comunidad (solo lectura): gestión local, sin operar presupuestos. */
+export function userMayViewCommunityServiceOverview(
+  user: VecindarioUser,
+  comm: Community | null,
+): boolean {
+  if (!comm || !isCommunityOperationalStatus(comm.status)) return false
+  if (comm.appNavServicesEnabled === false) return false
+  return userMayManageIncidents(user, comm)
 }
 
 export function userMayViewServiceRequestAsOwner(user: VecindarioUser, requesterUserId: number): boolean {
