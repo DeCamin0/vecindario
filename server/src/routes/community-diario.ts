@@ -86,6 +86,7 @@ async function loadCommunityForDiario(communityId: number, accessCode: string | 
       boardVocalsJson: true,
       presidentEmail: true,
       communityAdminEmail: true,
+      companyId: true,
       conciergeEmail: true,
       conciergeEmail2: true,
       conciergeSubstituteEmail: true,

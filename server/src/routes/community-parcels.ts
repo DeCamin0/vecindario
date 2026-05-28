@@ -113,7 +113,10 @@ function parsePhotos(raw: unknown): string[] | null {
 async function loadCommunityForParcels(
   communityId: number,
   accessCode: string | undefined,
-): Promise<{ ok: true; row: Awaited<ReturnType<typeof fetchCommunity>> } | { ok: false; status: number; message: string }> {
+): Promise<
+  | { ok: true; row: NonNullable<Awaited<ReturnType<typeof fetchCommunity>>> }
+  | { ok: false; status: number; message: string }
+> {
   const row = await fetchCommunity(communityId, accessCode)
   if (!row) {
     return {

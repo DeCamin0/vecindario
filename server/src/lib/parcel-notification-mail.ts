@@ -25,7 +25,8 @@ export async function sendParcelCreatedNotificationEmail(params: {
     where: { id: params.recipientUserId },
     select: { email: true, notifyEmail: true, name: true },
   })
-  const to = user?.email?.trim()
+  if (!user) return
+  const to = user.email?.trim()
   if (!to || user.notifyEmail === false) return
 
   const { communityName, portal, piso, puerta, packageCount, parcelId } = params

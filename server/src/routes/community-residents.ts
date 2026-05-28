@@ -592,7 +592,7 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
     return
   }
 
-  if (conciergeFichaOnly) {
+  if (editor?.role === 'concierge') {
     const forbidden = [
       'name',
       'email',

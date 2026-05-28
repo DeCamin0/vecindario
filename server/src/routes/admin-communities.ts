@@ -534,7 +534,7 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
 
   type SlotDef = {
     label: string
-    slot: 'president' | 'community_admin' | 'concierge' | 'pool_staff' | 'contact'
+    slot: 'president' | 'community_admin' | 'pool_staff' | 'contact'
   }
   const slotDefs: SlotDef[] = [
     { label: 'Presidente', slot: 'president' },
@@ -553,15 +553,17 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
     contact: community.contactEmail,
   }
 
+  type StaffSlot = SlotDef['slot'] | 'concierge'
+
   const merged = new Map<
     string,
-    { labels: string[]; slots: SlotDef['slot'][]; email: string }
+    { labels: string[]; slots: StaffSlot[]; email: string }
   >()
 
   const addStaffEmail = (
     raw: string | null | undefined,
     label: string,
-    slot: SlotDef['slot'],
+    slot: StaffSlot,
   ) => {
     const n = normEmail(raw)
     if (!n) return
@@ -590,7 +592,7 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
 
   const staffRows: {
     labels: string[]
-    slots: SlotDef['slot'][]
+    slots: StaffSlot[]
     email: string
     user: {
       id: number
@@ -1157,6 +1159,10 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     communityAdminEmail?: string | null
     communityAdminName?: string | null
     conciergeEmail?: string | null
+    conciergeEmail2?: string | null
+    conciergeEmailsJson?: Prisma.InputJsonValue
+    conciergeSubstituteEmail?: string | null
+    conciergeSubstituteName?: string | null
     poolStaffEmail?: string | null
     status?: string
     portalCount?: number
@@ -1686,7 +1692,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     conciergeEmail: string | null
     conciergeEmail2: string | null
     conciergeSubstituteEmail: string | null
-    conciergeEmailsJson: unknown
+    conciergeEmailsJson: Prisma.JsonValue
     poolStaffEmail: string | null
   } | null = null
 

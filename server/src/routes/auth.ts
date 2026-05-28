@@ -605,6 +605,7 @@ authRouter.post('/login', async (req, res) => {
         communityId: user.communityId,
         portal: userOut.portal,
         piso: userOut.piso,
+        puerta: userOut.puerta,
       },
       commRes,
     )
@@ -1448,6 +1449,7 @@ authRouter.post('/demo-explore', async (req, res) => {
         communityId: user.communityId,
         portal: userOut.portal,
         piso: userOut.piso,
+        puerta: userOut.puerta,
       },
       commRes,
     )
