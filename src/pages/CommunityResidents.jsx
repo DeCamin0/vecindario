@@ -1057,7 +1057,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
                       onChange={(e) => setListPortalFilter(e.target.value)}
                       disabled={portalLoading && portalFilterOptions.length === 0}
                     >
-                      <option value="">Todos los portales ({list.length})</option>
+                      <option value="">Todos los portales ({portalFilterOptions.length})</option>
                       {portalFilterOptions.map((p) => {
                         const count = list.filter((r) => normDwellPart(r.portal) === p).length
                         return (
