@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { assertStaffOwnsCommunity } from '../lib/community-staff-gate.js'
 import { companyAdminOwnsCommunity, normEmail } from '../lib/community-user-access.js'
-import { conciergeEmailMatches } from '../lib/concierge-emails.js'
+import { conciergeEmailMatches, conciergeEmailPrismaSelect } from '../lib/concierge-emails.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
 import { parseBool } from '../lib/community-create-parsers.js'
 import {
@@ -236,9 +236,7 @@ poolAccessRouter.get('/staff-pool-summary', requireAuth, async (req, res) => {
     poolHoursNote: true,
     poolMaxOccupancy: true,
     communityAdminEmail: true,
-    conciergeEmail: true,
-    conciergeEmail2: true,
-    conciergeSubstituteEmail: true,
+    ...conciergeEmailPrismaSelect,
     companyId: true,
   } as const
 

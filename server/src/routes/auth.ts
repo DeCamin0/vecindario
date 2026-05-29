@@ -17,7 +17,7 @@ import {
   isDemoExplorePreset,
 } from '../lib/demo-explore-presets.js'
 import { syncPasswordPlainSnapshotAfterVerify } from '../lib/password-plain-snapshot.js'
-import { conciergeEmailMatches } from '../lib/concierge-emails.js'
+import { conciergeEmailMatches, conciergeEmailPrismaSelect } from '../lib/concierge-emails.js'
 import {
   notificationPrefsFromRow,
   type NotificationPrefs,
@@ -393,9 +393,7 @@ authRouter.post('/login', async (req, res) => {
         status: true,
         accessCode: true,
         loginSlug: true,
-        conciergeEmail: true,
-        conciergeEmail2: true,
-        conciergeSubstituteEmail: true,
+        ...conciergeEmailPrismaSelect,
       },
     })
 
@@ -1036,9 +1034,7 @@ authRouter.get('/my-managed-communities', requireAuth, async (req, res) => {
       accessCode: true,
       loginSlug: true,
       communityAdminEmail: true,
-      conciergeEmail: true,
-      conciergeEmail2: true,
-      conciergeSubstituteEmail: true,
+      ...conciergeEmailPrismaSelect,
       presidentEmail: true,
       poolStaffEmail: true,
     },

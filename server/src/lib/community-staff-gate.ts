@@ -1,6 +1,6 @@
 import { prisma } from './prisma.js'
 import { companyAdminOwnsCommunity, normEmail } from './community-user-access.js'
-import { conciergeEmailMatches } from './concierge-emails.js'
+import { conciergeEmailMatches, conciergeEmailPrismaSelect } from './concierge-emails.js'
 import { residentMatchesPresidentUnit } from './president-by-unit.js'
 import { communityOperationalWhere } from './community-status.js'
 
@@ -25,9 +25,7 @@ export async function assertStaffOwnsCommunity(
       presidentPortal: true,
       presidentPiso: true,
       communityAdminEmail: true,
-      conciergeEmail: true,
-      conciergeEmail2: true,
-      conciergeSubstituteEmail: true,
+      ...conciergeEmailPrismaSelect,
       poolStaffEmail: true,
       residentSlots: true,
       companyId: true,

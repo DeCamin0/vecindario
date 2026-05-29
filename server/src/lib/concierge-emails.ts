@@ -12,6 +12,15 @@ export type ConciergeEmailFields = {
   conciergeEmailsJson?: unknown
 }
 
+/** Select Prisma mínimo para `conciergeEmailMatches` / `listConciergeEmails`. */
+export const conciergeEmailPrismaSelect = {
+  conciergeEmail: true,
+  conciergeEmail2: true,
+  conciergeSubstituteEmail: true,
+  conciergeSubstituteName: true,
+  conciergeEmailsJson: true,
+} as const
+
 export function parseOptionalStaffLabel(raw: unknown): string | null {
   if (raw == null) return null
   const t = String(raw).trim().slice(0, 255)
