@@ -1,3 +1,7 @@
+.pq-file-input {
+  display: none;
+}
+
 /* Navegación secundaria Paquetería (alineada con tokens globales) */
 .pq-page-header {
   margin-bottom: var(--section-gap);

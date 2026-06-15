@@ -38,13 +38,7 @@ export function parseSalonBookingMode(raw: unknown, fallback: 'slots' | 'day'): 
   return fallback
 }
 
-export function parsePadelHoursField(raw: unknown, fallback: number): number {
-  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(n)) return fallback
-  if (n < 1) return 1
-  if (n > 24) return 24
-  return n
-}
+export { parsePadelHoursField, padelHoursForJson } from './padel-hours.js'
 
 export function parsePadelMinAdvanceHours(raw: unknown, fallback: number): number {
   const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)

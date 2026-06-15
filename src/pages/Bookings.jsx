@@ -10,6 +10,8 @@ import {
 import { isGymAccessControlEnabled } from '../config/clientFeatures'
 import { apiUrl } from '../config/api.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
+import { formatPadelHoursDisplay, parsePadelHoursFormValue } from '../utils/padelHours.js'
+import { padelBookingOverlapsSlot } from '../utils/padelSlotOccupancy.js'
 import './Bookings.css'
 
 const DEFAULT_FACILITIES = [
@@ -62,6 +64,8 @@ function mapServerBookingRow(row) {
     ...(row.actorPortal ? { portal: row.actorPortal } : {}),
     ...(row.bookedByName?.trim() ? { bookedByName: row.bookedByName.trim() } : {}),
     ...(row.vecindarioUserId != null ? { vecindarioUserId: row.vecindarioUserId } : {}),
+    startMinute: row.startMinute,
+    endMinute: row.endMinute,
     recordedAt: row.createdAt,
     fromServer: true,
   }
@@ -107,10 +111,9 @@ function formatMinAsTime(totalMin) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-/** Horas máx. por reserva (1–24) desde la config API. */
+/** Horas máx. por reserva (1–24, paso 0,5) desde la config API. */
 function padelMaxBookingHoursFromConfig(cfg) {
-  const n = Number(cfg?.padelMaxHoursPerBooking)
-  return Number.isFinite(n) && n >= 1 ? Math.min(24, n) : 2
+  return parsePadelHoursFormValue(cfg?.padelMaxHoursPerBooking, 2)
 }
 
 /**
@@ -381,14 +384,6 @@ function isPadelBookingRecord(b) {
   return false
 }
 
-function normalizeTimeRangeLabel(s) {
-  return String(s || '')
-    .replace(/[–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
-}
-
 /** Misma pista (p. ej. padel:1) aunque el registro viejo solo tenga nombre. */
 function padelBookingMatchesFacility(b, selectedFacilityId, facilities) {
   if (!selectedFacilityId || !isPadelFacilityId(selectedFacilityId)) return false
@@ -406,13 +401,7 @@ function padelBookingMatchesFacility(b, selectedFacilityId, facilities) {
 }
 
 function bookingCoversPadelSlot(b, slot) {
-  if (b.timeSlot && b.timeSlot === slot.id) return true
-  const bid = typeof b.timeSlot === 'string' ? b.timeSlot : ''
-  const minM = /^min-(\d+)-(\d+)$/.exec(bid)
-  if (minM && `padel-${minM[1]}-${minM[2]}` === slot.id) return true
-  const tl = normalizeTimeRangeLabel(b.timeSlotLabel)
-  const rl = normalizeTimeRangeLabel(slot.range)
-  return Boolean(tl && rl && tl === rl)
+  return padelBookingOverlapsSlot(b, slot)
 }
 
 function isPadelSlotOccupiedByRecord(b, selectedFacilityId, dateKey, slot, facilities) {
@@ -815,9 +804,7 @@ export default function Bookings() {
   const spaceConfig = useMemo(() => {
     if (!selectedFacility) return null
     if (isPadelFacilityId(selectedFacility)) {
-      const n = Number(communityBookingConfig?.padelMaxHoursPerBooking)
-      const maxH =
-        Number.isFinite(n) && n >= 1 ? Math.min(24, n) : SLOT_PRESETS.padel.maxDurationHours
+      const maxH = parsePadelHoursFormValue(communityBookingConfig?.padelMaxHoursPerBooking, SLOT_PRESETS.padel.maxDurationHours)
       return { ...SLOT_PRESETS.padel, maxDurationHours: maxH }
     }
     return getSlotConfigForFacility(selectedFacility)
@@ -1182,11 +1169,8 @@ export default function Bookings() {
       (padelCapUser.piso?.trim() || padelCapUser.email)
     ) {
       const perBookRaw = Number(communityBookingConfig.padelMaxHoursPerBooking)
-      const hBook =
-        Number.isFinite(perBookRaw) && perBookRaw >= 1 ? Math.min(24, perBookRaw) : 2
-      const dailyRaw = Number(communityBookingConfig.padelMaxHoursPerApartmentPerDay)
-      const hDaily =
-        Number.isFinite(dailyRaw) && dailyRaw >= 1 ? Math.min(24, dailyRaw) : 24
+      const hBook = parsePadelHoursFormValue(perBookRaw, 2)
+      const hDaily = parsePadelHoursFormValue(communityBookingConfig.padelMaxHoursPerApartmentPerDay, 24)
       const usedHours = allBookings
         .filter(
           (b) =>
@@ -1197,7 +1181,7 @@ export default function Bookings() {
         .length * hBook
       if (usedHours + hBook > hDaily) {
         setPadelCapError(
-          `Tope de pádel: máximo ${hDaily} h por vivienda y día. Esta reserva son ${hBook} h; ya llevas ${usedHours} h ese día.`,
+          `Tope de pádel: máximo ${formatPadelHoursDisplay(hDaily)} h por vivienda y día. Esta reserva son ${formatPadelHoursDisplay(hBook)} h; ya llevas ${formatPadelHoursDisplay(usedHours)} h ese día.`,
         )
         return
       }
@@ -1570,7 +1554,7 @@ export default function Bookings() {
               </>
             ) : (
               <>
-                Duración máxima: {spaceConfig.maxDurationHours}{' '}
+                Duración máxima: {formatPadelHoursDisplay(spaceConfig.maxDurationHours)}{' '}
                 {spaceConfig.maxDurationHours === 1 ? 'hora' : 'horas'}
                 {isPadelFacilityId(selectedFacility) && communityBookingConfig ? (
                   <>

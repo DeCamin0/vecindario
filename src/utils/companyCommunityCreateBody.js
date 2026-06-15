@@ -3,6 +3,8 @@
  * @param {Record<string, unknown>} form — campos de formulario (strings y booleanos)
  * @returns {{ body?: Record<string, unknown>, error?: string }}
  */
+import { parsePadelHoursFormValue } from './padelHours.js'
+
 export function buildCompanyCommunityCreateBody(form) {
   const name = String(form.name ?? '').trim() || 'Sin nombre'
   const contactEmail = String(form.contactEmail ?? '').trim()
@@ -107,15 +109,9 @@ export function buildCompanyCommunityCreateBody(form) {
     if (Number.isFinite(n) && n >= 0) body.padelCourtCount = Math.min(50, n)
   }
   const pmb = String(form.padelMaxHoursPerBooking ?? '').trim()
-  if (pmb) {
-    const n = Number.parseInt(pmb, 10)
-    if (Number.isFinite(n)) body.padelMaxHoursPerBooking = Math.min(24, Math.max(1, n))
-  }
+  if (pmb) body.padelMaxHoursPerBooking = parsePadelHoursFormValue(pmb, 2)
   const pmd = String(form.padelMaxHoursPerApartmentPerDay ?? '').trim()
-  if (pmd) {
-    const n = Number.parseInt(pmd, 10)
-    if (Number.isFinite(n)) body.padelMaxHoursPerApartmentPerDay = Math.min(24, Math.max(1, n))
-  }
+  if (pmd) body.padelMaxHoursPerApartmentPerDay = parsePadelHoursFormValue(pmd, 4)
   const pma = String(form.padelMinAdvanceHours ?? '').trim()
   if (pma) {
     const n = Number.parseInt(pma, 10)

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { Router } from 'express'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { prisma } from '../lib/prisma.js'
 import { generateUniqueAccessCode } from '../lib/access-code.js'
@@ -1182,8 +1182,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     appNavCuadernoDiarioEnabled?: boolean
     serviceRequestCategoryModesJson?: Prisma.InputJsonValue
     padelCourtCount?: number
-    padelMaxHoursPerBooking?: number
-    padelMaxHoursPerApartmentPerDay?: number
+    padelMaxHoursPerBooking?: Prisma.Decimal
+    padelMaxHoursPerApartmentPerDay?: Prisma.Decimal
     padelMinAdvanceHours?: number
     padelOpenTime?: string
     padelCloseTime?: string
@@ -1605,8 +1605,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       res.status(404).json({ error: 'Not found' })
       return
     }
-    let hb = existing.padelMaxHoursPerBooking
-    let hd = existing.padelMaxHoursPerApartmentPerDay
+    let hb = parsePadelHoursField(undefined, existing.padelMaxHoursPerBooking)
+    let hd = parsePadelHoursField(undefined, existing.padelMaxHoursPerApartmentPerDay)
     if ('padelMaxHoursPerBooking' in req.body) {
       hb = parsePadelHoursField(req.body.padelMaxHoursPerBooking, hb)
     }
@@ -1614,8 +1614,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       hd = parsePadelHoursField(req.body.padelMaxHoursPerApartmentPerDay, hd)
     }
     if (hd < hb) hd = hb
-    data.padelMaxHoursPerBooking = hb
-    data.padelMaxHoursPerApartmentPerDay = hd
+    data.padelMaxHoursPerBooking = new Prisma.Decimal(hb)
+    data.padelMaxHoursPerApartmentPerDay = new Prisma.Decimal(hd)
   }
   if (
     'padelMinAdvanceHours' in req.body ||

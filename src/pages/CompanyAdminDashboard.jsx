@@ -14,6 +14,7 @@ import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersona
 import { buildCompanyCommunityCreateBody } from '../utils/companyCommunityCreateBody.js'
 import { conciergeEmailsFromCommunity } from '../utils/conciergeEmailsForm.js'
 import { getSignInPath } from '../utils/signInWebPath.js'
+import { parsePadelHoursFormValue, sanitizePadelHoursInput } from '../utils/padelHours.js'
 import './Admin.css'
 import './CompanyAdminDashboard.css'
 
@@ -928,14 +929,16 @@ export default function CompanyAdminDashboard() {
                         </label>
                         <input
                           id="ca-padel-mxb"
-                          type="text"
-                          inputMode="numeric"
+                          type="number"
+                          min={1}
+                          max={24}
+                          step={0.5}
                           className="admin-input"
                           value={form.padelMaxHoursPerBooking}
                           onChange={(e) =>
                             setForm((f) => ({
                               ...f,
-                              padelMaxHoursPerBooking: e.target.value.replace(/\D/g, '').slice(0, 2),
+                              padelMaxHoursPerBooking: sanitizePadelHoursInput(e.target.value),
                             }))
                           }
                         />
@@ -946,16 +949,16 @@ export default function CompanyAdminDashboard() {
                         </label>
                         <input
                           id="ca-padel-mxd"
-                          type="text"
-                          inputMode="numeric"
+                          type="number"
+                          min={1}
+                          max={24}
+                          step={0.5}
                           className="admin-input"
                           value={form.padelMaxHoursPerApartmentPerDay}
                           onChange={(e) =>
                             setForm((f) => ({
                               ...f,
-                              padelMaxHoursPerApartmentPerDay: e.target.value
-                                .replace(/\D/g, '')
-                                .slice(0, 2),
+                              padelMaxHoursPerApartmentPerDay: sanitizePadelHoursInput(e.target.value),
                             }))
                           }
                         />

@@ -6,6 +6,7 @@ import { communityPortalSelectOptions } from '../lib/portal-labels.js'
 import { buildDwellingByPortalIndex } from '../lib/portal-dwelling-config.js'
 import { communityOperationalWhere, isCommunityOperationalStatus } from '../lib/community-status.js'
 import { normalizeServiceCategoryModes } from '../lib/service-request-category-modes.js'
+import { padelHoursForJson } from '../lib/padel-hours.js'
 
 /** Rutas públicas (sin JWT): validar código de acceso para vecinos. */
 export const publicCommunitiesRouter = Router()
@@ -70,8 +71,8 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
     name: row.name,
     gymAccessEnabled: row.gymAccessEnabled,
     padelCourtCount: row.padelCourtCount,
-    padelMaxHoursPerBooking: row.padelMaxHoursPerBooking,
-    padelMaxHoursPerApartmentPerDay: row.padelMaxHoursPerApartmentPerDay,
+    padelMaxHoursPerBooking: padelHoursForJson(row.padelMaxHoursPerBooking, 2),
+    padelMaxHoursPerApartmentPerDay: padelHoursForJson(row.padelMaxHoursPerApartmentPerDay, 4),
     padelMinAdvanceHours: row.padelMinAdvanceHours,
     padelOpenTime: row.padelOpenTime,
     padelCloseTime: row.padelCloseTime,

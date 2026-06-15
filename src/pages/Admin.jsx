@@ -21,6 +21,12 @@ import {
   defaultServiceCategoryModesRecord,
 } from '../constants/serviceRequests.js'
 import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
+import {
+  formatPadelHoursDisplay,
+  formatPadelHoursInputValue,
+  parsePadelHoursFormValue,
+  sanitizePadelHoursInput,
+} from '../utils/padelHours.js'
 import './Admin.css'
 
 function statusLabel(status) {
@@ -822,8 +828,8 @@ export default function Admin() {
         return base
       })(),
       padelCourtCount: String(c.padelCourtCount ?? 0),
-      padelMaxHoursPerBooking: String(c.padelMaxHoursPerBooking ?? 2),
-      padelMaxHoursApartmentDay: String(c.padelMaxHoursPerApartmentPerDay ?? 4),
+      padelMaxHoursPerBooking: formatPadelHoursInputValue(c.padelMaxHoursPerBooking, 2),
+      padelMaxHoursApartmentDay: formatPadelHoursInputValue(c.padelMaxHoursPerApartmentPerDay, 4),
       padelMinAdvanceHours: String(c.padelMinAdvanceHours ?? 24),
       padelOpenTime: padWallClockForInput(c.padelOpenTime, '08:00'),
       padelCloseTime: padWallClockForInput(c.padelCloseTime, '22:00'),
@@ -980,11 +986,8 @@ export default function Admin() {
       const rs = form.residentSlots.trim()
       const residentSlots = rs === '' ? null : Math.min(999_999, Math.max(0, Number.parseInt(rs, 10) || 0))
       const padelCourtCount = Math.min(50, Math.max(0, Number.parseInt(form.padelCourtCount, 10) || 0))
-      let padelMaxHoursPerBooking = Math.min(24, Math.max(1, Number.parseInt(form.padelMaxHoursPerBooking, 10) || 2))
-      let padelMaxHoursPerApartmentPerDay = Math.min(
-        24,
-        Math.max(1, Number.parseInt(form.padelMaxHoursApartmentDay, 10) || 4),
-      )
+      let padelMaxHoursPerBooking = parsePadelHoursFormValue(form.padelMaxHoursPerBooking, 2)
+      let padelMaxHoursPerApartmentPerDay = parsePadelHoursFormValue(form.padelMaxHoursApartmentDay, 4)
       if (padelMaxHoursPerApartmentPerDay < padelMaxHoursPerBooking) {
         padelMaxHoursPerApartmentPerDay = padelMaxHoursPerBooking
       }
@@ -2122,8 +2125,8 @@ export default function Admin() {
                         <span className="admin-community-detail">
                           <span className="admin-community-detail-label">Pádel</span>
                           {Number(community.padelCourtCount) || 0} pista(s) · máx.{' '}
-                          {community.padelMaxHoursPerBooking ?? 2} h/reserva ·{' '}
-                          {community.padelMaxHoursPerApartmentPerDay ?? 4} h/vivienda/día · antelación{' '}
+                          {formatPadelHoursDisplay(community.padelMaxHoursPerBooking, 2)} h/reserva ·{' '}
+                          {formatPadelHoursDisplay(community.padelMaxHoursPerApartmentPerDay, 4)} h/vivienda/día · antelación{' '}
                           plazo {Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))}{' '}
                           día(s) ·{' '}
                           {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
@@ -3110,11 +3113,19 @@ export default function Admin() {
                       type="number"
                       min={1}
                       max={24}
+                      step={0.5}
                       className="admin-input"
                       value={form.padelMaxHoursPerBooking}
-                      onChange={(e) => setForm((f) => ({ ...f, padelMaxHoursPerBooking: e.target.value }))}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          padelMaxHoursPerBooking: sanitizePadelHoursInput(e.target.value),
+                        }))
+                      }
                     />
-                    <p className="admin-field-hint">Una reserva cuenta como esta duración en la cuota diaria.</p>
+                    <p className="admin-field-hint">
+                      Una reserva cuenta como esta duración en la cuota diaria. Pasos de 0,5 h (1 · 1,5 · 2 …).
+                    </p>
                   </div>
                   <div className="admin-modal-field">
                     <label className="admin-label" htmlFor="comm-padel-h-day">
@@ -3125,12 +3136,18 @@ export default function Admin() {
                       type="number"
                       min={1}
                       max={24}
+                      step={0.5}
                       className="admin-input"
                       value={form.padelMaxHoursApartmentDay}
-                      onChange={(e) => setForm((f) => ({ ...f, padelMaxHoursApartmentDay: e.target.value }))}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          padelMaxHoursApartmentDay: sanitizePadelHoursInput(e.target.value),
+                        }))
+                      }
                     />
                     <p className="admin-field-hint">
-                      Por piso (o por email si no hay piso). No puede ser menor que horas/reserva.
+                      Por piso (o por email si no hay piso). No puede ser menor que horas/reserva. Pasos de 0,5 h.
                     </p>
                   </div>
                 </div>

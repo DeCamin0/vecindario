@@ -160,10 +160,10 @@ model Community {
   gymAccessEnabled Boolean @default(false) @map("gym_access_enabled")
   /// Cuántas pistas de pádel tiene la comunidad (0 = ninguna).
   padelCourtCount  Int     @default(0) @map("padel_court_count")
-  /// Máximo de horas por una reserva de pádel (una franja cuenta como tal duración en la cuota diaria).
-  padelMaxHoursPerBooking Int @default(2) @map("padel_max_hours_per_booking")
-  /// Máximo total de horas de pádel por vivienda (piso) y día natural; mismo criterio por email si no hay piso.
-  padelMaxHoursPerApartmentPerDay Int @default(4) @map("padel_max_hours_apartment_day")
+  /// Máximo de horas por una reserva de pádel (paso 0,5: 1 · 1,5 · 2 …; una franja cuenta como tal duración en la cuota diaria).
+  padelMaxHoursPerBooking Decimal @default(2.0) @map("padel_max_hours_per_booking") @db.Decimal(4, 1)
+  /// Máximo total de horas de pádel por vivienda (piso) y día natural; paso 0,5; mismo criterio por email si no hay piso.
+  padelMaxHoursPerApartmentPerDay Decimal @default(4.0) @map("padel_max_hours_apartment_day") @db.Decimal(4, 1)
   /// Horas mínimas de antelación respecto al inicio del tramo (ej. 24 = 1 día, 48 = 2 días).
   padelMinAdvanceHours Int @default(24) @map("padel_min_advance_hours")
   /// Inicio del horario reservable de pádel (HH:mm, hora local de la comunidad).

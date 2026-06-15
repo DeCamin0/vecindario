@@ -447,13 +447,17 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
       communityId,
       facilityId,
       bookingDate,
-      startMinute,
       status: 'confirmed',
+      startMinute: { lt: endMinute },
+      endMinute: { gt: startMinute },
     },
     select: { id: true },
   })
   if (slotTaken) {
-    res.status(409).json({ error: 'Ese tramo ya está reservado para esa fecha y espacio.' })
+    res.status(409).json({
+      error:
+        'Ese tramo se solapa con otra reserva en la misma pista y fecha. Elige otro horario o cancela la reserva existente.',
+    })
     return
   }
 
