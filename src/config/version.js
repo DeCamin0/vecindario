@@ -4,4 +4,4 @@
  * Fallback for dev when __APP_VERSION__ is not injected.
  */
 export const APP_VERSION =
-  typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.0.0'
+  typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.0.1'
