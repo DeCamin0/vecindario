@@ -288,6 +288,7 @@ const emptyForm = {
   appNavBookingsEnabled: true,
   appNavPoolAccessEnabled: false,
   appNavPaqueteriaEnabled: false,
+  paqueteriaSpecialDeliveryEnabled: false,
   appNavCuadernoDiarioEnabled: false,
   serviceCategoryModes: defaultServiceCategoryModesRecord(),
   padelCourtCount: '0',
@@ -816,6 +817,7 @@ export default function Admin() {
       appNavBookingsEnabled: c.appNavBookingsEnabled !== false,
       appNavPoolAccessEnabled: c.appNavPoolAccessEnabled === true,
       appNavPaqueteriaEnabled: c.appNavPaqueteriaEnabled === true,
+      paqueteriaSpecialDeliveryEnabled: c.paqueteriaSpecialDeliveryEnabled === true,
       appNavCuadernoDiarioEnabled: c.appNavCuadernoDiarioEnabled === true,
       serviceCategoryModes: (() => {
         const base = defaultServiceCategoryModesRecord()
@@ -1079,6 +1081,8 @@ export default function Admin() {
         appNavBookingsEnabled: form.appNavBookingsEnabled,
         appNavPoolAccessEnabled: form.appNavPoolAccessEnabled,
         appNavPaqueteriaEnabled: form.appNavPaqueteriaEnabled,
+        paqueteriaSpecialDeliveryEnabled:
+          form.appNavPaqueteriaEnabled && form.paqueteriaSpecialDeliveryEnabled,
         appNavCuadernoDiarioEnabled: form.appNavCuadernoDiarioEnabled,
         serviceRequestCategoryModes: form.serviceCategoryModes,
         padelCourtCount,
@@ -2196,13 +2200,31 @@ export default function Admin() {
                               type="checkbox"
                               checked={community.appNavPaqueteriaEnabled === true}
                               disabled={navTabSavingId === community.id}
+                              onChange={(e) => {
+                                const checked = e.target.checked
+                                patchCommunityNavTabs(community, {
+                                  appNavPaqueteriaEnabled: checked,
+                                  ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false }),
+                                })
+                              }}
+                            />
+                            <span>Paquetería</span>
+                          </label>
+                          <label className="admin-nav-tab-check admin-nav-tab-check--sub">
+                            <input
+                              type="checkbox"
+                              checked={community.paqueteriaSpecialDeliveryEnabled === true}
+                              disabled={
+                                navTabSavingId === community.id ||
+                                community.appNavPaqueteriaEnabled !== true
+                              }
                               onChange={(e) =>
                                 patchCommunityNavTabs(community, {
-                                  appNavPaqueteriaEnabled: e.target.checked,
+                                  paqueteriaSpecialDeliveryEnabled: e.target.checked,
                                 })
                               }
                             />
-                            <span>Paquetería</span>
+                            <span>Entrega especial</span>
                           </label>
                           <label className="admin-nav-tab-check">
                             <input
@@ -3347,11 +3369,29 @@ export default function Admin() {
                       <input
                         type="checkbox"
                         checked={form.appNavPaqueteriaEnabled}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, appNavPaqueteriaEnabled: e.target.checked }))
-                        }
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setForm((f) => ({
+                            ...f,
+                            appNavPaqueteriaEnabled: checked,
+                            ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false }),
+                          }))
+                        }}
                       />
                       <span>Pestaña Paquetería</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox admin-modal-field--indent">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.paqueteriaSpecialDeliveryEnabled}
+                        disabled={!form.appNavPaqueteriaEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, paqueteriaSpecialDeliveryEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Entrega especial (llaves, sobres…)</span>
                     </label>
                   </div>
                   <div className="admin-modal-field admin-modal-field--checkbox">

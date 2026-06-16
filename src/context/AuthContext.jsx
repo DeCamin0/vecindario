@@ -323,6 +323,7 @@ export function AuthProvider({ children }) {
   const [accessToken, setAccessTokenState] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const [appNavFlags, setAppNavFlags] = useState(DEFAULT_APP_NAV_FLAGS)
+  const [paqueteriaSpecialDeliveryEnabled, setPaqueteriaSpecialDeliveryEnabled] = useState(false)
   const [appNavFlagsReady, setAppNavFlagsReady] = useState(false)
   /** Record categoryId → 'active'|'soon' desde community-config; null hasta cargar o sin comunidad. */
   const [serviceRequestCategoryModes, setServiceRequestCategoryModes] = useState(null)
@@ -338,6 +339,7 @@ export function AuthProvider({ children }) {
     const id = communityId
     if (id == null || !Number.isFinite(Number(id)) || Number(id) < 1) {
       setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+      setPaqueteriaSpecialDeliveryEnabled(false)
       setServiceRequestCategoryModes(null)
       setCuadernoDiarioAccess('none')
       setCuadernoDiarioAccessReady(true)
@@ -354,6 +356,7 @@ export function AuthProvider({ children }) {
         if (cancelled) return
         if (!data || typeof data !== 'object') {
           setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+          setPaqueteriaSpecialDeliveryEnabled(false)
           setServiceRequestCategoryModes(null)
           setAppNavFlagsReady(true)
           return
@@ -366,6 +369,7 @@ export function AuthProvider({ children }) {
           paqueteria: data.appNavPaqueteriaEnabled === true,
           cuadernoDiario: data.appNavCuadernoDiarioEnabled === true,
         })
+        setPaqueteriaSpecialDeliveryEnabled(data.paqueteriaSpecialDeliveryEnabled === true)
         const scm = data.serviceRequestCategoryModes
         setServiceRequestCategoryModes(
           scm && typeof scm === 'object' && !Array.isArray(scm) ? scm : null,
@@ -375,6 +379,7 @@ export function AuthProvider({ children }) {
       .catch(() => {
         if (!cancelled) {
           setAppNavFlags(DEFAULT_APP_NAV_FLAGS)
+          setPaqueteriaSpecialDeliveryEnabled(false)
           setServiceRequestCategoryModes(null)
           setAppNavFlagsReady(true)
         }
@@ -977,6 +982,7 @@ export function AuthProvider({ children }) {
     authReady,
     appNavFlags,
     appNavFlagsReady,
+    paqueteriaSpecialDeliveryEnabled,
     cuadernoDiarioAccess,
     cuadernoDiarioAccessReady,
     serviceRequestCategoryModes,

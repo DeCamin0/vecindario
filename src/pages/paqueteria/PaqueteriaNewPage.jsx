@@ -16,7 +16,8 @@ const MAX_FILES = 5
 export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
   const isSpecial = deliveryKind === PARCEL_KIND_SPECIAL
   const navigate = useNavigate()
-  const { accessToken, communityId, communityAccessCode, userRole } = useAuth()
+  const { accessToken, communityId, communityAccessCode, userRole, paqueteriaSpecialDeliveryEnabled, appNavFlagsReady } =
+    useAuth()
   const canRegister = canRegisterPaquete(userRole)
 
   const [portal, setPortal] = useState('')
@@ -91,6 +92,9 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
   }
 
   if (!canRegister) {
+    return <Navigate to="/paqueteria" replace />
+  }
+  if (isSpecial && appNavFlagsReady && !paqueteriaSpecialDeliveryEnabled) {
     return <Navigate to="/paqueteria" replace />
   }
 

@@ -28,6 +28,7 @@ import CompanyAdminDashboard from './pages/CompanyAdminDashboard'
 import RequireRole from './components/RequireRole'
 import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
+import RequirePaqueteriaSpecialDelivery from './components/RequirePaqueteriaSpecialDelivery'
 import CompletePiso from './pages/CompletePiso'
 import OpenAppLanding from './pages/OpenAppLanding'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
@@ -210,7 +211,9 @@ function App() {
               path="paqueteria/entrega-especial/nuevo"
               element={
                 <RequireCommunityNavTab tab="paqueteria">
-                  <PaqueteriaNewPage deliveryKind="special" />
+                  <RequirePaqueteriaSpecialDelivery>
+                    <PaqueteriaNewPage deliveryKind="special" />
+                  </RequirePaqueteriaSpecialDelivery>
                 </RequireCommunityNavTab>
               }
             />

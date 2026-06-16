@@ -12,6 +12,11 @@ import { apiUrl } from '../config/api.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
 import { formatPadelHoursDisplay, parsePadelHoursFormValue, PADEL_HOURS_MIN } from '../utils/padelHours.js'
 import { padelBookingOverlapsSlot } from '../utils/padelSlotOccupancy.js'
+import {
+  padelMaxSlotsSelectable,
+  padelToggleSlotSelection,
+  padelSlotsSortedByTime,
+} from '../utils/padelMultiSlotSelection.js'
 import './Bookings.css'
 
 const DEFAULT_FACILITIES = [
@@ -494,6 +499,7 @@ function buildSalonStaffJumpDateKeys(maxDaysInAdvance, now = new Date()) {
 const initialBooking = {
   date: null,
   timeSlot: null,
+  padelSlotIds: [],
 }
 
 function emailsMatchForAccount(bookingEmail, accountEmail) {
@@ -972,6 +978,39 @@ export default function Bookings() {
     isStaffBookingMode,
   ])
 
+  const padelDailyCapInfo = useMemo(() => {
+    if (!isPadelFacilityId(selectedFacility) || !communityBookingConfig) return null
+    const hBook = parsePadelHoursFormValue(communityBookingConfig.padelMaxHoursPerBooking, 2)
+    const hDaily = parsePadelHoursFormValue(communityBookingConfig.padelMaxHoursPerApartmentPerDay, 24)
+    let usedHours = 0
+    if (
+      booking.date &&
+      padelCapUser &&
+      (padelCapUser.piso?.trim() || padelCapUser.email)
+    ) {
+      usedHours =
+        allBookings.filter(
+          (b) =>
+            isPadelBookingRecord(b) &&
+            b.date === booking.date &&
+            sameApartmentForPadelCap(b, padelCapUser),
+        ).length * hBook
+    }
+    const maxSlots = padelMaxSlotsSelectable(hBook, hDaily, usedHours)
+    return { hBook, hDaily, usedHours, maxSlots, multi: maxSlots > 1 }
+  }, [selectedFacility, communityBookingConfig, booking.date, padelCapUser, allBookings])
+
+  useEffect(() => {
+    if (!isPadelFacilityId(selectedFacility) || !communityBookingConfig) return
+    if (!booking.date) return
+    const ids = booking.padelSlotIds || []
+    if (ids.length === 0) return
+    const okIds = ids.filter((id) => availableTimeSlots.some((s) => s.id === id))
+    if (okIds.length !== ids.length) {
+      setBooking((prev) => ({ ...prev, padelSlotIds: okIds, timeSlot: null }))
+    }
+  }, [selectedFacility, booking.date, booking.padelSlotIds, communityBookingConfig, availableTimeSlots])
+
   useEffect(() => {
     if (!isPadelFacilityId(selectedFacility) || !booking.timeSlot || !communityBookingConfig) return
     if (!booking.date) return
@@ -1019,6 +1058,7 @@ export default function Bookings() {
       ...prev,
       date: localDateKey(new Date()),
       timeSlot: null,
+      padelSlotIds: [],
     }))
   }, [])
 
@@ -1032,13 +1072,13 @@ export default function Bookings() {
     if (selectedFacility !== id) {
       if (isStaffBookingMode) {
         if (isPadelFacilityId(id)) {
-          setBooking({ date: localDateKey(new Date()), timeSlot: null })
+          setBooking({ date: localDateKey(new Date()), timeSlot: null, padelSlotIds: [] })
         } else if (
           communityBookingConfig &&
           salonDayModeFromConfig(communityBookingConfig) &&
           isSalonLikeFacility(id)
         ) {
-          setBooking({ date: localDateKey(new Date()), timeSlot: null })
+          setBooking({ date: localDateKey(new Date()), timeSlot: null, padelSlotIds: [] })
         } else {
           setBooking(initialBooking)
         }
@@ -1049,7 +1089,12 @@ export default function Bookings() {
   }
 
   const handleDateSelect = (key) => {
-    setBooking((prev) => ({ ...prev, date: prev.date === key ? null : key }))
+    setBooking((prev) => ({
+      ...prev,
+      date: prev.date === key ? null : key,
+      timeSlot: null,
+      padelSlotIds: [],
+    }))
     setPadelCapError('')
     if (errors.date) setErrors((prev) => ({ ...prev, date: null }))
   }
@@ -1061,21 +1106,59 @@ export default function Bookings() {
       return
     }
     setPadelCapError('')
-    setBooking((prev) => ({ ...prev, date: value, timeSlot: null }))
+    setBooking((prev) => ({ ...prev, date: value, timeSlot: null, padelSlotIds: [] }))
     if (errors.date) setErrors((prev) => ({ ...prev, date: null }))
   }
 
   const handleTimeSlotSelect = (id) => {
-    setBooking((prev) => ({ ...prev, timeSlot: prev.timeSlot === id ? null : id }))
     setPadelCapError('')
     if (errors.timeSlot) setErrors((prev) => ({ ...prev, timeSlot: null }))
+
+    if (
+      isPadelFacilityId(selectedFacility) &&
+      communityBookingConfig &&
+      padelDailyCapInfo?.multi &&
+      !padelHistoryReadOnlyDay &&
+      !staffHistoryMode &&
+      padelSlotRowsForDisplay
+    ) {
+      const freeSlots = padelSlotRowsForDisplay
+        .filter((r) => !r.taken)
+        .map((r) => r.slot)
+        .sort((a, b) => a.startMin - b.startMin)
+      setBooking((prev) => ({
+        ...prev,
+        timeSlot: null,
+        padelSlotIds: padelToggleSlotSelection(
+          prev.padelSlotIds || [],
+          id,
+          freeSlots,
+          padelDailyCapInfo.maxSlots,
+        ),
+      }))
+      return
+    }
+
+    setBooking((prev) => ({
+      ...prev,
+      timeSlot: prev.timeSlot === id ? null : id,
+      padelSlotIds: prev.timeSlot === id ? [] : [id],
+    }))
   }
 
   const validate = () => {
     const next = {}
     if (!selectedFacility) next.facility = 'Elige un espacio para reservar.'
     if (!booking.date) next.date = 'Elige una fecha.'
-    if (!salonDayBookingFlow && !booking.timeSlot) next.timeSlot = 'Elige un tramo horario.'
+    if (!salonDayBookingFlow) {
+      const padelIds = booking.padelSlotIds || []
+      const hasPadelSlots =
+        isPadelFacilityId(selectedFacility) && padelIds.length > 0
+      const hasSingleSlot = Boolean(booking.timeSlot)
+      if (!hasPadelSlots && !hasSingleSlot) {
+        next.timeSlot = 'Elige un tramo horario.'
+      }
+    }
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -1096,23 +1179,25 @@ export default function Bookings() {
       }
     }
 
+    const padelSlotIdsToBook =
+      isPadelFacilityId(selectedFacility) && (booking.padelSlotIds?.length || booking.timeSlot)
+        ? booking.padelSlotIds?.length
+          ? [...booking.padelSlotIds]
+          : [booking.timeSlot]
+        : []
+
     if (
       selectedFacility &&
       isPadelFacilityId(selectedFacility) &&
       communityBookingConfig &&
       booking.date &&
-      booking.timeSlot
+      padelSlotIdsToBook.length > 0
     ) {
       const baseSlots = buildPadelSlotsFromOpenCloseAndDuration(
         communityBookingConfig.padelOpenTime,
         communityBookingConfig.padelCloseTime,
         padelMaxBookingHoursFromConfig(communityBookingConfig),
       )
-      const slotRow = baseSlots.find((s) => s.id === booking.timeSlot)
-      if (!slotRow) {
-        setPadelCapError('Tramo no válido para este espacio.')
-        return
-      }
       const allowedKeys = padelCalendarDayKeys(
         communityBookingConfig.padelMinAdvanceHours,
         spaceConfig.maxDaysInAdvance ?? 7,
@@ -1127,19 +1212,20 @@ export default function Bookings() {
         return
       }
       const okSlots = filterPadelSlotsForBookableDate(baseSlots, booking.date)
-      if (!okSlots.some((s) => s.id === booking.timeSlot)) {
-        setPadelCapError('Ese tramo ya no está disponible (horario pasado u opción incorrecta).')
+      const metas = padelSlotsSortedByTime(okSlots, padelSlotIdsToBook)
+      if (metas.length !== padelSlotIdsToBook.length) {
+        setPadelCapError('Algún tramo ya no está disponible. Revisa la selección.')
         return
       }
-      const slotRowForCap = okSlots.find((s) => s.id === booking.timeSlot)
-      if (
-        slotRowForCap &&
-        allBookings.some((b) =>
-          isPadelSlotOccupiedByRecord(b, selectedFacility, booking.date, slotRowForCap, facilities),
-        )
-      ) {
-        setPadelCapError('Ese tramo ya está reservado para esta pista. Elige otro.')
-        return
+      for (const slotRow of metas) {
+        if (
+          allBookings.some((b) =>
+            isPadelSlotOccupiedByRecord(b, selectedFacility, booking.date, slotRow, facilities),
+          )
+        ) {
+          setPadelCapError(`El tramo ${slotRow.range} ya está reservado. Elige otros.`)
+          return
+        }
       }
     }
 
@@ -1180,9 +1266,10 @@ export default function Bookings() {
             sameApartmentForPadelCap(b, padelCapUser),
         )
         .length * hBook
-      if (usedHours + hBook > hDaily) {
+      const newHours = (padelSlotIdsToBook.length || 1) * hBook
+      if (usedHours + newHours > hDaily) {
         setPadelCapError(
-          `Tope de pádel: máximo ${formatPadelHoursDisplay(hDaily)} h por vivienda y día. Esta reserva son ${formatPadelHoursDisplay(hBook)} h; ya llevas ${formatPadelHoursDisplay(usedHours)} h ese día.`,
+          `Tope de pádel: máximo ${formatPadelHoursDisplay(hDaily)} h por vivienda y día. Esta reserva suma ${formatPadelHoursDisplay(newHours)} h; ya llevas ${formatPadelHoursDisplay(usedHours)} h ese día.`,
         )
         return
       }
@@ -1192,14 +1279,6 @@ export default function Bookings() {
     try {
       await delay(400)
       const facilityName = facilities ? facilityLabel(facilities, selectedFacility) : selectedFacility
-      const padelSlotMeta =
-        isPadelFacilityId(selectedFacility) && communityBookingConfig
-          ? buildPadelSlotsFromOpenCloseAndDuration(
-              communityBookingConfig.padelOpenTime,
-              communityBookingConfig.padelCloseTime,
-              padelMaxBookingHoursFromConfig(communityBookingConfig),
-            ).find((s) => s.id === booking.timeSlot)
-          : null
 
       const persistServer =
         accessToken &&
@@ -1207,32 +1286,6 @@ export default function Bookings() {
         rolePersistsBookingsToServer(userRole)
 
       if (persistServer) {
-        let startMinute
-        let endMinute
-        let slotKey = booking.timeSlot
-        let slotLabel
-
-        if (salonDayBookingFlow) {
-          startMinute = 0
-          endMinute = 1440
-          slotKey = SALON_FULL_DAY_SLOT
-          slotLabel = 'Día completo'
-        } else if (padelSlotMeta) {
-          startMinute = padelSlotMeta.startMin
-          endMinute = padelSlotMeta.endMin
-          slotLabel = padelSlotMeta.range
-        } else {
-          const pr = presetSlotToMinuteRange(booking.timeSlot)
-          const preset = ALL_TIME_SLOTS.find((s) => s.id === booking.timeSlot)
-          if (!pr) {
-            setPadelCapError('Tramo no válido para guardar en servidor.')
-            return
-          }
-          startMinute = pr.startMin
-          endMinute = pr.endMin
-          slotLabel = preset ? `${preset.label} (${preset.range})` : formatMinuteRange(pr.startMin, pr.endMin)
-        }
-
         const behalfParsed = Number.parseInt(String(staffOnBehalfUserId), 10)
         const selfId = user?.id != null ? Number(user.id) : NaN
         const useBehalf =
@@ -1242,35 +1295,80 @@ export default function Bookings() {
           Number.isInteger(selfId) &&
           behalfParsed !== selfId
 
-        const payload = {
-          communityId,
-          facilityId: selectedFacility,
-          facilityName,
-          bookingDate: booking.date,
-          startMinute,
-          endMinute,
-          slotKey,
-          slotLabel,
-        }
-        if (useBehalf) {
-          payload.onBehalfOfUserId = behalfParsed
-        } else {
-          if (user?.piso?.trim()) payload.actorPiso = user.piso.trim()
-          if (user?.portal?.trim()) payload.actorPortal = user.portal.trim()
+        const bookingsToCreate = []
+
+        if (salonDayBookingFlow) {
+          bookingsToCreate.push({
+            startMinute: 0,
+            endMinute: 1440,
+            slotKey: SALON_FULL_DAY_SLOT,
+            slotLabel: 'Día completo',
+          })
+        } else if (isPadelFacilityId(selectedFacility) && communityBookingConfig && padelSlotIdsToBook.length) {
+          const baseSlots = buildPadelSlotsFromOpenCloseAndDuration(
+            communityBookingConfig.padelOpenTime,
+            communityBookingConfig.padelCloseTime,
+            padelMaxBookingHoursFromConfig(communityBookingConfig),
+          )
+          const okSlots = filterPadelSlotsForBookableDate(baseSlots, booking.date)
+          for (const meta of padelSlotsSortedByTime(okSlots, padelSlotIdsToBook)) {
+            bookingsToCreate.push({
+              startMinute: meta.startMin,
+              endMinute: meta.endMin,
+              slotKey: meta.id,
+              slotLabel: meta.range,
+            })
+          }
+        } else if (booking.timeSlot) {
+          const pr = presetSlotToMinuteRange(booking.timeSlot)
+          const preset = ALL_TIME_SLOTS.find((s) => s.id === booking.timeSlot)
+          if (!pr) {
+            setPadelCapError('Tramo no válido para guardar en servidor.')
+            return
+          }
+          bookingsToCreate.push({
+            startMinute: pr.startMin,
+            endMinute: pr.endMin,
+            slotKey: booking.timeSlot,
+            slotLabel: preset ? `${preset.label} (${preset.range})` : formatMinuteRange(pr.startMin, pr.endMin),
+          })
         }
 
-        const res = await fetch(apiUrl('/api/bookings'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(payload),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          setPadelCapError(typeof data.error === 'string' ? data.error : 'No se pudo guardar la reserva.')
-          return
+        for (const slot of bookingsToCreate) {
+          const payload = {
+            communityId,
+            facilityId: selectedFacility,
+            facilityName,
+            bookingDate: booking.date,
+            startMinute: slot.startMinute,
+            endMinute: slot.endMinute,
+            slotKey: slot.slotKey,
+            slotLabel: slot.slotLabel,
+          }
+          if (useBehalf) {
+            payload.onBehalfOfUserId = behalfParsed
+          } else {
+            if (user?.piso?.trim()) payload.actorPiso = user.piso.trim()
+            if (user?.portal?.trim()) payload.actorPortal = user.portal.trim()
+          }
+
+          const res = await fetch(apiUrl('/api/bookings'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(payload),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) {
+            setPadelCapError(
+              typeof data.error === 'string'
+                ? data.error
+                : `No se pudo guardar la reserva (${slot.slotLabel}).`,
+            )
+            return
+          }
         }
         await refreshServerBookings()
       } else {
@@ -1726,6 +1824,15 @@ export default function Bookings() {
                   Elige primero una fecha para ver los tramos disponibles.
                 </p>
               )}
+              {isPadelFacilityId(selectedFacility) && padelDailyCapInfo?.multi && !padelHistoryReadOnlyDay && !staffHistoryMode ? (
+                <p className="booking-field-hint" role="status">
+                  Puedes elegir varios tramos seguidos (hasta {padelDailyCapInfo.maxSlots} en este envío, máx.{' '}
+                  {formatPadelHoursDisplay(padelDailyCapInfo.hDaily)} h/día por vivienda).
+                  {(booking.padelSlotIds?.length ?? 0) > 0
+                    ? ` Seleccionados: ${booking.padelSlotIds.length} tramo(s).`
+                    : null}
+                </p>
+              ) : null}
               <div className="booking-slots">
                 {padelSlotRowsForDisplay != null
                   ? padelSlotRowsForDisplay.map(({ slot, taken, occupantShort }) => {
@@ -1777,13 +1884,14 @@ export default function Bookings() {
                           </div>
                         )
                       }
+                      const isSelected = (booking.padelSlotIds || []).includes(slotId)
                       return (
                         <button
                           key={slotId}
                           type="button"
-                          className={`booking-slot-btn ${booking.timeSlot === slotId ? 'booking-slot-btn--selected' : ''}`}
+                          className={`booking-slot-btn ${isSelected ? 'booking-slot-btn--selected' : ''}`}
                           onClick={() => handleTimeSlotSelect(slotId)}
-                          aria-pressed={booking.timeSlot === slotId}
+                          aria-pressed={isSelected}
                         >
                           {label === range ? (
                             <span className="booking-slot-label">{label}</span>

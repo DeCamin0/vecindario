@@ -1130,6 +1130,19 @@
   cursor: wait;
 }
 
+.admin-nav-tab-check--sub {
+  margin-left: var(--space-4);
+  padding-left: var(--space-3);
+  border-left: 2px solid rgba(37, 99, 235, 0.18);
+  color: var(--text-muted);
+}
+
+.admin-modal-field--indent {
+  margin-left: var(--space-5);
+  padding-left: var(--space-3);
+  border-left: 2px solid rgba(37, 99, 235, 0.18);
+}
+
 .admin-service-category-modes {
   list-style: none;
   margin: 0;

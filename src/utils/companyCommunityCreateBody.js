@@ -101,6 +101,8 @@ export function buildCompanyCommunityCreateBody(form) {
   body.appNavBookingsEnabled = form.appNavBookingsEnabled !== false
   body.appNavPoolAccessEnabled = form.appNavPoolAccessEnabled === true
   body.appNavPaqueteriaEnabled = form.appNavPaqueteriaEnabled === true
+  body.paqueteriaSpecialDeliveryEnabled =
+    form.appNavPaqueteriaEnabled === true && form.paqueteriaSpecialDeliveryEnabled === true
   body.appNavCuadernoDiarioEnabled = form.appNavCuadernoDiarioEnabled === true
 
   const pcc = String(form.padelCourtCount ?? '').trim()

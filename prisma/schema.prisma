@@ -186,6 +186,8 @@ model Community {
   appNavPoolAccessEnabled Boolean @default(false) @map("app_nav_pool_access_enabled")
   /// App vecinos: pestaña Paquetería (conserjería: entrega/recogida de paquetes).
   appNavPaqueteriaEnabled Boolean @default(false) @map("app_nav_paqueteria_enabled")
+  /// Paquetería: entrega especial (llaves, sobres, etc.) en conserjería.
+  paqueteriaSpecialDeliveryEnabled Boolean @default(false) @map("paqueteria_special_delivery_enabled")
   /// Cuaderno diario del conserje (junta y administración: solo lectura).
   appNavCuadernoDiarioEnabled Boolean @default(false) @map("app_nav_cuaderno_diario_enabled")
   /// Sistema de acceso a piscina (códigos / validación por socorrista).

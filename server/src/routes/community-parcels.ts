@@ -160,6 +160,7 @@ async function fetchCommunity(communityId: number, accessCode: string | undefine
       id: true,
       name: true,
       appNavPaqueteriaEnabled: true,
+      paqueteriaSpecialDeliveryEnabled: true,
     },
   })
 }
@@ -405,6 +406,12 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
 
   const deliveryKind = parseDeliveryKind(req.body?.deliveryKind)
   const itemDescription = parseItemDescription(req.body?.itemDescription, deliveryKind)
+  if (deliveryKind === 'special' && gate.row.paqueteriaSpecialDeliveryEnabled !== true) {
+    res.status(403).json({
+      error: 'La entrega especial no está activada para esta comunidad.',
+    })
+    return
+  }
   if (deliveryKind === 'special' && !itemDescription) {
     res.status(400).json({
       error: 'Indica qué se entrega (descripción breve: llaves, sobre, documentación, etc.).',

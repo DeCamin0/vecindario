@@ -64,3 +64,105 @@ export function pisoPuertaChoicesForPortal(portalValue, portalsList, dwellingByP
     puertaOptions: pu.length > 0 ? pu : null,
   }
 }
+
+/** Clave estable portal + piso + puerta (filtros, selects). */
+export function dwellingUnitKey(portal, piso, puerta) {
+  return `${normDwellPart(portal)}\t${normDwellPart(piso)}\t${normDwellPart(puerta)}`
+}
+
+/** Etiqueta legible: «Portal · Piso · Puerta». */
+export function formatDwellingLabel(portal, piso, puerta) {
+  return [normDwellPart(portal), normDwellPart(piso), normDwellPart(puerta)].filter(Boolean).join(' · ')
+}
+
+function enumerateDwellingBlock(portal, block, add) {
+  if (!block || typeof block !== 'object') return
+  const po = Array.isArray(block.pisoOptions)
+    ? block.pisoOptions.filter((x) => typeof x === 'string' && String(x).trim())
+    : []
+  const byPiso = block.puertaOptionsByPiso
+  if (byPiso && typeof byPiso === 'object') {
+    for (const piso of po) {
+      const pk = normDwellPart(piso)
+      const puertas = Array.isArray(byPiso[pk])
+        ? byPiso[pk]
+        : Array.isArray(byPiso[piso])
+          ? byPiso[piso]
+          : []
+      for (const puerta of puertas) {
+        if (typeof puerta === 'string' && String(puerta).trim()) add(portal, piso, puerta)
+      }
+    }
+    return
+  }
+  const pu = Array.isArray(block.puertaOptions)
+    ? block.puertaOptions.filter((x) => typeof x === 'string' && String(x).trim())
+    : []
+  for (const piso of po) {
+    for (const puerta of pu) add(portal, piso, puerta)
+  }
+}
+
+/**
+ * Todas las viviendas definidas en la ficha de la comunidad (portales + plantas + puertas).
+ * @returns {Array<{ key: string, portal: string, piso: string, puerta: string, label: string }>}
+ */
+export function listAllCommunityDwellings(portalsList, dwellingByPortalIndex) {
+  const seen = new Set()
+  const out = []
+  const add = (portal, piso, puerta) => {
+    const key = dwellingUnitKey(portal, piso, puerta)
+    if (!normDwellPart(piso) || !normDwellPart(puerta) || seen.has(key)) return
+    seen.add(key)
+    out.push({
+      key,
+      portal: normDwellPart(portal),
+      piso: normDwellPart(piso),
+      puerta: normDwellPart(puerta),
+      label: formatDwellingLabel(portal, piso, puerta),
+    })
+  }
+  if (!Array.isArray(dwellingByPortalIndex) || dwellingByPortalIndex.length < 1) return out
+  if (portalsList?.length) {
+    for (let i = 0; i < portalsList.length; i++) {
+      enumerateDwellingBlock(portalsList[i], dwellingByPortalIndex[i], add)
+    }
+  } else if (dwellingByPortalIndex.length === 1) {
+    enumerateDwellingBlock('', dwellingByPortalIndex[0], add)
+  }
+  return out.sort((a, b) => {
+    const c = a.portal.localeCompare(b.portal, 'es', { numeric: true })
+    if (c) return c
+    const c2 = a.piso.localeCompare(b.piso, 'es', { numeric: true })
+    if (c2) return c2
+    return a.puerta.localeCompare(b.puerta, 'es', { numeric: true })
+  })
+}
+
+/** Viviendas únicas a partir de registros (p. ej. paquetes). */
+export function listDwellingsFromRecords(records, pick) {
+  const seen = new Set()
+  const out = []
+  if (!Array.isArray(records)) return out
+  for (const row of records) {
+    if (!row || typeof row !== 'object') continue
+    const { portal, piso, puerta } = pick(row)
+    const key = dwellingUnitKey(portal, piso, puerta)
+    if (!normDwellPart(piso) || !normDwellPart(puerta) || seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      key,
+      portal: normDwellPart(portal),
+      piso: normDwellPart(piso),
+      puerta: normDwellPart(puerta),
+      label: formatDwellingLabel(portal, piso, puerta),
+    })
+  }
+  return out.sort((a, b) => {
+    const c = a.portal.localeCompare(b.portal, 'es', { numeric: true })
+    if (c) return c
+    const c2 = a.piso.localeCompare(b.piso, 'es', { numeric: true })
+    if (c2) return c2
+    return a.puerta.localeCompare(b.puerta, 'es', { numeric: true })
+  })
+}

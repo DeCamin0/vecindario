@@ -276,6 +276,7 @@ export default function CompanyAdminDashboard() {
     appNavBookingsEnabled: true,
     appNavPoolAccessEnabled: false,
     appNavPaqueteriaEnabled: false,
+    paqueteriaSpecialDeliveryEnabled: false,
     appNavCuadernoDiarioEnabled: false,
     padelCourtCount: '0',
     padelMaxHoursPerBooking: '2',
@@ -867,11 +868,29 @@ export default function CompanyAdminDashboard() {
                         <input
                           type="checkbox"
                           checked={form.appNavPaqueteriaEnabled}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, appNavPaqueteriaEnabled: e.target.checked }))
-                          }
+                          onChange={(e) => {
+                            const checked = e.target.checked
+                            setForm((f) => ({
+                              ...f,
+                              appNavPaqueteriaEnabled: checked,
+                              ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false }),
+                            }))
+                          }}
                         />{' '}
                         App: pestaña Paquetería
+                      </label>
+                    </div>
+                    <div className="admin-modal-field admin-modal-field--checkbox admin-modal-field--indent">
+                      <label className="admin-label admin-label--inline">
+                        <input
+                          type="checkbox"
+                          checked={form.paqueteriaSpecialDeliveryEnabled}
+                          disabled={!form.appNavPaqueteriaEnabled}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, paqueteriaSpecialDeliveryEnabled: e.target.checked }))
+                          }
+                        />{' '}
+                        Paquetería: entrega especial
                       </label>
                     </div>
                     <div className="admin-modal-field admin-modal-field--checkbox">
