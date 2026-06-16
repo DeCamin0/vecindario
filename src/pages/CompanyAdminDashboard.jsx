@@ -930,7 +930,7 @@ export default function CompanyAdminDashboard() {
                         <input
                           id="ca-padel-mxb"
                           type="number"
-                          min={1}
+                          min={0.5}
                           max={24}
                           step={0.5}
                           className="admin-input"
@@ -950,7 +950,7 @@ export default function CompanyAdminDashboard() {
                         <input
                           id="ca-padel-mxd"
                           type="number"
-                          min={1}
+                          min={0.5}
                           max={24}
                           step={0.5}
                           className="admin-input"

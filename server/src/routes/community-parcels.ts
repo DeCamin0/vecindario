@@ -16,6 +16,21 @@ const MAX_PHOTO_CHARS = 900_000
 const MAX_SIGNATURE_CHARS = 600_000
 const MAX_PACKAGE_COUNT = 20
 const MIN_PACKAGE_COUNT = 1
+const MAX_ITEM_DESCRIPTION = 255
+
+type ParcelDeliveryKind = 'courier' | 'special'
+
+function parseDeliveryKind(raw: unknown): ParcelDeliveryKind {
+  const k = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return k === 'special' ? 'special' : 'courier'
+}
+
+function parseItemDescription(raw: unknown, kind: ParcelDeliveryKind): string | null {
+  if (kind !== 'special') return null
+  const t = typeof raw === 'string' ? raw.trim().replace(/\s+/g, ' ') : ''
+  if (t.length < 2) return null
+  return t.slice(0, MAX_ITEM_DESCRIPTION)
+}
 
 function parsePackageCount(raw: unknown): number {
   const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
@@ -161,6 +176,8 @@ function serializeParcel(p: {
   photosJson: unknown
   status: string
   packageCount?: number
+  deliveryKind?: string
+  itemDescription?: string | null
   signatureImage: string | null
   pickedUpAt: Date | null
   pickedUpByUserId?: number | null
@@ -183,6 +200,8 @@ function serializeParcel(p: {
     createdByUserId: p.createdByUserId,
     createdByName: p.createdByName?.trim() || null,
     packageCount: pkg,
+    deliveryKind: p.deliveryKind === 'special' ? 'special' : 'courier',
+    itemDescription: p.itemDescription?.trim() || null,
     photos: Array.isArray(p.photosJson) ? p.photosJson : [],
     status: p.status,
     hasSignature: Boolean(p.signatureImage && String(p.signatureImage).length > 0),
@@ -384,6 +403,15 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
     return
   }
 
+  const deliveryKind = parseDeliveryKind(req.body?.deliveryKind)
+  const itemDescription = parseItemDescription(req.body?.itemDescription, deliveryKind)
+  if (deliveryKind === 'special' && !itemDescription) {
+    res.status(400).json({
+      error: 'Indica qué se entrega (descripción breve: llaves, sobre, documentación, etc.).',
+    })
+    return
+  }
+
   const recipientFind = await findParcelRecipient(communityId, portal, piso, puerta)
   if (recipientFind.ok === false) {
     if (recipientFind.reason === 'ambiguous_legacy_piso') {
@@ -401,7 +429,7 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
   }
   const recipient = { id: recipientFind.id }
 
-  const packageCount = parsePackageCount(req.body?.packageCount)
+  const packageCount = deliveryKind === 'special' ? 1 : parsePackageCount(req.body?.packageCount)
 
   const actor = await prisma.vecindarioUser.findUnique({
     where: { id: uid },
@@ -421,12 +449,16 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
       photosJson: photos,
       status: 'awaiting_pickup',
       packageCount,
+      deliveryKind,
+      itemDescription,
     },
   })
 
-  const title = packageCount > 1 ? 'Paquetes en conserjería' : 'Paquete en conserjería'
-  const body =
-    packageCount > 1
+  const isSpecial = deliveryKind === 'special'
+  const title = isSpecial ? 'Entrega en conserjería' : packageCount > 1 ? 'Paquetes en conserjería' : 'Paquete en conserjería'
+  const body = isSpecial
+    ? `Tienes una entrega pendiente (${itemDescription}) · portal ${portal}, piso ${piso}, puerta ${puerta}.`
+    : packageCount > 1
       ? `Tienes ${packageCount} paquetes registrados · portal ${portal}, piso ${piso}, puerta ${puerta}.`
       : `Tienes un paquete registrado · portal ${portal}, piso ${piso}, puerta ${puerta}.`
   await prisma.vecindarioNotification.create({
@@ -451,6 +483,8 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
     puerta,
     packageCount,
     parcelId: created.id,
+    deliveryKind,
+    itemDescription,
   }).catch((e) => console.error('[parcels email]', e))
 
   res.status(201).json({ parcel: serializeParcel(created) })

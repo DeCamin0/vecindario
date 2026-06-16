@@ -7,12 +7,14 @@ import { pisoPuertaChoicesForPortal, normDwellPart } from '../../utils/dwellingP
 import { resizeImageFileForUpload } from '../../utils/resizeImageFileForUpload.js'
 import PaqueteriaBackLink from './PaqueteriaBackLink.jsx'
 import { canRegisterPaquete } from './paqueteriaRoles.js'
+import { PARCEL_KIND_SPECIAL } from './parcelDeliveryKind.js'
 import './paqueteria.css'
 import '../Admin.css'
 
 const MAX_FILES = 5
 
-export default function PaqueteriaNewPage() {
+export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
+  const isSpecial = deliveryKind === PARCEL_KIND_SPECIAL
   const navigate = useNavigate()
   const { accessToken, communityId, communityAccessCode, userRole } = useAuth()
   const canRegister = canRegisterPaquete(userRole)
@@ -23,6 +25,7 @@ export default function PaqueteriaNewPage() {
   const [photos, setPhotos] = useState([])
   const [photoError, setPhotoError] = useState('')
   const [packageCount, setPackageCount] = useState(1)
+  const [itemDescription, setItemDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const galleryInputRef = useRef(null)
@@ -111,9 +114,17 @@ export default function PaqueteriaNewPage() {
       setError('Indica portal, piso y puerta.')
       return
     }
-    const nBultos =
-      Number.isFinite(packageCount) && packageCount >= 1 && packageCount <= 20 ? Math.trunc(packageCount) : 1
-    if (nBultos < 1 || nBultos > 20) {
+    const desc = itemDescription.trim().replace(/\s+/g, ' ')
+    if (isSpecial && desc.length < 2) {
+      setError('Indica qué se entrega (llaves, sobre, documentación, etc.).')
+      return
+    }
+    const nBultos = isSpecial
+      ? 1
+      : Number.isFinite(packageCount) && packageCount >= 1 && packageCount <= 20
+        ? Math.trunc(packageCount)
+        : 1
+    if (!isSpecial && (nBultos < 1 || nBultos > 20)) {
       setError('El número de bultos debe estar entre 1 y 20.')
       return
     }
@@ -125,7 +136,11 @@ export default function PaqueteriaNewPage() {
         piso: piso.trim(),
         puerta: puerta.trim(),
         packageCount: nBultos,
+        deliveryKind: isSpecial ? PARCEL_KIND_SPECIAL : 'courier',
         photos,
+      }
+      if (isSpecial) {
+        body.itemDescription = desc.slice(0, 255)
       }
       if (communityAccessCode?.trim()) {
         body.accessCode = communityAccessCode.trim().toUpperCase()
@@ -156,8 +171,12 @@ export default function PaqueteriaNewPage() {
     <div className="page-container">
       <header className="page-header pq-page-header">
         <PaqueteriaBackLink />
-        <h1 className="page-title">Registrar paquete</h1>
-        <p className="page-subtitle">Registra un paquete para una vivienda; el vecino recibirá aviso.</p>
+        <h1 className="page-title">{isSpecial ? 'Entrega especial' : 'Registrar paquete'}</h1>
+        <p className="page-subtitle">
+          {isSpecial
+            ? 'Registra llaves, sobres, documentación u otros objetos que no son paquetes de mensajería. El vecino recibirá aviso igual que con un paquete.'
+            : 'Registra un paquete para una vivienda; el vecino recibirá aviso.'}
+        </p>
       </header>
       <form className="card" style={{ padding: '1rem', maxWidth: 32 * 16 }} onSubmit={submit}>
         {error ? (
@@ -274,6 +293,23 @@ export default function PaqueteriaNewPage() {
           )}
         </fieldset>
 
+        {isSpecial ? (
+          <fieldset className="pq-fieldset">
+            <legend className="admin-label">Qué se entrega</legend>
+            <p className="admin-field-hint admin-field-hint--block" style={{ marginBottom: '0.5rem' }}>
+              Ej.: llaves del buzón, sobre, documentación, tarjeta, paquete pequeño dejado a mano.
+            </p>
+            <input
+              id="pq-item-desc"
+              className="admin-input"
+              value={itemDescription}
+              onChange={(e) => setItemDescription(e.target.value.slice(0, 255))}
+              required
+              autoComplete="off"
+              placeholder="Ej. Llaves buzón, sobre certificado…"
+            />
+          </fieldset>
+        ) : (
         <fieldset className="pq-fieldset">
           <legend className="admin-label">Número de bultos</legend>
           <p className="admin-field-hint admin-field-hint--block" style={{ marginBottom: '0.5rem' }}>
@@ -316,6 +352,7 @@ export default function PaqueteriaNewPage() {
             }}
           />
         </fieldset>
+        )}
 
         <label className="admin-label" htmlFor="pq-photos" style={{ marginTop: '0.75rem' }}>
           Fotos (opcional, máx. {MAX_FILES})

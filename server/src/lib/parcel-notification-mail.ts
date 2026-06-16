@@ -18,6 +18,8 @@ export async function sendParcelCreatedNotificationEmail(params: {
   puerta: string
   packageCount: number
   parcelId: number
+  deliveryKind?: 'courier' | 'special'
+  itemDescription?: string | null
 }): Promise<void> {
   if (!isMailConfigured()) return
 
@@ -29,9 +31,14 @@ export async function sendParcelCreatedNotificationEmail(params: {
   const to = user.email?.trim()
   if (!to || user.notifyEmail === false) return
 
-  const { communityName, portal, piso, puerta, packageCount, parcelId } = params
-  const countLabel =
-    packageCount > 1 ? `${packageCount} paquetes` : 'un paquete'
+  const { communityName, portal, piso, puerta, packageCount, parcelId, deliveryKind, itemDescription } =
+    params
+  const isSpecial = deliveryKind === 'special'
+  const countLabel = isSpecial
+    ? itemDescription?.trim() || 'Entrega especial'
+    : packageCount > 1
+      ? `${packageCount} paquetes`
+      : 'un paquete'
   const detailUrl = `${appBaseUrl()}/paqueteria/${parcelId}`
   const greeting = user.name?.trim() ? `Hola, ${user.name.trim()},` : 'Hola,'
 
@@ -39,23 +46,28 @@ export async function sendParcelCreatedNotificationEmail(params: {
     <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;font-size:14px;color:#334155;margin:16px 0;border-collapse:collapse;">
       <tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;width:120px;vertical-align:top;">Comunidad</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtml(communityName)}</td></tr>
       <tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;vertical-align:top;">Vivienda</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">${escapeHtml(portal)} · piso ${escapeHtml(piso)} · puerta ${escapeHtml(puerta)}</td></tr>
-      <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">Cantidad</td><td style="padding:8px 0;font-weight:600;">${escapeHtml(countLabel)}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">${isSpecial ? 'Entrega' : 'Cantidad'}</td><td style="padding:8px 0;font-weight:600;">${escapeHtml(countLabel)}</td></tr>
     </table>`
 
   const textDetails = `Comunidad: ${communityName}
 Vivienda: ${portal}, piso ${piso}, puerta ${puerta}
-Cantidad: ${countLabel}
+${isSpecial ? 'Entrega' : 'Cantidad'}: ${countLabel}
 Ver en la app: ${detailUrl}`
 
-  const subject =
-    packageCount > 1
+  const subject = isSpecial
+    ? `Vecindario — Entrega en conserjería «${communityName}»`
+    : packageCount > 1
       ? `Vecindario — ${packageCount} paquetes en conserjería «${communityName}»`
       : `Vecindario — Paquete en conserjería «${communityName}»`
+
+  const intro = isSpecial
+    ? 'La conserjería ha registrado <strong>una entrega especial</strong> a tu nombre. Puedes pasar a recogerla cuando te convenga.'
+    : `La conserjería ha registrado <strong>${escapeHtml(countLabel)}</strong> a tu nombre. Puedes pasar a recogerlo cuando te convenga.`
 
   const inner = `
     <p style="margin:0 0 16px;font-size:16px;color:#0f172a;line-height:1.5;">${escapeHtml(greeting)}</p>
     <p style="margin:0 0 12px;font-size:15px;color:#334155;line-height:1.55;">
-      La conserjería ha registrado <strong>${escapeHtml(countLabel)}</strong> a tu nombre. Puedes pasar a recogerlo cuando te convenga.
+      ${intro}
     </p>
     ${detailRowsHtml}
     <p style="margin:20px 0 0;font-size:14px;color:#334155;">

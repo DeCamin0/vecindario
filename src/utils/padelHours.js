@@ -1,7 +1,7 @@
-/** Pádel: límites en horas con paso 0,5 (1 · 1,5 · 2 · 2,5 …). */
+/** Pádel: límites en horas con paso 0,5 (0,5 · 1 · 1,5 · 2 …). */
 
 export const PADEL_HOURS_STEP = 0.5
-export const PADEL_HOURS_MIN = 1
+export const PADEL_HOURS_MIN = 0.5
 export const PADEL_HOURS_MAX = 24
 
 export function padelHoursToNumber(raw) {

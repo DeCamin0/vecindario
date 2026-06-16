@@ -3111,7 +3111,7 @@ export default function Admin() {
                     <input
                       id="comm-padel-h-booking"
                       type="number"
-                      min={1}
+                      min={0.5}
                       max={24}
                       step={0.5}
                       className="admin-input"
@@ -3124,7 +3124,7 @@ export default function Admin() {
                       }
                     />
                     <p className="admin-field-hint">
-                      Una reserva cuenta como esta duración en la cuota diaria. Pasos de 0,5 h (1 · 1,5 · 2 …).
+                      Una reserva cuenta como esta duración en la cuota diaria. Pasos de 0,5 h (0,5 · 1 · 1,5 · 2 …).
                     </p>
                   </div>
                   <div className="admin-modal-field">
@@ -3134,7 +3134,7 @@ export default function Admin() {
                     <input
                       id="comm-padel-h-day"
                       type="number"
-                      min={1}
+                      min={0.5}
                       max={24}
                       step={0.5}
                       className="admin-input"

@@ -207,6 +207,14 @@ function App() {
               }
             />
             <Route
+              path="paqueteria/entrega-especial/nuevo"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <PaqueteriaNewPage deliveryKind="special" />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
               path="paqueteria/nuevo"
               element={
                 <RequireCommunityNavTab tab="paqueteria">

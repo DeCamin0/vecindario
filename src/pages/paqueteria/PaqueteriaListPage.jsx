@@ -9,6 +9,7 @@ import {
   PAQUETERIA_STAFF_LIST_ROLES,
   canRegisterPaquete,
 } from './paqueteriaRoles.js'
+import { isSpecialParcel } from './parcelDeliveryKind.js'
 
 export default function PaqueteriaListPage() {
   const { accessToken, communityId, communityAccessCode, userRole } = useAuth()
@@ -73,6 +74,9 @@ export default function PaqueteriaListPage() {
           <Link to="/paqueteria/nuevo" className="btn btn--primary">
             Registrar paquete
           </Link>
+          <Link to="/paqueteria/entrega-especial/nuevo" className="btn btn--secondary">
+            Entrega especial
+          </Link>
         </p>
       ) : null}
       <div className="pq-list-shell">
@@ -98,6 +102,7 @@ export default function PaqueteriaListPage() {
           <ul className="pq-parcel-list">
             {parcels.map((p) => {
               const pending = p.status !== 'picked_up'
+              const special = isSpecialParcel(p)
               const staffMeta = isStaff ? parcelStaffMetaLine(p) : null
               const pkg =
                 typeof p.packageCount === 'number' && Number.isFinite(p.packageCount)
@@ -109,6 +114,9 @@ export default function PaqueteriaListPage() {
                     <div className="pq-parcel-card__body">
                       <div className="pq-parcel-card__row pq-parcel-card__row--top">
                         <span className="pq-parcel-id">#{p.id}</span>
+                        {special ? (
+                          <span className="pq-parcel-kind pq-parcel-kind--special">Entrega especial</span>
+                        ) : null}
                         <div className="pq-parcel-dwelling" aria-label={`Vivienda ${p.portal}, ${p.piso}, ${p.puerta}`}>
                           <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.portal}</span>
                           <span className="pq-parcel-sep" aria-hidden>
@@ -120,9 +128,15 @@ export default function PaqueteriaListPage() {
                           </span>
                           <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.puerta}</span>
                         </div>
+                        {special && p.itemDescription ? (
+                          <span className="pq-parcel-desc" title={p.itemDescription}>
+                            {p.itemDescription}
+                          </span>
+                        ) : !special ? (
                         <span className={`pq-parcel-bultos${pkg > 1 ? ' pq-parcel-bultos--many' : ''}`}>
                           {bultosLabel(pkg)}
                         </span>
+                        ) : null}
                       </div>
                       <div className="pq-parcel-card__row pq-parcel-card__row--meta">
                         <span className={pending ? 'pq-parcel-status pq-parcel-status--pending' : 'pq-parcel-status pq-parcel-status--done'}>

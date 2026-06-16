@@ -7,6 +7,7 @@ import {
   PAQUETERIA_STAFF_LIST_ROLES,
   canConfirmPaquetePickup,
 } from './paqueteriaRoles.js'
+import { isSpecialParcel } from './parcelDeliveryKind.js'
 import './paqueteria.css'
 import '../Admin.css'
 
@@ -131,7 +132,9 @@ export default function PaqueteriaDetailPage() {
     <div className="page-container">
       <header className="page-header pq-page-header">
         <PaqueteriaBackLink />
-        <h1 className="page-title">Paquete #{id}</h1>
+        <h1 className="page-title">
+          {parcel && isSpecialParcel(parcel) ? `Entrega especial #${id}` : `Paquete #${id}`}
+        </h1>
         <p className="page-subtitle">
           {isNeighbor
             ? 'Consulta el estado de tu paquete. La firma de recogida la registra conserjería cuando pases a recogerlo.'
@@ -149,12 +152,18 @@ export default function PaqueteriaDetailPage() {
           <p>
             <strong>Vivienda:</strong> {parcel.portal} / {parcel.piso} / {parcel.puerta}
           </p>
+          {isSpecialParcel(parcel) ? (
+            <p>
+              <strong>Entrega:</strong> {parcel.itemDescription?.trim() || 'Entrega especial'}
+            </p>
+          ) : (
           <p>
             <strong>Bultos:</strong>{' '}
             {typeof parcel.packageCount === 'number' && parcel.packageCount > 0
               ? parcel.packageCount
               : 1}
           </p>
+          )}
           <p>
             <strong>Estado:</strong> {parcel.status === 'picked_up' ? 'Recogido' : 'Pendiente de recogida'}
           </p>

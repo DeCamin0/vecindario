@@ -258,6 +258,10 @@ model CommunityConciergeParcel {
   status            String         @default("awaiting_pickup") @map("status") @db.VarChar(32)
   /// Número de bultos entregados en este registro (1–20 en API).
   packageCount      Int            @default(1) @map("package_count")
+  /// courier (paquete de mensajería) | special (llaves, sobres, etc.)
+  deliveryKind      String         @default("courier") @map("delivery_kind") @db.VarChar(16)
+  /// Descripción breve cuando deliveryKind = special (ej. «Llaves buzón», «Sobre»).
+  itemDescription   String?        @map("item_description") @db.VarChar(255)
   /// Imagen de firma (data URL PNG) al marcar recogido.
   signatureImage    String?        @map("signature_image") @db.LongText
   pickedUpAt        DateTime?      @map("picked_up_at")

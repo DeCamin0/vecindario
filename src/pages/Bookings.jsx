@@ -10,7 +10,7 @@ import {
 import { isGymAccessControlEnabled } from '../config/clientFeatures'
 import { apiUrl } from '../config/api.js'
 import { formatBookingMeta, mapActivityApiItem } from '../utils/bookingDisplay'
-import { formatPadelHoursDisplay, parsePadelHoursFormValue } from '../utils/padelHours.js'
+import { formatPadelHoursDisplay, parsePadelHoursFormValue, PADEL_HOURS_MIN } from '../utils/padelHours.js'
 import { padelBookingOverlapsSlot } from '../utils/padelSlotOccupancy.js'
 import './Bookings.css'
 
@@ -129,7 +129,8 @@ function buildPadelSlotsFromOpenCloseAndDuration(openTime, closeTime, maxHoursPe
   }
 
   const h = Number(maxHoursPerBooking)
-  const durationMin = Math.min(24, Math.max(1, Number.isFinite(h) ? h : 2)) * 60
+  const durationMin =
+    Math.min(24, Math.max(PADEL_HOURS_MIN, Number.isFinite(h) ? h : 2)) * 60
 
   const slots = []
   let cur = openM
