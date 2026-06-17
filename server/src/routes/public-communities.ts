@@ -11,15 +11,28 @@ import { padelHoursForJson } from '../lib/padel-hours.js'
 /** Rutas públicas (sin JWT): validar código de acceso para vecinos. */
 export const publicCommunitiesRouter = Router()
 
-function parseCustomLocationsPublic(raw: unknown): { id: string; name: string }[] {
+function parseCustomLocationsPublic(raw: unknown): {
+  id: string
+  name: string
+  maxDaysInAdvance?: number | null
+}[] {
   if (!Array.isArray(raw)) return []
-  const out: { id: string; name: string }[] = []
+  const out: { id: string; name: string; maxDaysInAdvance?: number | null }[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
     const o = item as Record<string, unknown>
     const id = typeof o.id === 'string' ? o.id.trim() : ''
     const name = typeof o.name === 'string' ? o.name.trim() : ''
-    if (id && name) out.push({ id, name })
+    if (!id || !name) continue
+    const row: { id: string; name: string; maxDaysInAdvance?: number | null } = { id, name }
+    if ('maxDaysInAdvance' in o) {
+      if (o.maxDaysInAdvance === null) row.maxDaysInAdvance = null
+      else {
+        const n = Number(o.maxDaysInAdvance)
+        if (Number.isFinite(n) && n >= 1) row.maxDaysInAdvance = Math.min(365, Math.trunc(n))
+      }
+    }
+    out.push(row)
   }
   return out
 }

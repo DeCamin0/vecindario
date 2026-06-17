@@ -115,10 +115,21 @@ function normalizeCustomSpacesFromApi(customLocations) {
       uniqueId = `${id}_${n}`
     }
     seen.add(uniqueId)
+    const rawMax = item?.maxDaysInAdvance
+    let advanceLimitEnabled = true
+    let maxDaysInAdvance = '14'
+    if (rawMax === null) {
+      advanceLimitEnabled = false
+    } else if (rawMax !== undefined && Number.isFinite(Number(rawMax))) {
+      advanceLimitEnabled = true
+      maxDaysInAdvance = String(Math.min(365, Math.max(1, Math.trunc(Number(rawMax)))))
+    }
     return {
       key: `row-${uniqueId}-${idx}`,
       id: uniqueId,
       name,
+      advanceLimitEnabled,
+      maxDaysInAdvance,
     }
   })
 }
@@ -943,7 +954,7 @@ export default function Admin() {
       ...f,
       customSpaces: [
         ...f.customSpaces,
-        { key: `k-${Date.now()}`, id: newUniqueSpaceId(), name: '' },
+        { key: `k-${Date.now()}`, id: newUniqueSpaceId(), name: '', advanceLimitEnabled: true, maxDaysInAdvance: '14' },
       ],
     }))
   }
@@ -959,6 +970,25 @@ export default function Admin() {
     setForm((f) => ({
       ...f,
       customSpaces: f.customSpaces.map((s) => (s.key === key ? { ...s, name } : s)),
+    }))
+  }
+
+  const updateCustomSpaceAdvanceLimit = (key, enabled) => {
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) =>
+        s.key === key ? { ...s, advanceLimitEnabled: enabled } : s,
+      ),
+    }))
+  }
+
+  const updateCustomSpaceMaxDays = (key, value) => {
+    const digits = String(value ?? '').replace(/\D/g, '').slice(0, 3)
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) =>
+        s.key === key ? { ...s, maxDaysInAdvance: digits } : s,
+      ),
     }))
   }
 
@@ -1035,7 +1065,14 @@ export default function Admin() {
           const name = s.name.trim()
           let id = s.id.trim()
           if (!id) id = slugFromNameClient(name) || newUniqueSpaceId()
-          return { id, name }
+          const row = { id, name }
+          if (s.advanceLimitEnabled) {
+            const n = Number.parseInt(String(s.maxDaysInAdvance ?? '').trim(), 10)
+            row.maxDaysInAdvance = Math.min(365, Math.max(1, Number.isFinite(n) ? n : 14))
+          } else {
+            row.maxDaysInAdvance = null
+          }
+          return row
         })
 
       const url = editingId
@@ -3508,6 +3545,30 @@ export default function Admin() {
                           placeholder="Nombre visible (ej. Salón Cumpleaños)"
                           aria-label="Nombre visible del espacio"
                         />
+                        <label className="admin-space-advance-toggle">
+                          <input
+                            type="checkbox"
+                            checked={row.advanceLimitEnabled !== false}
+                            onChange={(e) => updateCustomSpaceAdvanceLimit(row.key, e.target.checked)}
+                          />
+                          <span>Límite antelación</span>
+                        </label>
+                        {row.advanceLimitEnabled !== false ? (
+                          <div className="admin-space-advance-days">
+                            <input
+                              type="number"
+                              className="admin-input admin-space-advance-input"
+                              min={1}
+                              max={365}
+                              value={row.maxDaysInAdvance ?? '14'}
+                              onChange={(e) => updateCustomSpaceMaxDays(row.key, e.target.value)}
+                              aria-label="Días de antelación máxima"
+                            />
+                            <span className="admin-space-advance-suffix">días</span>
+                          </div>
+                        ) : (
+                          <span className="admin-space-advance-open">Sin límite</span>
+                        )}
                         <button
                           type="button"
                           className="btn btn--ghost admin-space-remove"

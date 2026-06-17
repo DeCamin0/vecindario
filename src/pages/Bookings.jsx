@@ -17,6 +17,13 @@ import {
   padelToggleSlotSelection,
   padelSlotsSortedByTime,
 } from '../utils/padelMultiSlotSelection.js'
+import {
+  SALON_UNLIMITED_MAX_DAYS,
+  resolveMaxDaysForSalonFacility,
+  isDateInBookableWindow,
+  firstSelectableDayInMonth,
+} from '../utils/salonBookingDates.js'
+import SalonBookingCalendar from '../components/SalonBookingCalendar.jsx'
 import './Bookings.css'
 
 const DEFAULT_FACILITIES = [
@@ -282,7 +289,7 @@ const SLOT_PRESETS = {
   },
 }
 
-function getSlotConfigForFacility(facilityId) {
+function getSlotConfigForFacility(facilityId, customLocations) {
   if (
     facilityId === 'padel' ||
     (typeof facilityId === 'string' && /^padel:\d+$/.test(facilityId))
@@ -292,7 +299,10 @@ function getSlotConfigForFacility(facilityId) {
   if (facilityId === 'gym') return SLOT_PRESETS.gym
   if (facilityId === 'meeting') return SLOT_PRESETS.meeting
   if (facilityId === 'social') return SLOT_PRESETS.social
-  if (typeof facilityId === 'string' && facilityId.startsWith('custom:')) return SLOT_PRESETS.customSpace
+  if (typeof facilityId === 'string' && facilityId.startsWith('custom:')) {
+    const maxDays = resolveMaxDaysForSalonFacility(facilityId, customLocations)
+    return { ...SLOT_PRESETS.customSpace, maxDaysInAdvance: maxDays }
+  }
   return SLOT_PRESETS.customSpace
 }
 
@@ -382,6 +392,30 @@ function findSalonFullDayBookingForDate(allBookings, facilityId, ymd) {
     if (bookingRecordFacilityId(b) !== facilityId) return false
     return isSalonFullDayRecord(b)
   })
+}
+
+/** Estado visual del día en calendario salón: free | partial | occupied | disabled */
+function salonCalendarDayStatus(dateKey, facilityId, salonDayMode, allBookings, slotIds) {
+  if (!dateKey || !facilityId) return 'disabled'
+  if (salonDayMode) {
+    return salonFullDayBookedForDate(allBookings, facilityId, dateKey) ? 'occupied' : 'free'
+  }
+  const ids = Array.isArray(slotIds) ? slotIds : []
+  if (salonFullDayBookedForDate(allBookings, facilityId, dateKey)) return 'occupied'
+  if (ids.length === 0) return 'free'
+  let booked = 0
+  for (const slotId of ids) {
+    const taken = allBookings.some(
+      (b) =>
+        b.date === dateKey &&
+        bookingRecordFacilityId(b) === facilityId &&
+        (isSalonFullDayRecord(b) || b.timeSlot === slotId),
+    )
+    if (taken) booked += 1
+  }
+  if (booked === 0) return 'free'
+  if (booked >= ids.length) return 'occupied'
+  return 'partial'
 }
 
 function isPadelBookingRecord(b) {
@@ -554,6 +588,10 @@ export default function Bookings() {
   const [staffOnBehalfUserId, setStaffOnBehalfUserId] = useState('')
   /** Gestión: consulta de ocupación en fechas lejanas (no crear reserva desde este modo). */
   const [staffHistoryMode, setStaffHistoryMode] = useState(false)
+  const [salonPickerMonth, setSalonPickerMonth] = useState(() => {
+    const t = new Date()
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`
+  })
   const [cancellingBookingId, setCancellingBookingId] = useState(null)
   const [cancelError, setCancelError] = useState('')
 
@@ -814,8 +852,66 @@ export default function Bookings() {
       const maxH = parsePadelHoursFormValue(communityBookingConfig?.padelMaxHoursPerBooking, SLOT_PRESETS.padel.maxDurationHours)
       return { ...SLOT_PRESETS.padel, maxDurationHours: maxH }
     }
-    return getSlotConfigForFacility(selectedFacility)
+    return getSlotConfigForFacility(selectedFacility, communityBookingConfig?.customLocations)
   }, [selectedFacility, communityBookingConfig])
+
+  const showSalonDatePickers = Boolean(
+    !staffHistoryMode &&
+      selectedFacility &&
+      isSalonLikeFacility(selectedFacility) &&
+      !isPadelFacilityId(selectedFacility),
+  )
+
+  const salonAdvanceUnlimited =
+    showSalonDatePickers && (spaceConfig?.maxDaysInAdvance ?? 0) >= SALON_UNLIMITED_MAX_DAYS
+
+  const getSalonCalendarDayStatus = useCallback(
+    (dateKey) => {
+      if (!selectedFacility || !spaceConfig) return 'disabled'
+      if (!isDateInBookableWindow(dateKey, spaceConfig.maxDaysInAdvance ?? 14)) return 'disabled'
+      return salonCalendarDayStatus(
+        dateKey,
+        selectedFacility,
+        salonDayBookingFlow,
+        allBookings,
+        spaceConfig.timeSlotIds,
+      )
+    },
+    [selectedFacility, spaceConfig, salonDayBookingFlow, allBookings],
+  )
+
+  useEffect(() => {
+    if (!selectedFacility || !isSalonLikeFacility(selectedFacility)) return
+    const key = booking.date || localDateKey(new Date())
+    setSalonPickerMonth(key.slice(0, 7))
+  }, [selectedFacility])
+
+  useEffect(() => {
+    if (!showSalonDatePickers || !spaceConfig) return
+    const max = spaceConfig.maxDaysInAdvance ?? 14
+    const inMonth = booking.date && booking.date.startsWith(salonPickerMonth)
+    const valid =
+      booking.date && isDateInBookableWindow(booking.date, max) && inMonth
+    if (valid) return
+    const isFree = (key) => getSalonCalendarDayStatus(key) === 'free'
+    const pick =
+      firstSelectableDayInMonth(salonPickerMonth, max, isFree) ||
+      firstSelectableDayInMonth(salonPickerMonth, max)
+    if (pick && pick !== booking.date) {
+      setBooking((prev) => ({
+        ...prev,
+        date: pick,
+        timeSlot: null,
+        padelSlotIds: [],
+      }))
+    }
+  }, [
+    showSalonDatePickers,
+    salonPickerMonth,
+    spaceConfig,
+    booking.date,
+    getSalonCalendarDayStatus,
+  ])
 
   const padelHorizonDaysForCopy = useMemo(() => {
     if (!communityBookingConfig) return 1
@@ -1079,6 +1175,11 @@ export default function Bookings() {
           isSalonLikeFacility(id)
         ) {
           setBooking({ date: localDateKey(new Date()), timeSlot: null, padelSlotIds: [] })
+          const mk = localDateKey(new Date()).slice(0, 7)
+          setSalonPickerMonth(mk)
+        } else if (isSalonLikeFacility(id)) {
+          setBooking({ date: localDateKey(new Date()), timeSlot: null, padelSlotIds: [] })
+          setSalonPickerMonth(localDateKey(new Date()).slice(0, 7))
         } else {
           setBooking(initialBooking)
         }
@@ -1097,6 +1198,35 @@ export default function Bookings() {
     }))
     setPadelCapError('')
     if (errors.date) setErrors((prev) => ({ ...prev, date: null }))
+  }
+
+  const handleSalonDaySelect = (key) => {
+    if (!key) return
+    setBooking((prev) => ({
+      ...prev,
+      date: key,
+      timeSlot: null,
+      padelSlotIds: [],
+    }))
+    setPadelCapError('')
+    if (errors.date) setErrors((prev) => ({ ...prev, date: null }))
+  }
+
+  const handleSalonMonthChange = (yearMonth) => {
+    setSalonPickerMonth(yearMonth)
+    if (!spaceConfig) return
+    const max = spaceConfig.maxDaysInAdvance ?? 14
+    const isFree = (key) => salonCalendarDayStatus(
+      key,
+      selectedFacility,
+      salonDayBookingFlow,
+      allBookings,
+      spaceConfig.timeSlotIds,
+    ) === 'free'
+    const pick =
+      firstSelectableDayInMonth(yearMonth, max, isFree) ||
+      firstSelectableDayInMonth(yearMonth, max)
+    if (pick) handleSalonDaySelect(pick)
   }
 
   const handleStaffHistoryDateChange = (value) => {
@@ -1785,24 +1915,42 @@ export default function Bookings() {
               </div>
             ) : !staffHistoryMode ? (
               <>
-                <div className="booking-date-strip" role="group" aria-label="Días disponibles">
-                  {dateOptions.map(({ key, day, num }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`booking-date-cell ${booking.date === key ? 'booking-date-cell--selected' : ''}`}
-                      onClick={() => handleDateSelect(key)}
-                      aria-pressed={booking.date === key}
-                    >
-                      <span className="booking-date-day">{day}</span>
-                      <span className="booking-date-num">{num}</span>
-                    </button>
-                  ))}
-                </div>
+                {showSalonDatePickers ? (
+                  <SalonBookingCalendar
+                    monthYear={salonPickerMonth}
+                    onMonthChange={handleSalonMonthChange}
+                    selectedDate={booking.date}
+                    onDateSelect={handleSalonDaySelect}
+                    maxDaysInAdvance={spaceConfig.maxDaysInAdvance ?? 14}
+                    getDayStatus={getSalonCalendarDayStatus}
+                    showPartialLegend={!salonDayBookingFlow}
+                  />
+                ) : (
+                  <div className="booking-date-strip" role="group" aria-label="Días disponibles">
+                    {dateOptions.map(({ key, day, num }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`booking-date-cell ${booking.date === key ? 'booking-date-cell--selected' : ''}`}
+                        onClick={() => handleDateSelect(key)}
+                        aria-pressed={booking.date === key}
+                      >
+                        <span className="booking-date-day">{day}</span>
+                        <span className="booking-date-num">{num}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {!isPadelFacilityId(selectedFacility) && (
                   <p className="booking-field-hint">
-                    Puedes reservar hasta {spaceConfig.maxDaysInAdvance}{' '}
-                    {spaceConfig.maxDaysInAdvance === 1 ? 'día' : 'días'} por adelantado.
+                    {salonAdvanceUnlimited ? (
+                      <>Reserva con antelación amplia (hasta 1 año).</>
+                    ) : (
+                      <>
+                        Puedes reservar hasta {spaceConfig.maxDaysInAdvance}{' '}
+                        {spaceConfig.maxDaysInAdvance === 1 ? 'día' : 'días'} por adelantado.
+                      </>
+                    )}
                   </p>
                 )}
               </>
