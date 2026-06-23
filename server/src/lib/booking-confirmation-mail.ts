@@ -1,7 +1,6 @@
 import type { Community, CommunityBooking, VecindarioUser } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { sendMail, isMailConfigured } from './mail.js'
-import { listConciergeEmails } from './concierge-emails.js'
 import { escapeHtml, wrapVecindarioEmailHtml } from './vecindario-email-template.js'
 
 function normEmail(s: string | null | undefined): string | null {
@@ -66,14 +65,25 @@ Fecha: ${fecha}
 Tramo: ${tramo}${portal ? `\nPortal: ${portal}` : ''}${piso ? `\nPiso / puerta: ${piso}` : ''}`
 }
 
-async function residentAllowsBookingEmail(actorEmail: string): Promise<boolean> {
+async function residentAllowsBookingEmail(
+  actorEmail: string,
+  vecindarioUserId: number | null | undefined,
+): Promise<boolean> {
+  if (vecindarioUserId != null && Number.isInteger(vecindarioUserId) && vecindarioUserId > 0) {
+    const byId = await prisma.vecindarioUser.findUnique({
+      where: { id: vecindarioUserId },
+      select: { notifyEmail: true },
+    })
+    if (byId) return byId.notifyEmail !== false
+  }
   const actorNorm = normEmail(actorEmail)
-  if (!actorNorm) return true
+  if (!actorNorm) return false
   const residentUser = await prisma.vecindarioUser.findFirst({
     where: { email: actorNorm },
     select: { notifyEmail: true },
   })
-  return residentUser?.notifyEmail !== false
+  if (!residentUser) return true
+  return residentUser.notifyEmail !== false
 }
 
 function cancellerDisplayName(user: VecindarioUser): string {
@@ -84,8 +94,8 @@ function cancellerDisplayName(user: VecindarioUser): string {
 }
 
 /**
- * Tras crear reserva en BD: correo al vecino (email de quien reserva) y al conserje si hay `conciergeEmail` distinto.
- * Si SMTP no está configurado, no hace nada. Los fallos se registran en consola y no relanzan.
+ * Tras crear reserva en BD: correo solo al vecino de la reserva (si tiene email y notificaciones activas).
+ * No se envía correo a conserje(s). Si SMTP no está configurado, no hace nada.
  */
 export async function sendBookingCreatedNotifications(params: {
   row: CommunityBooking
@@ -97,7 +107,7 @@ export async function sendBookingCreatedNotifications(params: {
   const toResident = row.actorEmail?.trim()
   if (!toResident) return
 
-  if (!(await residentAllowsBookingEmail(toResident))) return
+  if (!(await residentAllowsBookingEmail(toResident, row.vecindarioUserId))) return
 
   const commName = community.name
   const detailRowsHtml = bookingDetailRowsHtml(row, commName)
@@ -122,38 +132,11 @@ export async function sendBookingCreatedNotifications(params: {
   } catch (e) {
     console.error('[booking-email] residente', e)
   }
-
-  const rNorm = normEmail(toResident)
-  const conciergeTos = listConciergeEmails(community).filter((c) => c !== rNorm)
-  if (!conciergeTos.length) return
-
-  const subjectConc = `Vecindario — Nueva reserva «${commName}»`
-  const innerConc = `
-    <p style="margin:0 0 16px;font-size:16px;color:#0f172a;line-height:1.5;">Hola,</p>
-    <p style="margin:0 0 12px;font-size:15px;color:#334155;line-height:1.55;">
-      Se ha registrado una <strong>nueva reserva</strong> en tu comunidad.
-    </p>
-    ${detailRowsHtml}
-    <p style="margin:16px 0 0;font-size:14px;color:#334155;"><strong>Reservado por:</strong> ${escapeHtml(toResident)}</p>
-    <p style="margin:20px 0 0;font-size:14px;color:#475569;line-height:1.5;">Un saludo,<br /><strong>Vecindario</strong></p>`
-
-  for (const toConcierge of conciergeTos) {
-    try {
-      await sendMail({
-        to: toConcierge,
-        subject: subjectConc,
-        text: `Hola,\n\nNueva reserva en «${commName}».\n\n${textDetails}\n\nReservado por: ${toResident}\n\nUn saludo,\nVecindario`,
-        html: wrapVecindarioEmailHtml(innerConc),
-      })
-    } catch (e) {
-      console.error('[booking-email] conserje', toConcierge, e)
-    }
-  }
 }
 
 /**
- * Tras cancelar reserva (DELETE): correo al vecino de la reserva y a conserje(s), mismo criterio que el alta.
- * `cancelledBy` es quien ejecutó la cancelación (vecino o conserje).
+ * Tras cancelar reserva (DELETE): correo solo al vecino de la reserva (si tiene email y notificaciones activas).
+ * No se envía correo a conserje(s).
  */
 export async function sendBookingCancelledNotifications(params: {
   row: CommunityBooking
@@ -176,7 +159,7 @@ export async function sendBookingCancelledNotifications(params: {
     (row.vecindarioUserId === cancelledBy.id ||
       normEmail(row.actorEmail) === normEmail(cancelledBy.email))
 
-  if (await residentAllowsBookingEmail(toResident)) {
+  if (await residentAllowsBookingEmail(toResident, row.vecindarioUserId)) {
     const introResident = cancelledByConcierge
       ? `Tu reserva ha sido <strong>cancelada</strong> por el conserje (<strong>${escapeHtml(cancellerName)}</strong>). El tramo queda libre para otros vecinos.`
       : residentIsCanceller
@@ -205,42 +188,6 @@ export async function sendBookingCancelledNotifications(params: {
       })
     } catch (e) {
       console.error('[booking-email-cancel] residente', e)
-    }
-  }
-
-  const rNorm = normEmail(toResident)
-  const cancellerNorm = normEmail(cancelledBy.email)
-  const conciergeTos = listConciergeEmails(community).filter(
-    (c) => c !== rNorm && c !== cancellerNorm,
-  )
-  if (!conciergeTos.length) return
-
-  const introConc = cancelledByConcierge
-    ? `<strong>${escapeHtml(cancellerName)}</strong> ha cancelado una reserva en tu comunidad.`
-    : `Un vecino ha cancelado su reserva (<strong>${escapeHtml(toResident)}</strong>).`
-
-  const subjectConc = `Vecindario — Reserva cancelada «${commName}»`
-  const innerConc = `
-    <p style="margin:0 0 16px;font-size:16px;color:#0f172a;line-height:1.5;">Hola,</p>
-    <p style="margin:0 0 12px;font-size:15px;color:#334155;line-height:1.55;">${introConc}</p>
-    ${detailRowsHtml}
-    <p style="margin:16px 0 0;font-size:14px;color:#334155;"><strong>Reserva de:</strong> ${escapeHtml(toResident)}</p>
-    <p style="margin:20px 0 0;font-size:14px;color:#475569;line-height:1.5;">Un saludo,<br /><strong>Vecindario</strong></p>`
-
-  const textIntroConc = cancelledByConcierge
-    ? `${cancellerName} ha cancelado una reserva.`
-    : `Reserva cancelada por el vecino ${toResident}.`
-
-  for (const toConcierge of conciergeTos) {
-    try {
-      await sendMail({
-        to: toConcierge,
-        subject: subjectConc,
-        text: `Hola,\n\n${textIntroConc}\n\n${textDetails}\n\nReserva de: ${toResident}\n\nUn saludo,\nVecindario`,
-        html: wrapVecindarioEmailHtml(innerConc),
-      })
-    } catch (e) {
-      console.error('[booking-email-cancel] conserje', toConcierge, e)
     }
   }
 }
