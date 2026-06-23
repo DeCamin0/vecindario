@@ -1748,3 +1748,32 @@
   font-weight: 500;
   color: var(--color-text-muted, #64748b);
 }
+
+.admin-portal-street-locales {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border-light, #e2e8f0);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.admin-portal-locale-row-inputs {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.admin-portal-locale-row-inputs .admin-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-portal-locale-remove {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+
+.admin-portal-locale-add {
+  justify-self: start;
+  font-size: 0.9rem;
+}

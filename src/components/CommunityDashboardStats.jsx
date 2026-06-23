@@ -42,7 +42,7 @@ export default function CommunityDashboardStats({ stats, residentSlots }) {
   if (officialCap != null) {
     neighborsTitle = `${neighborCount} dados de alta de ${officialCap} cupo planificado en ficha (Nº vecinos).`
   } else if (estimatedCap != null) {
-    neighborsTitle = `${neighborCount} dados de alta; el denominador ${estimatedCap} es estimado (suma plantas × puertas por portal). Completa «Nº vecinos» en la ficha para un cupo oficial.`
+    neighborsTitle = `${neighborCount} dados de alta; el denominador ${estimatedCap} es estimado (viviendas + locales en bajo por portal). Completa «Nº vecinos» en la ficha para un cupo oficial.`
   } else {
     neighborsTitle =
       'El guión (—) indica que no hay «Nº vecinos» en la ficha y los portales no permiten estimar viviendas (edita la comunidad o completa «Editar portales»).'

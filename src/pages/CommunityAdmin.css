@@ -844,6 +844,38 @@ a.community-admin-stat.community-admin-stat--link:focus-visible {
   margin-bottom: var(--space-1);
 }
 
+.community-residents-missing-panel {
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.community-residents-missing-list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.community-residents-missing-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+}
+
+.community-residents-missing-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-body);
+}
+
 /* Ajustes piscina (panel gestión) */
 .community-pool-settings-form {
   padding: var(--space-4);

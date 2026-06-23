@@ -3,12 +3,17 @@
  * Misma semántica en API pública y PATCH admin.
  */
 
+/** Piso para locales comerciales en planta baja (misma etiqueta en web y móvil). */
+export const STREET_LOCALE_PISO = 'Bajo'
+
 export type PortalDwellingEntryStored = {
   floors?: number
   doorsPerFloor?: number
   /** Última planta (ático): menos puertas que el resto. Opcional; si falta o iguala a doorsPerFloor, misma estructura en todas las plantas. */
   doorsTopFloor?: number
   doorScheme?: 'letters' | 'numbers'
+  /** Locales en planta baja con nombre libre (ej. Farmacia). Opcional por portal. */
+  streetLocales?: string[]
 }
 
 export type DwellingSelectOptions = {
@@ -20,6 +25,26 @@ export type DwellingSelectOptions = {
 
 const MAX_FLOORS = 50
 const MAX_DOORS = 26
+const MAX_STREET_LOCALES = 20
+const MAX_LOCALE_NAME_LEN = 64
+
+/** Normaliza nombres de locales en bajo: sin vacíos, sin duplicados (case-insensitive), máx. 20. */
+export function parseStreetLocales(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const name = item.trim().slice(0, MAX_LOCALE_NAME_LEN)
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+    if (out.length >= MAX_STREET_LOCALES) break
+  }
+  return out
+}
 
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min
@@ -54,11 +79,16 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
         : Number.parseInt(String(rec.doorsTopFloor ?? ''), 10)
     const schemeRaw = typeof rec.doorScheme === 'string' ? rec.doorScheme.trim().toLowerCase() : ''
     const doorScheme = schemeRaw === 'numbers' ? 'numbers' : schemeRaw === 'letters' ? 'letters' : undefined
-    if (!Number.isFinite(floors) || floors < 1 || !Number.isFinite(doorsPerFloor) || doorsPerFloor < 1) continue
+    const streetLocales = parseStreetLocales(rec.streetLocales)
+    if (!Number.isFinite(floors) || floors < 1 || !Number.isFinite(doorsPerFloor) || doorsPerFloor < 1) {
+      if (streetLocales.length > 0) out[i] = { streetLocales }
+      continue
+    }
     const f = clampInt(floors, 1, MAX_FLOORS)
     const d = clampInt(doorsPerFloor, 1, MAX_DOORS)
     if (doorScheme === 'letters' && d > 26) continue
     if (doorScheme !== 'letters' && doorScheme !== 'numbers') continue
+    const scheme: 'letters' | 'numbers' = doorScheme
     let doorsTopFloor: number | undefined
     if (
       f >= 2 &&
@@ -70,7 +100,12 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
       if (doorScheme === 'letters' && dt > 26) continue
       if (dt < d) doorsTopFloor = dt
     }
-    out[i] = doorsTopFloor != null ? { floors: f, doorsPerFloor: d, doorsTopFloor, doorScheme } : { floors: f, doorsPerFloor: d, doorScheme }
+    const residential: PortalDwellingEntryStored =
+      doorsTopFloor != null
+        ? { floors: f, doorsPerFloor: d, doorsTopFloor, doorScheme: scheme }
+        : { floors: f, doorsPerFloor: d, doorScheme: scheme }
+    out[i] =
+      streetLocales.length > 0 ? { ...residential, streetLocales } : residential
   }
   return out
 }
@@ -95,7 +130,7 @@ export function resizePortalDwellingConfig(
   return out
 }
 
-export function dwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
+function residentialDwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
   const floors =
     typeof entry.floors === 'number' && entry.floors >= 1 ? clampInt(entry.floors, 1, MAX_FLOORS) : 0
   const doors =
@@ -127,6 +162,38 @@ export function dwellingSelectOptions(entry: PortalDwellingEntryStored): Dwellin
   }
   const puertaOptions = doorLabelsForCount(scheme, doors)
   return { pisoOptions, puertaOptions, puertaOptionsByPiso }
+}
+
+export function dwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
+  const streetLocales = parseStreetLocales(entry.streetLocales)
+  const residential = residentialDwellingSelectOptions(entry)
+
+  if (streetLocales.length === 0) return residential
+
+  const bajoKey = STREET_LOCALE_PISO
+  const bajoBlock: Record<string, string[]> = { [bajoKey]: streetLocales }
+
+  if (residential.pisoOptions.length === 0) {
+    return {
+      pisoOptions: [bajoKey],
+      puertaOptions: streetLocales,
+      puertaOptionsByPiso: bajoBlock,
+    }
+  }
+
+  let byPiso = residential.puertaOptionsByPiso
+  if (!byPiso) {
+    byPiso = {}
+    for (const piso of residential.pisoOptions) {
+      byPiso[piso] = residential.puertaOptions
+    }
+  }
+
+  return {
+    pisoOptions: [bajoKey, ...residential.pisoOptions],
+    puertaOptions: residential.puertaOptions,
+    puertaOptionsByPiso: { ...bajoBlock, ...byPiso },
+  }
 }
 
 export function buildDwellingByPortalIndex(
@@ -166,11 +233,42 @@ export function estimateDwellingUnitsFromPortalConfig(raw: unknown, portalCount:
     if (!f || !d) continue
     const dt: number | null =
       typeof e.doorsTopFloor === 'number' && e.doorsTopFloor >= 1 ? clampInt(e.doorsTopFloor, 1, d) : null
+    let residential = 0
     if (f < 2 || dt == null || dt >= d) {
-      sum += f * d
-      continue
+      residential = f * d
+    } else {
+      residential = (f - 1) * d + dt
     }
-    sum += (f - 1) * d + dt
+    sum += residential + parseStreetLocales(e.streetLocales).length
   }
   return sum > 0 ? sum : null
+}
+
+function normDwellingPart(s: unknown): string {
+  return String(s ?? '').trim()
+}
+
+/** Ordena pisos: «Bajo» (locales) primero, luego numéricos. */
+export function compareDwellingPiso(a: string, b: string): number {
+  const aa = normDwellingPart(a)
+  const bb = normDwellingPart(b)
+  const aBajo = aa.toLowerCase() === STREET_LOCALE_PISO.toLowerCase()
+  const bBajo = bb.toLowerCase() === STREET_LOCALE_PISO.toLowerCase()
+  if (aBajo && !bBajo) return -1
+  if (!aBajo && bBajo) return 1
+  return aa.localeCompare(bb, 'es', { numeric: true })
+}
+
+/** Orden lista vecinos: portal → piso (Bajo primero) → puerta → id. */
+export function compareResidentsByDwelling(
+  a: { portal?: string | null; piso?: string | null; puerta?: string | null; id?: number },
+  b: { portal?: string | null; piso?: string | null; puerta?: string | null; id?: number },
+): number {
+  const c = normDwellingPart(a.portal).localeCompare(normDwellingPart(b.portal), 'es', { numeric: true })
+  if (c) return c
+  const c2 = compareDwellingPiso(normDwellingPart(a.piso), normDwellingPart(b.piso))
+  if (c2) return c2
+  const c3 = normDwellingPart(a.puerta).localeCompare(normDwellingPart(b.puerta), 'es', { numeric: true })
+  if (c3) return c3
+  return (a.id ?? 0) - (b.id ?? 0)
 }

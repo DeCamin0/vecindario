@@ -21,6 +21,7 @@ import {
 } from '../lib/enumerate-structured-dwellings.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
 import { resolveCommunityGate } from '../lib/community-staff-gate.js'
+import { compareResidentsByDwelling } from '../lib/portal-dwelling-config.js'
 import { capturePasswordPlainSnapshot } from '../lib/password-plain-snapshot.js'
 
 export const communityResidentsRouter = Router()
@@ -358,8 +359,10 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
     boardVocalsJson: [],
   }
 
+  const sortedRows = [...rows].sort(compareResidentsByDwelling)
+
   res.json({
-    residents: rows.map((r) => {
+    residents: sortedRows.map((r) => {
       const portal = r.portal?.trim() || ''
       const piso = r.piso?.trim() || ''
       const puerta = r.puerta?.trim() || ''
@@ -417,7 +420,7 @@ communityResidentsRouter.get('/residents/missing-dwellings-preview', requireAuth
     canBulkCreate: cov.canBulkCreate,
     hint:
       cov.structuredTotal === 0
-        ? 'Configura portales y estructura (plantas y puertas por planta) en Super Admin para enumerar viviendas.'
+        ? 'Configura portales y estructura (plantas, puertas por planta y locales en bajo) en Super Admin para enumerar viviendas.'
         : undefined,
   })
 })

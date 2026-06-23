@@ -1,5 +1,29 @@
+export const STREET_LOCALE_PISO = 'Bajo'
+
 export function normDwellPart(s) {
   return String(s ?? '').trim()
+}
+
+/** Ordena pisos: «Bajo» (locales) primero, luego numéricos. */
+export function compareDwellingPiso(a, b) {
+  const aa = normDwellPart(a)
+  const bb = normDwellPart(b)
+  const aBajo = aa.toLowerCase() === 'bajo'
+  const bBajo = bb.toLowerCase() === 'bajo'
+  if (aBajo && !bBajo) return -1
+  if (!aBajo && bBajo) return 1
+  return aa.localeCompare(bb, 'es', { numeric: true })
+}
+
+/** Orden lista vecinos: portal → piso (Bajo primero) → puerta → id. */
+export function compareResidentsByDwelling(a, b) {
+  const c = normDwellPart(a.portal).localeCompare(normDwellPart(b.portal), 'es', { numeric: true })
+  if (c) return c
+  const c2 = compareDwellingPiso(a.piso, b.piso)
+  if (c2) return c2
+  const c3 = normDwellPart(a.puerta).localeCompare(normDwellPart(b.puerta), 'es', { numeric: true })
+  if (c3) return c3
+  return (a.id ?? 0) - (b.id ?? 0)
 }
 
 /**
@@ -70,6 +94,17 @@ export function dwellingUnitKey(portal, piso, puerta) {
   return `${normDwellPart(portal)}\t${normDwellPart(piso)}\t${normDwellPart(puerta)}`
 }
 
+/** Etiqueta para listas de cobertura (alta): resalta locales en bajo. */
+export function formatDwellingCoverageLabel(portal, piso, puerta) {
+  const p = normDwellPart(portal)
+  const pi = normDwellPart(piso)
+  const u = normDwellPart(puerta)
+  if (pi.toLowerCase() === STREET_LOCALE_PISO.toLowerCase()) {
+    return `${p} · local «${u}» (bajo)`
+  }
+  return [p, pi, u].filter(Boolean).join(' · ')
+}
+
 /** Etiqueta legible: «Portal · Piso · Puerta». */
 export function formatDwellingLabel(portal, piso, puerta) {
   return [normDwellPart(portal), normDwellPart(piso), normDwellPart(puerta)].filter(Boolean).join(' · ')
@@ -133,7 +168,7 @@ export function listAllCommunityDwellings(portalsList, dwellingByPortalIndex) {
   return out.sort((a, b) => {
     const c = a.portal.localeCompare(b.portal, 'es', { numeric: true })
     if (c) return c
-    const c2 = a.piso.localeCompare(b.piso, 'es', { numeric: true })
+    const c2 = compareDwellingPiso(a.piso, b.piso)
     if (c2) return c2
     return a.puerta.localeCompare(b.puerta, 'es', { numeric: true })
   })
@@ -161,7 +196,7 @@ export function listDwellingsFromRecords(records, pick) {
   return out.sort((a, b) => {
     const c = a.portal.localeCompare(b.portal, 'es', { numeric: true })
     if (c) return c
-    const c2 = a.piso.localeCompare(b.piso, 'es', { numeric: true })
+    const c2 = compareDwellingPiso(a.piso, b.piso)
     if (c2) return c2
     return a.puerta.localeCompare(b.puerta, 'es', { numeric: true })
   })

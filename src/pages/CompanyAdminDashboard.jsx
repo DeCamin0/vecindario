@@ -14,7 +14,7 @@ import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersona
 import { buildCompanyCommunityCreateBody } from '../utils/companyCommunityCreateBody.js'
 import { conciergeEmailsFromCommunity } from '../utils/conciergeEmailsForm.js'
 import { getSignInPath } from '../utils/signInWebPath.js'
-import { parsePadelHoursFormValue, sanitizePadelHoursInput } from '../utils/padelHours.js'
+import { sanitizePadelHoursInput } from '../utils/padelHours.js'
 import './Admin.css'
 import './CompanyAdminDashboard.css'
 
@@ -1054,7 +1054,7 @@ export default function CompanyAdminDashboard() {
                         onChange={(e) =>
                           setForm((f) => ({ ...f, portalDwellingConfigJson: e.target.value }))
                         }
-                        placeholder='[{ "floors": 5, "doorsPerFloor": 4, "doorScheme": "letters", "doorsTopFloor": 2 }]'
+                        placeholder='[{ "floors": 5, "doorsPerFloor": 4, "doorScheme": "letters", "doorsTopFloor": 2, "streetLocales": ["Farmacia"] }]'
                       />
                     </div>
                     <div className="admin-modal-field">

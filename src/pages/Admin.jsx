@@ -178,13 +178,33 @@ function normalizePortalLabelsFromApi(raw, portalCount) {
 }
 
 /** Borrador UI: plantas / puertas por portal (PATCH como JSON). */
+const MAX_STREET_LOCALES = 20
+const MAX_LOCALE_NAME_LEN = 64
+
+function normalizeStreetLocalesFromApi(raw) {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  const out = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const name = item.trim().slice(0, MAX_LOCALE_NAME_LEN)
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+    if (out.length >= MAX_STREET_LOCALES) break
+  }
+  return out
+}
+
 function normalizePortalDwellingDraftFromApi(raw, portalCount) {
   const n = Math.min(999, Math.max(1, Number(portalCount) || 1))
   const arr = Array.isArray(raw) ? raw : []
   return Array.from({ length: n }, (_, i) => {
     const o = arr[i]
     if (!o || typeof o !== 'object') {
-      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters' }
+      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters', streetLocales: [] }
     }
     const floors = typeof o.floors === 'number' && o.floors >= 1 ? String(o.floors) : ''
     const doorsPerFloor =
@@ -192,8 +212,33 @@ function normalizePortalDwellingDraftFromApi(raw, portalCount) {
     const doorsTopFloor =
       typeof o.doorsTopFloor === 'number' && o.doorsTopFloor >= 1 ? String(o.doorsTopFloor) : ''
     const doorScheme = o.doorScheme === 'numbers' ? 'numbers' : 'letters'
-    return { floors, doorsPerFloor, doorsTopFloor, doorScheme }
+    const streetLocales = normalizeStreetLocalesFromApi(o.streetLocales)
+    return { floors, doorsPerFloor, doorsTopFloor, doorScheme, streetLocales }
   })
+}
+
+function streetLocalesFromDraft(d) {
+  return Array.isArray(d?.streetLocales) ? d.streetLocales : []
+}
+
+function validateStreetLocalesDraft(names, portalLabel) {
+  const seen = new Set()
+  for (const raw of names) {
+    const name = String(raw ?? '').trim()
+    if (!name) {
+      return `Indica un nombre para cada local en ${portalLabel} (o elimina la fila vacía).`
+    }
+    const key = name.toLowerCase()
+    if (seen.has(key)) {
+      return `Nombres de local duplicados en ${portalLabel}: «${name}».`
+    }
+    seen.add(key)
+  }
+  return null
+}
+
+function buildStreetLocalesForSave(names) {
+  return normalizeStreetLocalesFromApi(names)
 }
 
 /**
@@ -910,22 +955,34 @@ export default function Admin() {
     setPortalsSaving(true)
     setPortalsError('')
     try {
+      for (let i = 0; i < portalsDwellingDraft.length; i += 1) {
+        const portalLabel = portalsDraft[i]?.trim() || `Portal ${i + 1}`
+        const localeErr = validateStreetLocalesDraft(streetLocalesFromDraft(portalsDwellingDraft[i]), portalLabel)
+        if (localeErr) {
+          setPortalsError(localeErr)
+          return
+        }
+      }
       const portalDwellingConfig = portalsDwellingDraft.map((d) => {
+        const streetLocales = buildStreetLocalesForSave(streetLocalesFromDraft(d))
         const f = parseInt(String(d.floors ?? '').trim(), 10)
         const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
         if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) {
-          return {}
+          return streetLocales.length > 0 ? { streetLocales } : {}
         }
         const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
-        if (scheme === 'letters' && dp > 26) return {}
-        const base = { floors: f, doorsPerFloor: dp, doorScheme: scheme }
+        if (scheme === 'letters' && dp > 26) {
+          return streetLocales.length > 0 ? { streetLocales } : {}
+        }
+        let base = { floors: f, doorsPerFloor: dp, doorScheme: scheme }
         const dtRaw = String(d.doorsTopFloor ?? '').trim()
-        if (f < 2 || dtRaw === '') return base
-        const dt = parseInt(dtRaw, 10)
-        if (!Number.isFinite(dt) || dt < 1 || dt > dp) return base
-        if (dt >= dp) return base
-        if (scheme === 'letters' && dt > 26) return base
-        return { ...base, doorsTopFloor: dt }
+        if (f >= 2 && dtRaw !== '') {
+          const dt = parseInt(dtRaw, 10)
+          if (Number.isFinite(dt) && dt >= 1 && dt < dp && !(scheme === 'letters' && dt > 26)) {
+            base = { ...base, doorsTopFloor: dt }
+          }
+        }
+        return streetLocales.length > 0 ? { ...base, streetLocales } : base
       })
       const res = await fetch(apiUrl(`/api/admin/communities/${portalsModalCommunity.id}`), {
         method: 'PATCH',
@@ -937,7 +994,7 @@ export default function Admin() {
       const autoCupo = d.residentSlots != null && Number(d.residentSlots) > 0
       setSuccessFlash(
         autoCupo
-          ? `Portales guardados. «Nº vecinos» (cupo) actualizado automáticamente a ${d.residentSlots} (igual que en alta masiva: suma plantas × puertas por portal).`
+          ? `Portales guardados. «Nº vecinos» (cupo) actualizado automáticamente a ${d.residentSlots} (viviendas + locales en bajo por portal).`
           : 'Portales y estructura de plantas/puertas guardados. Completa todos los portales para fijar el cupo automáticamente.',
       )
       closePortalsModal()
@@ -2686,6 +2743,7 @@ export default function Admin() {
               <em>34</em>, <em>36</em> o <em>P1</em>, <em>P2</em>). Opcionalmente, bajo cada portal define cuántas
               plantas hay, cuántas puertas por planta (y opcionalmente menos en la <strong>última planta</strong>, típico
               en áticos), y si las puertas van en <strong>letras</strong> (A, B, C…) o <strong>números</strong> (1, 2, 3…).
+              Opcionalmente, <strong>locales en bajo</strong> con nombre propio (solo en los portales que los tengan).
               Eso genera listas en el alta de vecinos y en el login. Para cambiar
               el número total de portales, usa «Edit» en la comunidad.
             </p>
@@ -2707,7 +2765,7 @@ export default function Admin() {
                 <p className="admin-portals-replicate-hint">
                   Copia <strong>plantas</strong>, <strong>puertas por planta</strong>,{' '}
                   <strong>puertas última planta</strong> (si aplica) y <strong>etiquetas</strong> desde el primer portal
-                  que tenga alguno de esos datos. Los alias (32, 34…) no cambian.
+                  que tenga alguno de esos datos. Los alias (32, 34…) y los <strong>locales en bajo</strong> no cambian.
                 </p>
               </div>
             ) : null}
@@ -2715,6 +2773,7 @@ export default function Admin() {
               {portalsDraft.map((val, i) => {
                 const dwelling = portalsDwellingDraft[i] ?? {}
                 const est = estimatePortalDwellingUnitsFromDraft(dwelling)
+                const localeCount = streetLocalesFromDraft(dwelling).filter((s) => String(s ?? '').trim()).length
                 const fNum = parseInt(String(dwelling.floors ?? '').trim(), 10)
                 const dpNum = parseInt(String(dwelling.doorsPerFloor ?? '').trim(), 10)
                 const dtRaw = String(dwelling.doorsTopFloor ?? '').trim()
@@ -2820,13 +2879,26 @@ export default function Admin() {
                     <p className="admin-portal-dwelling-total" role="status">
                       {est != null ? (
                         <>
-                          <strong>{est}</strong> viviendas teóricas en este portal
-                          {showAtticBreakdown ? (
+                          <strong>{est + localeCount}</strong> unidades teóricas en este portal
+                          {localeCount > 0 ? (
+                            <span className="admin-portal-dwelling-total-formula">
+                              {' '}
+                              ({est} viviendas + {localeCount} local{localeCount === 1 ? '' : 'es'} en bajo)
+                            </span>
+                          ) : showAtticBreakdown ? (
                             <span className="admin-portal-dwelling-total-formula">
                               {' '}
                               ({fNum - 1}×{dpNum} + {dtNum})
                             </span>
                           ) : null}
+                        </>
+                      ) : localeCount > 0 ? (
+                        <>
+                          <strong>{localeCount}</strong> local{localeCount === 1 ? '' : 'es'} en bajo
+                          <span className="admin-users-muted">
+                            {' '}
+                            (completa plantas y puertas para el cupo total del portal)
+                          </span>
                         </>
                       ) : (
                         <span className="admin-users-muted">
@@ -2835,6 +2907,74 @@ export default function Admin() {
                         </span>
                       )}
                     </p>
+                    <div className="admin-portal-street-locales">
+                      <p className="admin-portal-dwelling-hint">
+                        Locales en planta baja (opcional): aparecen como piso <strong>Bajo</strong> en login y alta de
+                        vecinos. Solo en este portal si los necesitas.
+                      </p>
+                      {(streetLocalesFromDraft(dwelling).length > 0
+                        ? streetLocalesFromDraft(dwelling)
+                        : []
+                      ).map((locName, li) => (
+                        <div key={`portal-locale-${portalsModalCommunity.id}-${i}-${li}`} className="admin-portal-locale-row">
+                          <label className="admin-label" htmlFor={`portal-locale-${portalsModalCommunity.id}-${i}-${li}`}>
+                            Nombre del local {li + 1}
+                          </label>
+                          <div className="admin-portal-locale-row-inputs">
+                            <input
+                              id={`portal-locale-${portalsModalCommunity.id}-${i}-${li}`}
+                              type="text"
+                              className="admin-input"
+                              maxLength={MAX_LOCALE_NAME_LEN}
+                              placeholder="Ej. Farmacia"
+                              value={locName}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setPortalsDwellingDraft((prev) => {
+                                  const next = [...prev]
+                                  const cur = streetLocalesFromDraft(next[i])
+                                  const locales = [...cur]
+                                  locales[li] = v
+                                  next[i] = { ...(next[i] || {}), streetLocales: locales }
+                                  return next
+                                })
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn--ghost admin-portal-locale-remove"
+                              disabled={portalsSaving}
+                              aria-label={`Quitar local ${li + 1}`}
+                              onClick={() => {
+                                setPortalsDwellingDraft((prev) => {
+                                  const next = [...prev]
+                                  const locales = streetLocalesFromDraft(next[i]).filter((_, j) => j !== li)
+                                  next[i] = { ...(next[i] || {}), streetLocales: locales }
+                                  return next
+                                })
+                              }}
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn btn--ghost admin-portal-locale-add"
+                        disabled={portalsSaving || streetLocalesFromDraft(dwelling).length >= MAX_STREET_LOCALES}
+                        onClick={() => {
+                          setPortalsDwellingDraft((prev) => {
+                            const next = [...prev]
+                            const locales = [...streetLocalesFromDraft(next[i]), '']
+                            next[i] = { ...(next[i] || {}), streetLocales: locales }
+                            return next
+                          })
+                        }}
+                      >
+                        Añadir local
+                      </button>
+                    </div>
                     <label className="admin-label" htmlFor={`portal-scheme-${portalsModalCommunity.id}-${i}`}>
                       Etiquetas de puerta
                     </label>

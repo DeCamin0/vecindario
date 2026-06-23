@@ -11,6 +11,8 @@ import {
   normDwellPart,
   occupiedPuertasForUnit,
   pisoPuertaChoicesForPortal,
+  formatDwellingCoverageLabel,
+  compareResidentsByDwelling,
 } from '../utils/dwellingPortalChoices.js'
 import UserAvatarDisplay from '../components/UserAvatarDisplay.jsx'
 import { useDialog } from '../context/DialogContext.jsx'
@@ -154,8 +156,9 @@ export default function CommunityResidents({ superAdminScope = false }) {
   const [editError, setEditError] = useState('')
 
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
-  const [bulkPreview, setBulkPreview] = useState(null)
-  const [bulkPreviewLoading, setBulkPreviewLoading] = useState(false)
+  const [missingCoverage, setMissingCoverage] = useState(null)
+  const [missingCoverageLoading, setMissingCoverageLoading] = useState(false)
+  const [missingCoverageError, setMissingCoverageError] = useState('')
   const [bulkPassword, setBulkPassword] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkError, setBulkError] = useState('')
@@ -190,8 +193,8 @@ export default function CommunityResidents({ superAdminScope = false }) {
 
   const filteredList = useMemo(() => {
     const f = normDwellPart(listPortalFilter)
-    if (!f) return list
-    return list.filter((r) => normDwellPart(r.portal) === f)
+    const base = f ? list.filter((r) => normDwellPart(r.portal) === f) : list
+    return [...base].sort(compareResidentsByDwelling)
   }, [list, listPortalFilter])
 
   const editDwelling = useMemo(() => {
@@ -260,10 +263,10 @@ export default function CommunityResidents({ superAdminScope = false }) {
     void loadList()
   }, [loadList])
 
-  const fetchBulkPreview = useCallback(async () => {
+  const loadMissingCoverage = useCallback(async () => {
     if (!accessToken || communityId == null) return
-    setBulkPreviewLoading(true)
-    setBulkError('')
+    setMissingCoverageLoading(true)
+    setMissingCoverageError('')
     try {
       const q = new URLSearchParams({ communityId: String(communityId) })
       if (code) q.set('accessCode', code)
@@ -272,29 +275,50 @@ export default function CommunityResidents({ superAdminScope = false }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`)
-      setBulkPreview(data)
+      setMissingCoverage(data)
     } catch (e) {
-      setBulkError(e.message || 'Error')
-      setBulkPreview(null)
+      setMissingCoverageError(e.message || 'Error')
+      setMissingCoverage(null)
     } finally {
-      setBulkPreviewLoading(false)
+      setMissingCoverageLoading(false)
     }
   }, [accessToken, communityId, code])
+
+  useEffect(() => {
+    if (!canCreateResidents) return
+    void loadMissingCoverage()
+  }, [canCreateResidents, loadMissingCoverage])
 
   const openBulkModal = () => {
     setBulkModalOpen(true)
     setBulkPassword('')
     setBulkDone(null)
     setBulkError('')
-    void fetchBulkPreview()
+    void loadMissingCoverage()
   }
 
   const closeBulkModal = () => {
     setBulkModalOpen(false)
-    setBulkPreview(null)
     setBulkDone(null)
     setBulkError('')
     setBulkPassword('')
+  }
+
+  const startCreateForDwelling = (unit) => {
+    if (!unit || typeof unit !== 'object') return
+    setFormError('')
+    setSuccess('')
+    setForm({
+      ...emptyCreateForm(),
+      portal: String(unit.portal ?? '').trim(),
+      piso: String(unit.piso ?? '').trim(),
+      puerta: String(unit.puerta ?? '').trim(),
+    })
+    requestAnimationFrame(() => {
+      const el = document.getElementById('cr-create-section')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      document.getElementById('cr-password')?.focus()
+    })
   }
 
   const submitBulkCreate = async () => {
@@ -322,6 +346,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
       }
       setBulkDone(data)
       void loadList()
+      void loadMissingCoverage()
     } catch (e) {
       setBulkError(e.message || 'Error de red')
     } finally {
@@ -465,6 +490,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
       )
       setForm(emptyCreateForm())
       void loadList()
+      void loadMissingCoverage()
     } catch {
       setFormError('No se pudo conectar con el servidor')
     } finally {
@@ -723,13 +749,88 @@ export default function CommunityResidents({ superAdminScope = false }) {
       <main className="community-admin-main admin-main page-container">
         <div className="community-admin-inner">
           {canCreateResidents ? (
-          <section className="community-admin-section">
+            <section
+              className="community-admin-section community-residents-missing-panel card"
+              aria-labelledby="cr-missing-title"
+            >
+              <h2 id="cr-missing-title" className="community-admin-section-title">
+                Cobertura de cuentas (ficha vs alta)
+              </h2>
+              {missingCoverageLoading && !missingCoverage ? (
+                <p className="community-admin-section-intro">Comprobando viviendas y locales sin cuenta…</p>
+              ) : missingCoverageError ? (
+                <p className="auth-error" role="alert">
+                  {missingCoverageError}
+                </p>
+              ) : missingCoverage ? (
+                <>
+                  {missingCoverage.structuredTotal === 0 ? (
+                    <p className="community-admin-section-intro">
+                      {missingCoverage.hint ||
+                        'Configura portales y estructura en Super Admin («Editar portales»), incluidos locales en bajo si aplica.'}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="community-admin-section-intro">
+                        Según la ficha: <strong>{missingCoverage.structuredTotal}</strong> unidades (viviendas + locales
+                        en bajo) · Con cuenta: <strong>{missingCoverage.accountsCoveringStructured}</strong> · Sin
+                        cuenta: <strong>{missingCoverage.missingTotal}</strong>
+                      </p>
+                      {missingCoverage.missingTotal > 0 ? (
+                        <>
+                          <p className="community-residents-vivienda-hint">
+                            Pulsa <strong>Crear cuenta</strong> para rellenar el formulario (portal, piso y puerta). Los
+                            locales usan piso <strong>Bajo</strong> y el nombre del local como puerta.
+                          </p>
+                          <ul className="community-residents-missing-list">
+                            {(Array.isArray(missingCoverage.missing) ? missingCoverage.missing : []).map((u, idx) => (
+                              <li key={`${u.portal}-${u.piso}-${u.puerta}-${idx}`} className="community-residents-missing-item">
+                                <span className="community-residents-missing-label">
+                                  {formatDwellingCoverageLabel(u.portal, u.piso, u.puerta)}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost btn--small"
+                                  onClick={() => startCreateForDwelling(u)}
+                                >
+                                  Crear cuenta
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                          {missingCoverage.previewCapped ? (
+                            <p className="community-residents-vivienda-hint">
+                              Lista acotada en pantalla; el total «sin cuenta» es el correcto. Usa alta masiva para el
+                              resto.
+                            </p>
+                          ) : null}
+                          <p className="community-residents-bulk-actions">
+                            <button type="button" className="btn btn--primary btn--small" onClick={openBulkModal}>
+                              Crear todas las cuentas que faltan…
+                            </button>
+                          </p>
+                        </>
+                      ) : (
+                        <p className="auth-vec-ok" role="status">
+                          Todas las unidades de la ficha (viviendas y locales en bajo) ya tienen cuenta de vecino.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : null}
+            </section>
+          ) : null}
+
+          {canCreateResidents ? (
+          <section id="cr-create-section" className="community-admin-section">
             <h2 className="community-admin-section-title">Nuevo vecino</h2>
             <p className="community-admin-section-intro">
-              Portal, piso y puerta identifican el apartamento (acceso, planta y puerta). El vecino entra con código VEC,
-              esos tres datos y la contraseña. El correo es opcional; si lo pones, también podrá entrar por email. Si en
-              Super Admin configuraste portales y la estructura (plantas y puertas por planta), aquí verás desplegables al
-              elegir portal; si falta «puertas por planta» o no guardaste la ficha, podrás usar texto libre en piso/puerta.
+              Portal, piso y puerta identifican el apartamento o el local (acceso, planta y puerta). El vecino entra con
+              código VEC, esos tres datos y la contraseña. El correo es opcional; si lo pones, también podrá entrar por
+              email. Si en Super Admin configuraste portales y la estructura (plantas, puertas y{' '}
+              <strong>locales en bajo</strong>), aquí verás desplegables; los locales aparecen como piso{' '}
+              <strong>Bajo</strong> y el nombre del local como puerta.
             </p>
             <form onSubmit={(ev) => void handleCreate(ev)} className="card community-residents-form">
               <div className="community-residents-form-section">
@@ -781,8 +882,8 @@ export default function CommunityResidents({ superAdminScope = false }) {
               <div className="community-residents-form-section">
                 <h3 className="community-residents-form-section-title">Vivienda</h3>
                 <p className="community-admin-section-intro community-residents-vivienda-hint">
-                  Misma configuración que en el login del vecino: si en Super Admin definiste plantas y puertas por portal,
-                  al elegir portal aparecerán listas; si no, usa texto libre. Las puertas ya dadas de alta en esa planta no
+                  Misma configuración que en el login del vecino. Los <strong>locales en bajo</strong> usan piso{' '}
+                  <strong>Bajo</strong> y el nombre del local en puerta. Las puertas ya dadas de alta en esa planta no
                   aparecen en el desplegable.
                 </p>
                 <div className="community-residents-form-grid community-residents-form-grid--2">
@@ -1018,11 +1119,10 @@ export default function CommunityResidents({ superAdminScope = false }) {
             {canCreateResidents ? (
               <p className="community-residents-bulk-actions">
                 <button type="button" className="btn btn--ghost btn--small" onClick={openBulkModal}>
-                  Crear cuentas en viviendas sin vecino…
+                  Alta masiva (todas las que faltan)…
                 </button>
                 <span className="community-residents-bulk-actions-hint">
-                  Usa la misma estructura de portales/plantas/puertas que en Super Admin; contraseña inicial común para
-                  todas las cuentas creadas en un solo paso.
+                  Contraseña inicial común para todas las cuentas creadas en un solo paso (viviendas y locales en bajo).
                 </span>
               </p>
             ) : canFichaEdit ? (
@@ -1658,38 +1758,38 @@ export default function CommunityResidents({ superAdminScope = false }) {
               </button>
             </div>
             <div className="community-residents-bulk-body">
-              {bulkPreviewLoading ? (
+              {missingCoverageLoading && !missingCoverage ? (
                 <p className="community-admin-section-intro">Cargando vista previa…</p>
-              ) : bulkPreview ? (
+              ) : missingCoverage ? (
                 <>
-                  {bulkPreview.structuredTotal === 0 ? (
+                  {missingCoverage.structuredTotal === 0 ? (
                     <p className="auth-error" role="alert">
-                      {bulkPreview.hint ||
-                        'No hay viviendas enumerables con la ficha actual. Configura portales y estructura en Super Admin.'}
+                      {missingCoverage.hint ||
+                        'No hay unidades enumerables con la ficha actual. Configura portales y estructura en Super Admin (incl. locales en bajo).'}
                     </p>
                   ) : (
                     <>
                       <p className="community-admin-section-intro">
-                        Viviendas según ficha: <strong>{bulkPreview.structuredTotal}</strong> · Con cuenta:{' '}
-                        <strong>{bulkPreview.accountsCoveringStructured}</strong> · Sin cuenta:{' '}
-                        <strong>{bulkPreview.missingTotal}</strong>
+                        Unidades según ficha: <strong>{missingCoverage.structuredTotal}</strong> · Con cuenta:{' '}
+                        <strong>{missingCoverage.accountsCoveringStructured}</strong> · Sin cuenta:{' '}
+                        <strong>{missingCoverage.missingTotal}</strong>
                       </p>
-                      {bulkPreview.previewCapped ? (
+                      {missingCoverage.previewCapped ? (
                         <p className="community-residents-vivienda-hint">
                           Lista previa: primeras filas solamente (el total «sin cuenta» es el correcto).
                         </p>
                       ) : null}
-                      {bulkPreview.missingTotal > 0 ? (
+                      {missingCoverage.missingTotal > 0 ? (
                         <ul className="community-residents-bulk-preview-list">
-                          {(Array.isArray(bulkPreview.missing) ? bulkPreview.missing : []).map((u, idx) => (
+                          {(Array.isArray(missingCoverage.missing) ? missingCoverage.missing : []).map((u, idx) => (
                             <li key={`${u.portal}-${u.piso}-${u.puerta}-${idx}`}>
-                              {u.portal} · {u.piso} · {u.puerta}
+                              {formatDwellingCoverageLabel(u.portal, u.piso, u.puerta)}
                             </li>
                           ))}
                         </ul>
                       ) : (
                         <p className="auth-vec-ok" role="status">
-                          Todas las viviendas definidas en la ficha ya tienen cuenta de vecino.
+                          Todas las unidades definidas en la ficha ya tienen cuenta de vecino.
                         </p>
                       )}
                     </>
@@ -1719,8 +1819,8 @@ export default function CommunityResidents({ superAdminScope = false }) {
                 </div>
               ) : null}
               {!bulkDone &&
-              bulkPreview?.structuredTotal > 0 &&
-              bulkPreview?.missingTotal === 0 ? (
+              missingCoverage?.structuredTotal > 0 &&
+              missingCoverage?.missingTotal === 0 ? (
                 <div className="community-residents-password-actions">
                   <button type="button" className="btn btn--primary btn--small" onClick={() => closeBulkModal()}>
                     Cerrar
@@ -1728,9 +1828,9 @@ export default function CommunityResidents({ superAdminScope = false }) {
                 </div>
               ) : null}
               {!bulkDone &&
-              bulkPreview?.canBulkCreate &&
-              bulkPreview?.missingTotal > 0 &&
-              bulkPreview.structuredTotal > 0 ? (
+              missingCoverage?.canBulkCreate &&
+              missingCoverage?.missingTotal > 0 &&
+              missingCoverage.structuredTotal > 0 ? (
                 <>
                   <div className="auth-field">
                     <label className="auth-label" htmlFor="cr-bulk-pwd">
@@ -1754,7 +1854,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
                       disabled={bulkBusy || bulkPassword.length < 6}
                       onClick={() => void submitBulkCreate()}
                     >
-                      {bulkBusy ? 'Creando…' : `Crear ${bulkPreview.missingTotal} cuenta(s)`}
+                      {bulkBusy ? 'Creando…' : `Crear ${missingCoverage.missingTotal} cuenta(s)`}
                     </button>
                     <button
                       type="button"

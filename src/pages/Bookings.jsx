@@ -884,7 +884,7 @@ export default function Bookings() {
     if (!selectedFacility || !isSalonLikeFacility(selectedFacility)) return
     const key = booking.date || localDateKey(new Date())
     setSalonPickerMonth(key.slice(0, 7))
-  }, [selectedFacility])
+  }, [selectedFacility, booking.date])
 
   useEffect(() => {
     if (!showSalonDatePickers || !spaceConfig) return
