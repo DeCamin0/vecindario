@@ -14,6 +14,8 @@ export type PortalDwellingEntryStored = {
   doorScheme?: 'letters' | 'numbers'
   /** Locales en planta baja con nombre libre (ej. Farmacia). Opcional por portal. */
   streetLocales?: string[]
+  /** Si true, el bloque tiene viviendas en planta baja (Bajo/Bº) además de pisos 1, 2, 3… */
+  residentialGroundFloor?: boolean
 }
 
 export type DwellingSelectOptions = {
@@ -42,6 +44,26 @@ export function parseStreetLocales(raw: unknown): string[] {
     seen.add(key)
     out.push(name)
     if (out.length >= MAX_STREET_LOCALES) break
+  }
+  return out
+}
+
+function parseResidentialGroundFloor(raw: unknown): boolean {
+  return raw === true || raw === 1 || raw === '1' || raw === 'true'
+}
+
+function mergePuertaLists(...lists: string[][]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const list of lists) {
+    for (const p of list) {
+      const t = String(p).trim()
+      if (!t) continue
+      const k = t.toLowerCase()
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(t)
+    }
   }
   return out
 }
@@ -80,8 +102,14 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
     const schemeRaw = typeof rec.doorScheme === 'string' ? rec.doorScheme.trim().toLowerCase() : ''
     const doorScheme = schemeRaw === 'numbers' ? 'numbers' : schemeRaw === 'letters' ? 'letters' : undefined
     const streetLocales = parseStreetLocales(rec.streetLocales)
+    const residentialGroundFloor = parseResidentialGroundFloor(rec.residentialGroundFloor)
     if (!Number.isFinite(floors) || floors < 1 || !Number.isFinite(doorsPerFloor) || doorsPerFloor < 1) {
-      if (streetLocales.length > 0) out[i] = { streetLocales }
+      if (streetLocales.length > 0 || residentialGroundFloor) {
+        out[i] = {
+          ...(streetLocales.length > 0 ? { streetLocales } : {}),
+          ...(residentialGroundFloor ? { residentialGroundFloor: true } : {}),
+        }
+      }
       continue
     }
     const f = clampInt(floors, 1, MAX_FLOORS)
@@ -104,8 +132,9 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
       doorsTopFloor != null
         ? { floors: f, doorsPerFloor: d, doorsTopFloor, doorScheme: scheme }
         : { floors: f, doorsPerFloor: d, doorScheme: scheme }
+    const withGround = residentialGroundFloor ? { ...residential, residentialGroundFloor: true } : residential
     out[i] =
-      streetLocales.length > 0 ? { ...residential, streetLocales } : residential
+      streetLocales.length > 0 ? { ...withGround, streetLocales } : withGround
   }
   return out
 }
@@ -164,23 +193,21 @@ function residentialDwellingSelectOptions(entry: PortalDwellingEntryStored): Dwe
   return { pisoOptions, puertaOptions, puertaOptionsByPiso }
 }
 
-export function dwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
-  const streetLocales = parseStreetLocales(entry.streetLocales)
-  const residential = residentialDwellingSelectOptions(entry)
+function applyResidentialGroundFloor(
+  entry: PortalDwellingEntryStored,
+  residential: DwellingSelectOptions,
+): DwellingSelectOptions {
+  if (!entry.residentialGroundFloor || residential.pisoOptions.length === 0) return residential
 
-  if (streetLocales.length === 0) return residential
+  const doors =
+    typeof entry.doorsPerFloor === 'number' && entry.doorsPerFloor >= 1
+      ? clampInt(entry.doorsPerFloor, 1, MAX_DOORS)
+      : 0
+  const scheme = entry.doorScheme === 'letters' || entry.doorScheme === 'numbers' ? entry.doorScheme : null
+  if (!doors || !scheme) return residential
 
   const bajoKey = STREET_LOCALE_PISO
-  const bajoBlock: Record<string, string[]> = { [bajoKey]: streetLocales }
-
-  if (residential.pisoOptions.length === 0) {
-    return {
-      pisoOptions: [bajoKey],
-      puertaOptions: streetLocales,
-      puertaOptionsByPiso: bajoBlock,
-    }
-  }
-
+  const bajoDoors = doorLabelsForCount(scheme, doors)
   let byPiso = residential.puertaOptionsByPiso
   if (!byPiso) {
     byPiso = {}
@@ -188,11 +215,38 @@ export function dwellingSelectOptions(entry: PortalDwellingEntryStored): Dwellin
       byPiso[piso] = residential.puertaOptions
     }
   }
+  const mergedBajo = mergePuertaLists(byPiso[bajoKey] ?? [], bajoDoors)
+  return {
+    pisoOptions: residential.pisoOptions[0] === bajoKey
+      ? residential.pisoOptions
+      : [bajoKey, ...residential.pisoOptions],
+    puertaOptions: residential.puertaOptions,
+    puertaOptionsByPiso: { ...byPiso, [bajoKey]: mergedBajo },
+  }
+}
+
+export function dwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
+  const streetLocales = parseStreetLocales(entry.streetLocales)
+  let opts = applyResidentialGroundFloor(entry, residentialDwellingSelectOptions(entry))
+
+  if (streetLocales.length === 0) return opts
+
+  const bajoKey = STREET_LOCALE_PISO
+  let byPiso = opts.puertaOptionsByPiso
+  if (!byPiso) {
+    byPiso = {}
+    for (const piso of opts.pisoOptions) {
+      byPiso[piso] = opts.puertaOptions
+    }
+  }
+  const mergedBajo = mergePuertaLists(byPiso[bajoKey] ?? [], streetLocales)
+  byPiso = { ...byPiso, [bajoKey]: mergedBajo }
+  const pisoOptions = opts.pisoOptions.includes(bajoKey) ? opts.pisoOptions : [bajoKey, ...opts.pisoOptions]
 
   return {
-    pisoOptions: [bajoKey, ...residential.pisoOptions],
-    puertaOptions: residential.puertaOptions,
-    puertaOptionsByPiso: { ...bajoBlock, ...byPiso },
+    pisoOptions,
+    puertaOptions: opts.puertaOptions,
+    puertaOptionsByPiso: byPiso,
   }
 }
 
@@ -240,6 +294,7 @@ export function estimateDwellingUnitsFromPortalConfig(raw: unknown, portalCount:
       residential = (f - 1) * d + dt
     }
     sum += residential + parseStreetLocales(e.streetLocales).length
+    if (e.residentialGroundFloor) sum += d
   }
   return sum > 0 ? sum : null
 }

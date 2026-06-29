@@ -94,12 +94,17 @@ export function dwellingUnitKey(portal, piso, puerta) {
   return `${normDwellPart(portal)}\t${normDwellPart(piso)}\t${normDwellPart(puerta)}`
 }
 
-/** Etiqueta para listas de cobertura (alta): resalta locales en bajo. */
+/** Etiqueta para listas de cobertura (alta): resalta locales en bajo con nombre propio. */
 export function formatDwellingCoverageLabel(portal, piso, puerta) {
   const p = normDwellPart(portal)
   const pi = normDwellPart(piso)
   const u = normDwellPart(puerta)
   if (pi.toLowerCase() === STREET_LOCALE_PISO.toLowerCase()) {
+    const isLetter = /^[A-Z]$/i.test(u)
+    const isNumber = /^\d{1,2}$/.test(u)
+    if (isLetter || isNumber) {
+      return formatDwellingLabel(portal, piso, puerta)
+    }
     return `${p} · local «${u}» (bajo)`
   }
   return [p, pi, u].filter(Boolean).join(' · ')

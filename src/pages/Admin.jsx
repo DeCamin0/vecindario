@@ -204,7 +204,7 @@ function normalizePortalDwellingDraftFromApi(raw, portalCount) {
   return Array.from({ length: n }, (_, i) => {
     const o = arr[i]
     if (!o || typeof o !== 'object') {
-      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters', streetLocales: [] }
+      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters', streetLocales: [], residentialGroundFloor: false }
     }
     const floors = typeof o.floors === 'number' && o.floors >= 1 ? String(o.floors) : ''
     const doorsPerFloor =
@@ -213,7 +213,8 @@ function normalizePortalDwellingDraftFromApi(raw, portalCount) {
       typeof o.doorsTopFloor === 'number' && o.doorsTopFloor >= 1 ? String(o.doorsTopFloor) : ''
     const doorScheme = o.doorScheme === 'numbers' ? 'numbers' : 'letters'
     const streetLocales = normalizeStreetLocalesFromApi(o.streetLocales)
-    return { floors, doorsPerFloor, doorsTopFloor, doorScheme, streetLocales }
+    const residentialGroundFloor = o.residentialGroundFloor === true
+    return { floors, doorsPerFloor, doorsTopFloor, doorScheme, streetLocales, residentialGroundFloor }
   })
 }
 
@@ -252,12 +253,18 @@ function estimatePortalDwellingUnitsFromDraft(d) {
   if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) return null
 
   const dtRaw = String(d.doorsTopFloor ?? '').trim()
-  if (dtRaw === '' || f < 2) return f * dp
+  if (dtRaw === '' || f < 2) {
+    let total = f * dp
+    if (d.residentialGroundFloor) total += dp
+    return total
+  }
 
   const dt = parseInt(dtRaw, 10)
   if (!Number.isFinite(dt) || dt < 1 || dt > dp) return null
   if (dt >= dp) return f * dp
-  return (f - 1) * dp + dt
+  let total = (f - 1) * dp + dt
+  if (d.residentialGroundFloor) total += dp
+  return total
 }
 
 /** Resumen en tarjeta: muestra alias o «Portal N». */
@@ -965,14 +972,18 @@ export default function Admin() {
       }
       const portalDwellingConfig = portalsDwellingDraft.map((d) => {
         const streetLocales = buildStreetLocalesForSave(streetLocalesFromDraft(d))
+        const residentialGroundFloor = d.residentialGroundFloor === true
+        const extras = {}
+        if (streetLocales.length > 0) extras.streetLocales = streetLocales
+        if (residentialGroundFloor) extras.residentialGroundFloor = true
         const f = parseInt(String(d.floors ?? '').trim(), 10)
         const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
         if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) {
-          return streetLocales.length > 0 ? { streetLocales } : {}
+          return Object.keys(extras).length > 0 ? extras : {}
         }
         const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
         if (scheme === 'letters' && dp > 26) {
-          return streetLocales.length > 0 ? { streetLocales } : {}
+          return Object.keys(extras).length > 0 ? extras : {}
         }
         let base = { floors: f, doorsPerFloor: dp, doorScheme: scheme }
         const dtRaw = String(d.doorsTopFloor ?? '').trim()
@@ -982,7 +993,9 @@ export default function Admin() {
             base = { ...base, doorsTopFloor: dt }
           }
         }
-        return streetLocales.length > 0 ? { ...base, streetLocales } : base
+        if (residentialGroundFloor) base = { ...base, residentialGroundFloor: true }
+        if (streetLocales.length > 0) base = { ...base, streetLocales }
+        return base
       })
       const res = await fetch(apiUrl(`/api/admin/communities/${portalsModalCommunity.id}`), {
         method: 'PATCH',
@@ -2765,7 +2778,8 @@ export default function Admin() {
                 <p className="admin-portals-replicate-hint">
                   Copia <strong>plantas</strong>, <strong>puertas por planta</strong>,{' '}
                   <strong>puertas última planta</strong> (si aplica) y <strong>etiquetas</strong> desde el primer portal
-                  que tenga alguno de esos datos. Los alias (32, 34…) y los <strong>locales en bajo</strong> no cambian.
+                  que tenga alguno de esos datos. Los alias (32, 34…), la <strong>planta baja de viviendas</strong> y los{' '}
+                  <strong>locales en bajo</strong> no cambian.
                 </p>
               </div>
             ) : null}
@@ -2776,6 +2790,9 @@ export default function Admin() {
                 const localeCount = streetLocalesFromDraft(dwelling).filter((s) => String(s ?? '').trim()).length
                 const fNum = parseInt(String(dwelling.floors ?? '').trim(), 10)
                 const dpNum = parseInt(String(dwelling.doorsPerFloor ?? '').trim(), 10)
+                const bajoViviendas =
+                  dwelling.residentialGroundFloor && Number.isFinite(dpNum) && dpNum >= 1 ? dpNum : 0
+                const estSinBajo = est != null && bajoViviendas > 0 ? est - bajoViviendas : est
                 const dtRaw = String(dwelling.doorsTopFloor ?? '').trim()
                 const dtNum = parseInt(dtRaw, 10)
                 const showAtticBreakdown =
@@ -2876,14 +2893,45 @@ export default function Admin() {
                       Si rellenas un número <strong>menor</strong> que «puertas por planta», la última planta (piso más
                       alto) tendrá solo esas puertas (mismas letras/números desde A o 1). Solo aplica con 2+ plantas.
                     </p>
+                    <label className="admin-portal-ground-floor">
+                      <input
+                        type="checkbox"
+                        checked={!!dwelling.residentialGroundFloor}
+                        disabled={portalsSaving}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setPortalsDwellingDraft((prev) => {
+                            const next = [...prev]
+                            next[i] = { ...(next[i] || {}), residentialGroundFloor: checked }
+                            return next
+                          })
+                        }}
+                      />
+                      <span>Viviendas en planta baja (Bajo / Bº)</span>
+                    </label>
+                    <p className="admin-portal-dwelling-hint">
+                      Marca si este bloque tiene viviendas habitables en bajo (ej. BºA, BºB en el interfono), además de
+                      1º, 2º, 3º… Usa las mismas letras o números que «puertas por planta». Los locales comerciales con
+                      nombre propio se configuran aparte abajo.
+                    </p>
                     <p className="admin-portal-dwelling-total" role="status">
                       {est != null ? (
                         <>
                           <strong>{est + localeCount}</strong> unidades teóricas en este portal
-                          {localeCount > 0 ? (
+                          {localeCount > 0 || bajoViviendas > 0 ? (
                             <span className="admin-portal-dwelling-total-formula">
                               {' '}
-                              ({est} viviendas + {localeCount} local{localeCount === 1 ? '' : 'es'} en bajo)
+                              (
+                              {[
+                                estSinBajo != null ? `${estSinBajo} viviendas (pisos 1+)` : null,
+                                bajoViviendas > 0 ? `${bajoViviendas} en bajo` : null,
+                                localeCount > 0
+                                  ? `${localeCount} local${localeCount === 1 ? '' : 'es'}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' + ')}
+                              )
                             </span>
                           ) : showAtticBreakdown ? (
                             <span className="admin-portal-dwelling-total-formula">
