@@ -16,6 +16,7 @@ import {
  * @param {string | null | undefined} props.selectedDate - YYYY-MM-DD
  * @param {(dateKey: string) => void} props.onDateSelect
  * @param {number} props.maxDaysInAdvance
+ * @param {number} [props.minDaysInAdvance]
  * @param {(dateKey: string) => 'free'|'partial'|'occupied'|'disabled'} props.getDayStatus
  * @param {boolean} [props.showPartialLegend]
  */
@@ -25,10 +26,11 @@ export default function SalonBookingCalendar({
   selectedDate,
   onDateSelect,
   maxDaysInAdvance,
+  minDaysInAdvance = 0,
   getDayStatus,
   showPartialLegend = false,
 }) {
-  const cells = buildSalonCalendarCells(monthYear, maxDaysInAdvance)
+  const cells = buildSalonCalendarCells(monthYear, maxDaysInAdvance, new Date(), minDaysInAdvance)
   const canPrev = canNavigateSalonMonthPrev(monthYear)
   const canNext = canNavigateSalonMonthNext(monthYear, maxDaysInAdvance)
   const title = formatYearMonthLabel(monthYear)
@@ -36,7 +38,7 @@ export default function SalonBookingCalendar({
   const goToday = () => {
     const ym = currentYearMonth()
     onMonthChange(ym)
-    const todayCells = buildSalonCalendarCells(ym, maxDaysInAdvance)
+    const todayCells = buildSalonCalendarCells(ym, maxDaysInAdvance, new Date(), minDaysInAdvance)
     const todayCell = todayCells.find((c) => c.type === 'day' && c.isToday && c.selectable)
     if (todayCell) onDateSelect(todayCell.key)
   }

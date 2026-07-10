@@ -11,6 +11,11 @@ export type PortalDwellingEntryStored = {
   doorsPerFloor?: number
   /** Última planta (ático): menos puertas que el resto. Opcional; si falta o iguala a doorsPerFloor, misma estructura en todas las plantas. */
   doorsTopFloor?: number
+  /**
+   * Puertas distintas por planta (claves "1"…"N"). Si está completo para todas las plantas, tiene prioridad
+   * sobre doorsPerFloor / doorsTopFloor. Compatible con comunidades ya configuradas sin este campo.
+   */
+  doorsPerFloorByPiso?: Record<string, number>
   doorScheme?: 'letters' | 'numbers'
   /** Locales en planta baja con nombre libre (ej. Farmacia). Opcional por portal. */
   streetLocales?: string[]
@@ -81,6 +86,60 @@ function doorLabelsForCount(scheme: 'letters' | 'numbers', count: number): strin
   return Array.from({ length: c }, (_, i) => String(i + 1))
 }
 
+/** Mapa planta → puertas; null si falta alguna planta o hay valores inválidos. 0 = planta sin viviendas. */
+function parseDoorsPerFloorByPiso(
+  raw: unknown,
+  floors: number,
+  scheme: 'letters' | 'numbers',
+): Record<string, number> | null {
+  if (!raw || typeof raw !== 'object' || floors < 1) return null
+  const rec = raw as Record<string, unknown>
+  const out: Record<string, number> = {}
+  for (let pi = 1; pi <= floors; pi += 1) {
+    const key = String(pi)
+    const v = rec[key] ?? rec[pi as unknown as string]
+    const n = typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10)
+    if (!Number.isFinite(n) || n < 0) return null
+    const c = clampInt(n, 0, MAX_DOORS)
+    if (scheme === 'letters' && c > 26) return null
+    out[key] = c
+  }
+  return out
+}
+
+function parseBajoDoorsFromMap(
+  raw: unknown,
+  scheme: 'letters' | 'numbers',
+): number | null {
+  if (!raw || typeof raw !== 'object') return null
+  const rec = raw as Record<string, unknown>
+  const v = rec[STREET_LOCALE_PISO] ?? rec.Bajo ?? rec.bajo
+  const n = typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10)
+  if (!Number.isFinite(n) || n < 1) return null
+  const c = clampInt(n, 1, MAX_DOORS)
+  if (scheme === 'letters' && c > 26) return null
+  return c
+}
+
+function sumDoorsPerFloorByPiso(
+  map: Record<string, number>,
+  floors: number,
+  includeBajo: boolean,
+): number {
+  let sum = 0
+  if (includeBajo) {
+    const bajo = map[STREET_LOCALE_PISO]
+    if (typeof bajo !== 'number' || bajo < 1) return 0
+    sum += bajo
+  }
+  for (let pi = 1; pi <= floors; pi += 1) {
+    const n = map[String(pi)]
+    if (typeof n !== 'number' || n < 0) return 0
+    if (n >= 1) sum += n
+  }
+  return sum
+}
+
 /** Normaliza entrada de BD a array de longitud portalCount (huecos = {}). */
 export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number): PortalDwellingEntryStored[] {
   const n = Math.min(999, Math.max(1, Number(portalCount) || 1))
@@ -103,6 +162,29 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
     const doorScheme = schemeRaw === 'numbers' ? 'numbers' : schemeRaw === 'letters' ? 'letters' : undefined
     const streetLocales = parseStreetLocales(rec.streetLocales)
     const residentialGroundFloor = parseResidentialGroundFloor(rec.residentialGroundFloor)
+    const floorsOnly =
+      Number.isFinite(floors) && floors >= 1 && doorScheme && (!Number.isFinite(doorsPerFloor) || doorsPerFloor < 1)
+    if (floorsOnly) {
+      const fOnly = clampInt(floors, 1, MAX_FLOORS)
+      const byPisoOnly = parseDoorsPerFloorByPiso(rec.doorsPerFloorByPiso, fOnly, doorScheme)
+      if (byPisoOnly) {
+        let maxDoors = Math.max(0, ...Object.values(byPisoOnly))
+        if (residentialGroundFloor) {
+          const bajo = parseBajoDoorsFromMap(rec.doorsPerFloorByPiso, doorScheme)
+          if (bajo) maxDoors = Math.max(maxDoors, bajo)
+        }
+        if (maxDoors < 1) continue
+        out[i] = {
+          floors: fOnly,
+          doorsPerFloor: maxDoors,
+          doorsPerFloorByPiso: byPisoOnly,
+          doorScheme,
+          ...(streetLocales.length > 0 ? { streetLocales } : {}),
+          ...(residentialGroundFloor ? { residentialGroundFloor: true } : {}),
+        }
+        continue
+      }
+    }
     if (!Number.isFinite(floors) || floors < 1 || !Number.isFinite(doorsPerFloor) || doorsPerFloor < 1) {
       if (streetLocales.length > 0 || residentialGroundFloor) {
         out[i] = {
@@ -128,8 +210,10 @@ export function normalizePortalDwellingFromDb(raw: unknown, portalCount: number)
       if (doorScheme === 'letters' && dt > 26) continue
       if (dt < d) doorsTopFloor = dt
     }
-    const residential: PortalDwellingEntryStored =
-      doorsTopFloor != null
+    const byPiso = parseDoorsPerFloorByPiso(rec.doorsPerFloorByPiso, f, scheme)
+    const residential: PortalDwellingEntryStored = byPiso
+      ? { floors: f, doorsPerFloor: d, doorsPerFloorByPiso: byPiso, doorScheme: scheme }
+      : doorsTopFloor != null
         ? { floors: f, doorsPerFloor: d, doorsTopFloor, doorScheme: scheme }
         : { floors: f, doorsPerFloor: d, doorScheme: scheme }
     const withGround = residentialGroundFloor ? { ...residential, residentialGroundFloor: true } : residential
@@ -171,6 +255,38 @@ function residentialDwellingSelectOptions(entry: PortalDwellingEntryStored): Dwe
   if (scheme === 'letters' && doors > 26) return { pisoOptions: [], puertaOptions: [] }
 
   const pisoOptions = Array.from({ length: floors }, (_, i) => String(i + 1))
+  const byPisoMap = parseDoorsPerFloorByPiso(entry.doorsPerFloorByPiso, floors, scheme)
+  if (byPisoMap) {
+    const puertaOptionsByPiso: Record<string, string[]> = {}
+    let maxDoors = 0
+    const activePisos: string[] = []
+    for (let pi = 1; pi <= floors; pi += 1) {
+      const n = byPisoMap[String(pi)]!
+      if (n < 1) continue
+      maxDoors = Math.max(maxDoors, n)
+      activePisos.push(String(pi))
+      puertaOptionsByPiso[String(pi)] = doorLabelsForCount(scheme, n)
+    }
+    let pisoOptions = activePisos
+    if (entry.residentialGroundFloor) {
+      const bajoCount =
+        parseBajoDoorsFromMap(entry.doorsPerFloorByPiso, scheme) ??
+        clampInt(doors, 1, MAX_DOORS)
+      const bajoKey = STREET_LOCALE_PISO
+      puertaOptionsByPiso[bajoKey] = doorLabelsForCount(scheme, bajoCount)
+      maxDoors = Math.max(maxDoors, bajoCount)
+      pisoOptions = [bajoKey, ...pisoOptions]
+    }
+    if (pisoOptions.length === 0 || maxDoors < 1) {
+      return { pisoOptions: [], puertaOptions: [] }
+    }
+    return {
+      pisoOptions,
+      puertaOptions: doorLabelsForCount(scheme, maxDoors),
+      puertaOptionsByPiso,
+    }
+  }
+
   let dt: number | null =
     typeof entry.doorsTopFloor === 'number' && entry.doorsTopFloor >= 1
       ? clampInt(entry.doorsTopFloor, 1, doors)
@@ -199,6 +315,9 @@ function applyResidentialGroundFloor(
 ): DwellingSelectOptions {
   if (!entry.residentialGroundFloor || residential.pisoOptions.length === 0) return residential
 
+  const bajoKey = STREET_LOCALE_PISO
+  if (residential.pisoOptions.includes(bajoKey)) return residential
+
   const doors =
     typeof entry.doorsPerFloor === 'number' && entry.doorsPerFloor >= 1
       ? clampInt(entry.doorsPerFloor, 1, MAX_DOORS)
@@ -206,7 +325,6 @@ function applyResidentialGroundFloor(
   const scheme = entry.doorScheme === 'letters' || entry.doorScheme === 'numbers' ? entry.doorScheme : null
   if (!doors || !scheme) return residential
 
-  const bajoKey = STREET_LOCALE_PISO
   const bajoDoors = doorLabelsForCount(scheme, doors)
   let byPiso = residential.puertaOptionsByPiso
   if (!byPiso) {
@@ -227,7 +345,7 @@ function applyResidentialGroundFloor(
 
 export function dwellingSelectOptions(entry: PortalDwellingEntryStored): DwellingSelectOptions {
   const streetLocales = parseStreetLocales(entry.streetLocales)
-  let opts = applyResidentialGroundFloor(entry, residentialDwellingSelectOptions(entry))
+  const opts = applyResidentialGroundFloor(entry, residentialDwellingSelectOptions(entry))
 
   if (streetLocales.length === 0) return opts
 
@@ -285,16 +403,25 @@ export function estimateDwellingUnitsFromPortalConfig(raw: unknown, portalCount:
     const f = typeof e.floors === 'number' && e.floors >= 1 ? e.floors : 0
     const d = typeof e.doorsPerFloor === 'number' && e.doorsPerFloor >= 1 ? e.doorsPerFloor : 0
     if (!f || !d) continue
-    const dt: number | null =
-      typeof e.doorsTopFloor === 'number' && e.doorsTopFloor >= 1 ? clampInt(e.doorsTopFloor, 1, d) : null
+    const scheme = e.doorScheme === 'letters' || e.doorScheme === 'numbers' ? e.doorScheme : 'numbers'
+    const byPiso = parseDoorsPerFloorByPiso(e.doorsPerFloorByPiso, f, scheme)
     let residential = 0
-    if (f < 2 || dt == null || dt >= d) {
-      residential = f * d
+    if (byPiso) {
+      residential = sumDoorsPerFloorByPiso(byPiso, f, false)
+      if (e.residentialGroundFloor) {
+        residential += parseBajoDoorsFromMap(e.doorsPerFloorByPiso, scheme) ?? d
+      }
     } else {
-      residential = (f - 1) * d + dt
+      const dt: number | null =
+        typeof e.doorsTopFloor === 'number' && e.doorsTopFloor >= 1 ? clampInt(e.doorsTopFloor, 1, d) : null
+      if (f < 2 || dt == null || dt >= d) {
+        residential = f * d
+      } else {
+        residential = (f - 1) * d + dt
+      }
     }
     sum += residential + parseStreetLocales(e.streetLocales).length
-    if (e.residentialGroundFloor) sum += d
+    if (e.residentialGroundFloor && !byPiso) sum += d
   }
   return sum > 0 ? sum : null
 }

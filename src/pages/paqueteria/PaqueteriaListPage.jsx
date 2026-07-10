@@ -19,7 +19,7 @@ import {
 import { isSpecialParcel } from './parcelDeliveryKind.js'
 
 export default function PaqueteriaListPage() {
-  const { accessToken, communityId, communityAccessCode, userRole, paqueteriaSpecialDeliveryEnabled, appNavFlagsReady } =
+  const { accessToken, communityId, communityAccessCode, userRole, paqueteriaSpecialDeliveryEnabled, paqueteriaKeyLoansEnabled, appNavFlagsReady } =
     useAuth()
   const [parcels, setParcels] = useState([])
   const [loading, setLoading] = useState(true)
@@ -141,6 +141,11 @@ export default function PaqueteriaListPage() {
           {appNavFlagsReady && paqueteriaSpecialDeliveryEnabled ? (
             <Link to="/paqueteria/entrega-especial/nuevo" className="btn btn--secondary">
               Entrega especial
+            </Link>
+          ) : null}
+          {appNavFlagsReady && paqueteriaKeyLoansEnabled ? (
+            <Link to="/paqueteria/llaves" className="btn btn--secondary">
+              Cuaderno de llaves
             </Link>
           ) : null}
         </p>

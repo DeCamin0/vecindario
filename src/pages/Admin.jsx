@@ -99,6 +99,17 @@ function padWallClockForInput(raw, fallback) {
 }
 
 /** Garantiza id por fila: reservas y URLs usan id; el nombre solo es la etiqueta visible. */
+function parseTimeSlotsFromApi(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw.map((s, idx) => ({
+    key: `ts-${typeof s?.id === 'string' ? s.id : idx}-${idx}`,
+    id: typeof s?.id === 'string' && s.id.trim() ? s.id.trim() : `slot-${idx + 1}`,
+    label: typeof s?.label === 'string' ? s.label : '',
+    start: typeof s?.start === 'string' ? s.start : '12:00',
+    end: typeof s?.end === 'string' ? s.end : '17:00',
+  }))
+}
+
 function normalizeCustomSpacesFromApi(customLocations) {
   if (!Array.isArray(customLocations)) return []
   const seen = new Set()
@@ -124,12 +135,32 @@ function normalizeCustomSpacesFromApi(customLocations) {
       advanceLimitEnabled = true
       maxDaysInAdvance = String(Math.min(365, Math.max(1, Math.trunc(Number(rawMax)))))
     }
+    const rawMin = item?.minDaysInAdvance
+    const minAdvanceEnabled =
+      rawMin !== undefined && rawMin !== null && Number.isFinite(Number(rawMin)) && Number(rawMin) > 0
+    const timeSlots = parseTimeSlotsFromApi(item?.timeSlots)
+    const hasRegs =
+      Boolean(String(item?.rulesText ?? '').trim()) ||
+      (item?.usageFeeEur != null && Number(item.usageFeeEur) > 0) ||
+      (item?.depositEur != null && Number(item.depositEur) > 0) ||
+      minAdvanceEnabled ||
+      timeSlots.length > 0
     return {
       key: `row-${uniqueId}-${idx}`,
       id: uniqueId,
       name,
       advanceLimitEnabled,
       maxDaysInAdvance,
+      minAdvanceEnabled,
+      minDaysInAdvance: minAdvanceEnabled
+        ? String(Math.min(365, Math.max(1, Math.trunc(Number(rawMin)))))
+        : '7',
+      rulesText: typeof item?.rulesText === 'string' ? item.rulesText : '',
+      usageFeeEur: item?.usageFeeEur != null && item.usageFeeEur !== '' ? String(item.usageFeeEur) : '',
+      depositEur: item?.depositEur != null && item.depositEur !== '' ? String(item.depositEur) : '',
+      customSlotsEnabled: timeSlots.length > 0,
+      timeSlots,
+      regulationsOpen: hasRegs,
     }
   })
 }
@@ -198,15 +229,96 @@ function normalizeStreetLocalesFromApi(raw) {
   return out
 }
 
+function emptyPortalDwellingDraft() {
+  return {
+    floors: '',
+    doorsPerFloor: '',
+    doorsTopFloor: '',
+    doorScheme: 'letters',
+    streetLocales: [],
+    residentialGroundFloor: false,
+    useVariableDoorsPerFloor: false,
+    doorsPerFloorByPiso: [],
+  }
+}
+
+const BAJO_PISO_KEY = 'Bajo'
+
+function hasVariableDoorsFromApi(o, floorsNum) {
+  if (!o || typeof o !== 'object' || floorsNum < 1) return false
+  const raw = o.doorsPerFloorByPiso
+  if (!raw || typeof raw !== 'object') return false
+  if (typeof raw[BAJO_PISO_KEY] === 'number') return true
+  for (let pi = 1; pi <= floorsNum; pi += 1) {
+    if (typeof raw[String(pi)] === 'number') return true
+  }
+  return false
+}
+
+function variableFloorRows(dwelling) {
+  if (!dwelling?.useVariableDoorsPerFloor) return []
+  const f = parseInt(String(dwelling.floors ?? '').trim(), 10)
+  if (!Number.isFinite(f) || f < 1) return []
+  const rows = []
+  if (dwelling.residentialGroundFloor) {
+    rows.push({ label: 'Bajo', mapKey: BAJO_PISO_KEY, draftIndex: rows.length })
+  }
+  for (let pi = 1; pi <= f; pi += 1) {
+    rows.push({ label: `Planta ${pi}`, mapKey: String(pi), draftIndex: rows.length })
+  }
+  return rows
+}
+
+function doorsPerFloorByPisoArrayFromApi(o, floors, residentialGroundFloor) {
+  if (!o || typeof o !== 'object' || !Number.isFinite(floors) || floors < 1) return null
+  const raw = o.doorsPerFloorByPiso
+  if (!raw || typeof raw !== 'object') return null
+  const arr = []
+  if (residentialGroundFloor) {
+    const bajo = raw[BAJO_PISO_KEY]
+    if (typeof bajo === 'number' && bajo >= 1) {
+      arr.push(String(bajo))
+    } else {
+      const fallback =
+        typeof o.doorsPerFloor === 'number' && o.doorsPerFloor >= 1 ? String(o.doorsPerFloor) : ''
+      arr.push(fallback !== '' ? fallback : '1')
+    }
+  }
+  for (let pi = 1; pi <= floors; pi += 1) {
+    const v = raw[String(pi)]
+    if (typeof v !== 'number' || v < 0) return null
+    arr.push(String(v))
+  }
+  return arr
+}
+
+function resizeDoorsPerFloorByPisoDraft(prevArr, floors, defaultDoors, includeBajo) {
+  const def = String(defaultDoors ?? '').trim() || '1'
+  const prev = Array.isArray(prevArr) ? prevArr : []
+  const out = []
+  const hadBajoRow = prev.length === floors + 1
+  if (includeBajo) {
+    const bajoVal = hadBajoRow ? String(prev[0] ?? '').trim() : ''
+    out.push(bajoVal !== '' ? bajoVal : def)
+  }
+  const srcStart = hadBajoRow ? 1 : 0
+  for (let pi = 0; pi < floors; pi += 1) {
+    const existing = String(prev[srcStart + pi] ?? '').trim()
+    out.push(existing !== '' ? existing : def)
+  }
+  return out
+}
+
 function normalizePortalDwellingDraftFromApi(raw, portalCount) {
   const n = Math.min(999, Math.max(1, Number(portalCount) || 1))
   const arr = Array.isArray(raw) ? raw : []
   return Array.from({ length: n }, (_, i) => {
     const o = arr[i]
     if (!o || typeof o !== 'object') {
-      return { floors: '', doorsPerFloor: '', doorsTopFloor: '', doorScheme: 'letters', streetLocales: [], residentialGroundFloor: false }
+      return emptyPortalDwellingDraft()
     }
     const floors = typeof o.floors === 'number' && o.floors >= 1 ? String(o.floors) : ''
+    const floorsNum = floors !== '' ? parseInt(floors, 10) : 0
     const doorsPerFloor =
       typeof o.doorsPerFloor === 'number' && o.doorsPerFloor >= 1 ? String(o.doorsPerFloor) : ''
     const doorsTopFloor =
@@ -214,7 +326,23 @@ function normalizePortalDwellingDraftFromApi(raw, portalCount) {
     const doorScheme = o.doorScheme === 'numbers' ? 'numbers' : 'letters'
     const streetLocales = normalizeStreetLocalesFromApi(o.streetLocales)
     const residentialGroundFloor = o.residentialGroundFloor === true
-    return { floors, doorsPerFloor, doorsTopFloor, doorScheme, streetLocales, residentialGroundFloor }
+    const byPisoArr =
+      floorsNum > 0 ? doorsPerFloorByPisoArrayFromApi(o, floorsNum, residentialGroundFloor) : null
+    const useVariable = hasVariableDoorsFromApi(o, floorsNum) || byPisoArr != null
+    return {
+      floors,
+      doorsPerFloor,
+      doorsTopFloor,
+      doorScheme,
+      streetLocales,
+      residentialGroundFloor,
+      useVariableDoorsPerFloor: useVariable,
+      doorsPerFloorByPiso:
+        byPisoArr ??
+        (useVariable
+          ? resizeDoorsPerFloorByPisoDraft([], floorsNum, doorsPerFloor, residentialGroundFloor)
+          : []),
+    }
   })
 }
 
@@ -249,21 +377,36 @@ function buildStreetLocalesForSave(names) {
 function estimatePortalDwellingUnitsFromDraft(d) {
   if (!d || typeof d !== 'object') return null
   const f = parseInt(String(d.floors ?? '').trim(), 10)
-  const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
-  if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) return null
+  if (!Number.isFinite(f) || f < 1 || f > 50) return null
 
-  const dtRaw = String(d.doorsTopFloor ?? '').trim()
-  if (dtRaw === '' || f < 2) {
-    let total = f * dp
-    if (d.residentialGroundFloor) total += dp
-    return total
+  let total = null
+  if (d.useVariableDoorsPerFloor && Array.isArray(d.doorsPerFloorByPiso)) {
+    let sum = 0
+    for (const row of variableFloorRows(d)) {
+      const n = parseInt(String(d.doorsPerFloorByPiso[row.draftIndex] ?? '').trim(), 10)
+      if (!Number.isFinite(n) || n < 0 || n > 26) return null
+      sum += n
+    }
+    total = sum
+  } else {
+    const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
+    if (!Number.isFinite(dp) || dp < 1 || dp > 26) return null
+
+    const dtRaw = String(d.doorsTopFloor ?? '').trim()
+    if (dtRaw === '' || f < 2) {
+      total = f * dp
+    } else {
+      const dt = parseInt(dtRaw, 10)
+      if (!Number.isFinite(dt) || dt < 1 || dt > dp) return null
+      if (dt >= dp) total = f * dp
+      else total = (f - 1) * dp + dt
+    }
   }
 
-  const dt = parseInt(dtRaw, 10)
-  if (!Number.isFinite(dt) || dt < 1 || dt > dp) return null
-  if (dt >= dp) return f * dp
-  let total = (f - 1) * dp + dt
-  if (d.residentialGroundFloor) total += dp
+  if (d.residentialGroundFloor && !d.useVariableDoorsPerFloor) {
+    const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
+    if (Number.isFinite(dp) && dp >= 1) total += dp
+  }
   return total
 }
 
@@ -352,6 +495,7 @@ const emptyForm = {
   appNavPoolAccessEnabled: false,
   appNavPaqueteriaEnabled: false,
   paqueteriaSpecialDeliveryEnabled: false,
+  paqueteriaKeyLoansEnabled: false,
   appNavCuadernoDiarioEnabled: false,
   serviceCategoryModes: defaultServiceCategoryModesRecord(),
   padelCourtCount: '0',
@@ -881,6 +1025,7 @@ export default function Admin() {
       appNavPoolAccessEnabled: c.appNavPoolAccessEnabled === true,
       appNavPaqueteriaEnabled: c.appNavPaqueteriaEnabled === true,
       paqueteriaSpecialDeliveryEnabled: c.paqueteriaSpecialDeliveryEnabled === true,
+      paqueteriaKeyLoansEnabled: c.paqueteriaKeyLoansEnabled === true,
       appNavCuadernoDiarioEnabled: c.appNavCuadernoDiarioEnabled === true,
       serviceCategoryModes: (() => {
         const base = defaultServiceCategoryModesRecord()
@@ -934,8 +1079,12 @@ export default function Admin() {
       const d = draft[i] || {}
       const hasFloors = String(d.floors ?? '').trim() !== ''
       const hasDoors = String(d.doorsPerFloor ?? '').trim() !== ''
+      const hasVariable =
+        d.useVariableDoorsPerFloor &&
+        Array.isArray(d.doorsPerFloorByPiso) &&
+        d.doorsPerFloorByPiso.some((x) => String(x ?? '').trim() !== '')
       const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
-      if (hasFloors || hasDoors || scheme === 'numbers') {
+      if (hasFloors || hasDoors || hasVariable || scheme === 'numbers') {
         src = i
         break
       }
@@ -952,8 +1101,19 @@ export default function Admin() {
     const doorsPerFloor = String(t.doorsPerFloor ?? '').trim()
     const doorsTopFloor = String(t.doorsTopFloor ?? '').trim()
     const doorScheme = t.doorScheme === 'numbers' ? 'numbers' : 'letters'
+    const useVariableDoorsPerFloor = !!t.useVariableDoorsPerFloor
+    const doorsPerFloorByPiso = Array.isArray(t.doorsPerFloorByPiso) ? [...t.doorsPerFloorByPiso] : []
     setPortalsDwellingDraft((prev) =>
-      prev.map(() => ({ floors, doorsPerFloor, doorsTopFloor, doorScheme })),
+      prev.map((row) => ({
+        floors,
+        doorsPerFloor,
+        doorsTopFloor,
+        doorScheme,
+        useVariableDoorsPerFloor,
+        doorsPerFloorByPiso: [...doorsPerFloorByPiso],
+        streetLocales: streetLocalesFromDraft(row),
+        residentialGroundFloor: !!row?.residentialGroundFloor,
+      })),
     )
   }
 
@@ -969,6 +1129,32 @@ export default function Admin() {
           setPortalsError(localeErr)
           return
         }
+        const d = portalsDwellingDraft[i]
+        if (d?.useVariableDoorsPerFloor) {
+          const f = parseInt(String(d.floors ?? '').trim(), 10)
+          if (!Number.isFinite(f) || f < 1 || f > 50) {
+            setPortalsError(`Indica el número de plantas en ${portalLabel} para usar puertas distintas por planta.`)
+            return
+          }
+          const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
+          let unitSum = 0
+          for (const row of variableFloorRows(d)) {
+            const n = parseInt(String(d.doorsPerFloorByPiso?.[row.draftIndex] ?? '').trim(), 10)
+            if (!Number.isFinite(n) || n < 0 || n > 26) {
+              setPortalsError(`Completa las puertas de ${row.label} en ${portalLabel} (0 = sin viviendas).`)
+              return
+            }
+            if (scheme === 'letters' && n > 26) {
+              setPortalsError(`Máximo 26 puertas con letras en ${row.label} (${portalLabel}).`)
+              return
+            }
+            unitSum += n
+          }
+          if (unitSum < 1) {
+            setPortalsError(`Indica al menos una vivienda en ${portalLabel} (suma de puertas por planta).`)
+            return
+          }
+        }
       }
       const portalDwellingConfig = portalsDwellingDraft.map((d) => {
         const streetLocales = buildStreetLocalesForSave(streetLocalesFromDraft(d))
@@ -978,10 +1164,32 @@ export default function Admin() {
         if (residentialGroundFloor) extras.residentialGroundFloor = true
         const f = parseInt(String(d.floors ?? '').trim(), 10)
         const dp = parseInt(String(d.doorsPerFloor ?? '').trim(), 10)
+        const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
+        const useVariable = d.useVariableDoorsPerFloor === true
+
+        if (useVariable && Number.isFinite(f) && f >= 1 && f <= 50) {
+          const map = {}
+          let maxDoors = 0
+          for (const row of variableFloorRows(d)) {
+            const n = parseInt(String(d.doorsPerFloorByPiso?.[row.draftIndex] ?? '').trim(), 10)
+            if (!Number.isFinite(n) || n < 0 || n > 26) {
+              return Object.keys(extras).length > 0 ? extras : {}
+            }
+            if (scheme === 'letters' && n > 26) {
+              return Object.keys(extras).length > 0 ? extras : {}
+            }
+            map[row.mapKey] = n
+            maxDoors = Math.max(maxDoors, n)
+          }
+          let base = { floors: f, doorsPerFloor: maxDoors, doorScheme: scheme, doorsPerFloorByPiso: map }
+          if (residentialGroundFloor) base = { ...base, residentialGroundFloor: true }
+          if (streetLocales.length > 0) base = { ...base, streetLocales }
+          return base
+        }
+
         if (!Number.isFinite(f) || !Number.isFinite(dp) || f < 1 || f > 50 || dp < 1 || dp > 26) {
           return Object.keys(extras).length > 0 ? extras : {}
         }
-        const scheme = d.doorScheme === 'numbers' ? 'numbers' : 'letters'
         if (scheme === 'letters' && dp > 26) {
           return Object.keys(extras).length > 0 ? extras : {}
         }
@@ -1024,7 +1232,21 @@ export default function Admin() {
       ...f,
       customSpaces: [
         ...f.customSpaces,
-        { key: `k-${Date.now()}`, id: newUniqueSpaceId(), name: '', advanceLimitEnabled: true, maxDaysInAdvance: '14' },
+        {
+          key: `k-${Date.now()}`,
+          id: newUniqueSpaceId(),
+          name: '',
+          advanceLimitEnabled: true,
+          maxDaysInAdvance: '14',
+          minAdvanceEnabled: false,
+          minDaysInAdvance: '7',
+          rulesText: '',
+          usageFeeEur: '',
+          depositEur: '',
+          customSlotsEnabled: false,
+          timeSlots: [],
+          regulationsOpen: false,
+        },
       ],
     }))
   }
@@ -1059,6 +1281,58 @@ export default function Admin() {
       customSpaces: f.customSpaces.map((s) =>
         s.key === key ? { ...s, maxDaysInAdvance: digits } : s,
       ),
+    }))
+  }
+
+  const patchCustomSpace = (key, patch) => {
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) => (s.key === key ? { ...s, ...patch } : s)),
+    }))
+  }
+
+  const addCustomSpaceTimeSlot = (spaceKey) => {
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) => {
+        if (s.key !== spaceKey) return s
+        const slots = Array.isArray(s.timeSlots) ? [...s.timeSlots] : []
+        const n = slots.length + 1
+        return {
+          ...s,
+          customSlotsEnabled: true,
+          timeSlots: [
+            ...slots,
+            { key: `ts-new-${Date.now()}`, id: `turno-${n}`, label: `Turno ${n}`, start: '12:00', end: '17:00' },
+          ],
+        }
+      }),
+    }))
+  }
+
+  const updateCustomSpaceTimeSlot = (spaceKey, slotKey, field, value) => {
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) => {
+        if (s.key !== spaceKey) return s
+        return {
+          ...s,
+          timeSlots: (s.timeSlots || []).map((slot) =>
+            slot.key === slotKey ? { ...slot, [field]: value } : slot,
+          ),
+        }
+      }),
+    }))
+  }
+
+  const removeCustomSpaceTimeSlot = (spaceKey, slotKey) => {
+    setForm((f) => ({
+      ...f,
+      customSpaces: f.customSpaces.map((s) => {
+        if (s.key !== spaceKey) return s
+        const next = (s.timeSlots || []).filter((slot) => slot.key !== slotKey)
+        return { ...s, timeSlots: next, customSlotsEnabled: next.length > 0 }
+      }),
     }))
   }
 
@@ -1142,6 +1416,29 @@ export default function Admin() {
           } else {
             row.maxDaysInAdvance = null
           }
+          if (s.minAdvanceEnabled) {
+            const mn = Number.parseInt(String(s.minDaysInAdvance ?? '').trim(), 10)
+            if (Number.isFinite(mn) && mn >= 1) row.minDaysInAdvance = Math.min(365, mn)
+          }
+          const rules = String(s.rulesText ?? '').trim()
+          if (rules) row.rulesText = rules.slice(0, 8000)
+          const fee = Number.parseFloat(String(s.usageFeeEur ?? '').replace(',', '.'))
+          if (Number.isFinite(fee) && fee > 0) row.usageFeeEur = Math.round(fee * 100) / 100
+          const dep = Number.parseFloat(String(s.depositEur ?? '').replace(',', '.'))
+          if (Number.isFinite(dep) && dep > 0) row.depositEur = Math.round(dep * 100) / 100
+          if (s.customSlotsEnabled && Array.isArray(s.timeSlots) && s.timeSlots.length > 0) {
+            const slots = []
+            for (const slot of s.timeSlots) {
+              const label = String(slot.label ?? '').trim().slice(0, 80)
+              const start = String(slot.start ?? '').trim()
+              const end = String(slot.end ?? '').trim()
+              if (!label || !/^\d{1,2}:\d{2}$/.test(start) || !/^\d{1,2}:\d{2}$/.test(end)) continue
+              let sid = String(slot.id ?? '').trim().slice(0, 64)
+              if (!sid) sid = `turno-${slots.length + 1}`
+              slots.push({ id: sid, label, start, end })
+            }
+            if (slots.length > 0) row.timeSlots = slots
+          }
           return row
         })
 
@@ -1190,6 +1487,7 @@ export default function Admin() {
         appNavPaqueteriaEnabled: form.appNavPaqueteriaEnabled,
         paqueteriaSpecialDeliveryEnabled:
           form.appNavPaqueteriaEnabled && form.paqueteriaSpecialDeliveryEnabled,
+        paqueteriaKeyLoansEnabled: form.appNavPaqueteriaEnabled && form.paqueteriaKeyLoansEnabled,
         appNavCuadernoDiarioEnabled: form.appNavCuadernoDiarioEnabled,
         serviceRequestCategoryModes: form.serviceCategoryModes,
         padelCourtCount,
@@ -2311,7 +2609,7 @@ export default function Admin() {
                                 const checked = e.target.checked
                                 patchCommunityNavTabs(community, {
                                   appNavPaqueteriaEnabled: checked,
-                                  ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false }),
+                                  ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false, paqueteriaKeyLoansEnabled: false }),
                                 })
                               }}
                             />
@@ -2332,6 +2630,22 @@ export default function Admin() {
                               }
                             />
                             <span>Entrega especial</span>
+                          </label>
+                          <label className="admin-nav-tab-check admin-nav-tab-check--sub">
+                            <input
+                              type="checkbox"
+                              checked={community.paqueteriaKeyLoansEnabled === true}
+                              disabled={
+                                navTabSavingId === community.id ||
+                                community.appNavPaqueteriaEnabled !== true
+                              }
+                              onChange={(e) =>
+                                patchCommunityNavTabs(community, {
+                                  paqueteriaKeyLoansEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Registro de llaves</span>
                           </label>
                           <label className="admin-nav-tab-check">
                             <input
@@ -2777,6 +3091,7 @@ export default function Admin() {
                 </button>
                 <p className="admin-portals-replicate-hint">
                   Copia <strong>plantas</strong>, <strong>puertas por planta</strong>,{' '}
+                  <strong>puertas por planta (detalle)</strong> si está activo,{' '}
                   <strong>puertas última planta</strong> (si aplica) y <strong>etiquetas</strong> desde el primer portal
                   que tenga alguno de esos datos. Los alias (32, 34…), la <strong>planta baja de viviendas</strong> y los{' '}
                   <strong>locales en bajo</strong> no cambian.
@@ -2790,13 +3105,24 @@ export default function Admin() {
                 const localeCount = streetLocalesFromDraft(dwelling).filter((s) => String(s ?? '').trim()).length
                 const fNum = parseInt(String(dwelling.floors ?? '').trim(), 10)
                 const dpNum = parseInt(String(dwelling.doorsPerFloor ?? '').trim(), 10)
+                const variableFloorRowsList = variableFloorRows(dwelling)
                 const bajoViviendas =
-                  dwelling.residentialGroundFloor && Number.isFinite(dpNum) && dpNum >= 1 ? dpNum : 0
+                  dwelling.useVariableDoorsPerFloor && dwelling.residentialGroundFloor
+                    ? (() => {
+                        const row = variableFloorRowsList.find((r) => r.mapKey === BAJO_PISO_KEY)
+                        if (!row) return 0
+                        const n = parseInt(String(dwelling.doorsPerFloorByPiso?.[row.draftIndex] ?? '').trim(), 10)
+                        return Number.isFinite(n) && n >= 1 ? n : 0
+                      })()
+                    : dwelling.residentialGroundFloor && Number.isFinite(dpNum) && dpNum >= 1
+                      ? dpNum
+                      : 0
                 const estSinBajo = est != null && bajoViviendas > 0 ? est - bajoViviendas : est
                 const dtRaw = String(dwelling.doorsTopFloor ?? '').trim()
                 const dtNum = parseInt(dtRaw, 10)
                 const showAtticBreakdown =
                   est != null &&
+                  !dwelling.useVariableDoorsPerFloor &&
                   dtRaw !== '' &&
                   Number.isFinite(fNum) &&
                   fNum >= 2 &&
@@ -2844,7 +3170,22 @@ export default function Admin() {
                         const v = e.target.value
                         setPortalsDwellingDraft((prev) => {
                           const next = [...prev]
-                          next[i] = { ...(next[i] || {}), floors: v }
+                          const cur = next[i] || {}
+                          const floorsNum = parseInt(String(v).trim(), 10)
+                          const validFloors = Number.isFinite(floorsNum) && floorsNum >= 1 ? Math.min(50, floorsNum) : 0
+                          next[i] = {
+                            ...(next[i] || {}),
+                            floors: v,
+                            doorsPerFloorByPiso:
+                              cur.useVariableDoorsPerFloor && validFloors > 0
+                                ? resizeDoorsPerFloorByPisoDraft(
+                                    cur.doorsPerFloorByPiso,
+                                    validFloors,
+                                    cur.doorsPerFloor,
+                                    cur.residentialGroundFloor,
+                                  )
+                                : cur.doorsPerFloorByPiso ?? [],
+                          }
                           return next
                         })
                       }}
@@ -2872,6 +3213,7 @@ export default function Admin() {
                     <label className="admin-label" htmlFor={`portal-doors-top-${portalsModalCommunity.id}-${i}`}>
                       Puertas última planta (ático, opcional)
                     </label>
+                    {!dwelling.useVariableDoorsPerFloor ? (
                     <input
                       id={`portal-doors-top-${portalsModalCommunity.id}-${i}`}
                       type="number"
@@ -2889,9 +3231,53 @@ export default function Admin() {
                         })
                       }}
                     />
+                    ) : (
+                    <p className="admin-portal-dwelling-hint" id={`portal-doors-top-${portalsModalCommunity.id}-${i}`}>
+                      No aplica: usas puertas distintas por planta (tabla de abajo).
+                    </p>
+                    )}
+                    {!dwelling.useVariableDoorsPerFloor ? (
                     <p className="admin-portal-dwelling-hint">
                       Si rellenas un número <strong>menor</strong> que «puertas por planta», la última planta (piso más
                       alto) tendrá solo esas puertas (mismas letras/números desde A o 1). Solo aplica con 2+ plantas.
+                    </p>
+                    ) : null}
+                    <label className="admin-portal-ground-floor">
+                      <input
+                        type="checkbox"
+                        checked={!!dwelling.useVariableDoorsPerFloor}
+                        disabled={portalsSaving || !Number.isFinite(fNum) || fNum < 1}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setPortalsDwellingDraft((prev) => {
+                            const next = [...prev]
+                            const cur = next[i] || {}
+                            const floorsNum = parseInt(String(cur.floors ?? '').trim(), 10)
+                            const validFloors =
+                              Number.isFinite(floorsNum) && floorsNum >= 1 ? Math.min(50, floorsNum) : 0
+                            next[i] = {
+                              ...cur,
+                              useVariableDoorsPerFloor: checked,
+                              doorsPerFloorByPiso:
+                                checked && validFloors > 0
+                                  ? resizeDoorsPerFloorByPisoDraft(
+                                      cur.doorsPerFloorByPiso,
+                                      validFloors,
+                                      cur.doorsPerFloor,
+                                      cur.residentialGroundFloor,
+                                    )
+                                  : cur.doorsPerFloorByPiso ?? [],
+                            }
+                            return next
+                          })
+                        }}
+                      />
+                      <span>Puertas distintas por planta</span>
+                    </label>
+                    <p className="admin-portal-dwelling-hint">
+                      Para edificios irregulares (ej. bajo con 7, sin 1º, 2º con 4…). «Puertas por planta» sirve como
+                      valor por defecto al añadir filas. <strong>0</strong> = esa planta no tiene viviendas (no aparece en
+                      el selector).
                     </p>
                     <label className="admin-portal-ground-floor">
                       <input
@@ -2902,7 +3288,23 @@ export default function Admin() {
                           const checked = e.target.checked
                           setPortalsDwellingDraft((prev) => {
                             const next = [...prev]
-                            next[i] = { ...(next[i] || {}), residentialGroundFloor: checked }
+                            const cur = next[i] || {}
+                            const floorsNum = parseInt(String(cur.floors ?? '').trim(), 10)
+                            const validFloors =
+                              Number.isFinite(floorsNum) && floorsNum >= 1 ? Math.min(50, floorsNum) : 0
+                            next[i] = {
+                              ...cur,
+                              residentialGroundFloor: checked,
+                              doorsPerFloorByPiso:
+                                cur.useVariableDoorsPerFloor && validFloors > 0
+                                  ? resizeDoorsPerFloorByPisoDraft(
+                                      cur.doorsPerFloorByPiso,
+                                      validFloors,
+                                      cur.doorsPerFloor,
+                                      checked,
+                                    )
+                                  : cur.doorsPerFloorByPiso ?? [],
+                            }
                             return next
                           })
                         }}
@@ -2910,10 +3312,54 @@ export default function Admin() {
                       <span>Viviendas en planta baja (Bajo / Bº)</span>
                     </label>
                     <p className="admin-portal-dwelling-hint">
-                      Marca si este bloque tiene viviendas habitables en bajo (ej. BºA, BºB en el interfono), además de
-                      1º, 2º, 3º… Usa las mismas letras o números que «puertas por planta». Los locales comerciales con
-                      nombre propio se configuran aparte abajo.
+                      Marca si hay viviendas en bajo (BºA, BºB… en el interfono). Con «puertas distintas por planta»,
+                      aparece la fila <strong>Bajo</strong> en la tabla de abajo.
                     </p>
+                    {variableFloorRowsList.length > 0 ? (
+                      <div className="admin-portal-doors-by-floor">
+                        <p className="admin-label">Puertas por planta (detalle)</p>
+                        <div className="admin-portal-doors-by-floor-grid">
+                          {variableFloorRowsList.map((row) => (
+                            <div
+                              key={`portal-floor-doors-${portalsModalCommunity.id}-${i}-${row.mapKey}`}
+                              className="admin-portal-floor-doors-row"
+                            >
+                              <label
+                                className="admin-portal-floor-doors-label"
+                                htmlFor={`portal-floor-doors-${portalsModalCommunity.id}-${i}-${row.mapKey}`}
+                              >
+                                {row.label}
+                              </label>
+                              <input
+                                id={`portal-floor-doors-${portalsModalCommunity.id}-${i}-${row.mapKey}`}
+                                type="number"
+                                min={0}
+                                max={26}
+                                className="admin-input admin-portal-floor-doors-input"
+                                placeholder={String(dwelling.doorsPerFloor || '1')}
+                                value={dwelling.doorsPerFloorByPiso?.[row.draftIndex] ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  setPortalsDwellingDraft((prev) => {
+                                    const next = [...prev]
+                                    const cur = next[i] || {}
+                                    const arr = Array.isArray(cur.doorsPerFloorByPiso)
+                                      ? [...cur.doorsPerFloorByPiso]
+                                      : []
+                                    while (arr.length < variableFloorRowsList.length) {
+                                      arr.push(String(cur.doorsPerFloor ?? '').trim() || '1')
+                                    }
+                                    arr[row.draftIndex] = v
+                                    next[i] = { ...cur, doorsPerFloorByPiso: arr }
+                                    return next
+                                  })
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     <p className="admin-portal-dwelling-total" role="status">
                       {est != null ? (
                         <>
@@ -3599,7 +4045,7 @@ export default function Admin() {
                           setForm((f) => ({
                             ...f,
                             appNavPaqueteriaEnabled: checked,
-                            ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false }),
+                            ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false, paqueteriaKeyLoansEnabled: false }),
                           }))
                         }}
                       />
@@ -3617,6 +4063,19 @@ export default function Admin() {
                         }
                       />
                       <span>Entrega especial (llaves, sobres…)</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox admin-modal-field--indent">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.paqueteriaKeyLoansEnabled}
+                        disabled={!form.appNavPaqueteriaEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, paqueteriaKeyLoansEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Registro de llaves (préstamo y devolución)</span>
                     </label>
                   </div>
                   <div className="admin-modal-field admin-modal-field--checkbox">
@@ -3681,7 +4140,7 @@ export default function Admin() {
                 </fieldset>
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-salon-mode">
-                    Salas / salones (reuniones, social, espacios propios)
+                    Modo de reserva de salones
                   </label>
                   <select
                     id="comm-salon-mode"
@@ -3693,8 +4152,9 @@ export default function Admin() {
                     <option value="day">Por día completo (una reserva cubre el día)</option>
                   </select>
                   <p className="admin-field-hint">
-                    Afecta a la sala de reuniones, salón social y a cada espacio listado abajo. No aplica al pádel ni
-                    al gimnasio.
+                    Afecta a cada espacio listado abajo (franjas o día completo). No aplica al pádel ni al gimnasio.
+                    Si configuras <strong>franjas horarias personalizadas</strong> en un espacio, ese salón usará
+                    franjas aunque el modo global sea día completo.
                   </p>
                 </div>
               </div>
@@ -3709,62 +4169,240 @@ export default function Admin() {
                 <p className="admin-field-hint admin-field-hint--block">
                   El <strong>ID interno</strong> no cambia al renombrar: sirve para reservas e historial. El{' '}
                   <strong>nombre</strong> es lo que ven los vecinos. Filas nuevas reciben un ID automático (puedes
-                  copiarlo si integras con otros sistemas).
+                  copiarlo si integras con otros sistemas). Sin espacios aquí, no aparece ningún salón en Reservas (sí
+                  pueden aparecer pádel o gimnasio si están activos en la ficha).
                 </p>
                 {form.customSpaces.length === 0 ? (
-                  <p className="admin-empty-hint admin-spaces-empty">Ninguno — pulsa «Añadir espacio».</p>
+                  <p className="admin-empty-hint admin-spaces-empty">
+                    Ninguno — pulsa «Añadir espacio» para que los vecinos puedan reservar salones.
+                  </p>
                 ) : (
                   <ul className="admin-spaces-list">
                     {form.customSpaces.map((row) => (
-                      <li key={row.key} className="admin-space-row">
-                        <input
-                          type="text"
-                          className="admin-input admin-space-id-input"
-                          value={row.id}
-                          readOnly
-                          title="Identificador estable; no se modifica al cambiar el nombre visible"
-                          aria-label="ID interno del espacio"
-                        />
-                        <input
-                          type="text"
-                          className="admin-input admin-space-input"
-                          value={row.name}
-                          onChange={(e) => updateCustomSpace(row.key, e.target.value)}
-                          placeholder="Nombre visible (ej. Salón Cumpleaños)"
-                          aria-label="Nombre visible del espacio"
-                        />
-                        <label className="admin-space-advance-toggle">
+                      <li key={row.key} className="admin-space-card">
+                        <div className="admin-space-row">
                           <input
-                            type="checkbox"
-                            checked={row.advanceLimitEnabled !== false}
-                            onChange={(e) => updateCustomSpaceAdvanceLimit(row.key, e.target.checked)}
+                            type="text"
+                            className="admin-input admin-space-id-input"
+                            value={row.id}
+                            readOnly
+                            title="Identificador estable; no se modifica al cambiar el nombre visible"
+                            aria-label="ID interno del espacio"
                           />
-                          <span>Límite antelación</span>
-                        </label>
-                        {row.advanceLimitEnabled !== false ? (
-                          <div className="admin-space-advance-days">
+                          <input
+                            type="text"
+                            className="admin-input admin-space-input"
+                            value={row.name}
+                            onChange={(e) => updateCustomSpace(row.key, e.target.value)}
+                            placeholder="Nombre visible (ej. Salón social)"
+                            aria-label="Nombre visible del espacio"
+                          />
+                          <button
+                            type="button"
+                            className="btn btn--ghost admin-space-remove"
+                            onClick={() => removeCustomSpaceRow(row.key)}
+                            aria-label="Quitar espacio"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="admin-space-advance-row">
+                          <label className="admin-space-advance-toggle">
                             <input
-                              type="number"
-                              className="admin-input admin-space-advance-input"
-                              min={1}
-                              max={365}
-                              value={row.maxDaysInAdvance ?? '14'}
-                              onChange={(e) => updateCustomSpaceMaxDays(row.key, e.target.value)}
-                              aria-label="Días de antelación máxima"
+                              type="checkbox"
+                              checked={row.minAdvanceEnabled === true}
+                              onChange={(e) =>
+                                patchCustomSpace(row.key, { minAdvanceEnabled: e.target.checked })
+                              }
                             />
-                            <span className="admin-space-advance-suffix">días</span>
-                          </div>
-                        ) : (
-                          <span className="admin-space-advance-open">Sin límite</span>
-                        )}
+                            <span>Mín. antelación</span>
+                          </label>
+                          {row.minAdvanceEnabled ? (
+                            <div className="admin-space-advance-days">
+                              <input
+                                type="number"
+                                className="admin-input admin-space-advance-input"
+                                min={1}
+                                max={365}
+                                value={row.minDaysInAdvance ?? '7'}
+                                onChange={(e) =>
+                                  patchCustomSpace(row.key, {
+                                    minDaysInAdvance: e.target.value.replace(/\D/g, '').slice(0, 3),
+                                  })
+                                }
+                                aria-label="Días mínimos de antelación"
+                              />
+                              <span className="admin-space-advance-suffix">días</span>
+                            </div>
+                          ) : null}
+                          <label className="admin-space-advance-toggle">
+                            <input
+                              type="checkbox"
+                              checked={row.advanceLimitEnabled !== false}
+                              onChange={(e) => updateCustomSpaceAdvanceLimit(row.key, e.target.checked)}
+                            />
+                            <span>Máx. antelación</span>
+                          </label>
+                          {row.advanceLimitEnabled !== false ? (
+                            <div className="admin-space-advance-days">
+                              <input
+                                type="number"
+                                className="admin-input admin-space-advance-input"
+                                min={1}
+                                max={365}
+                                value={row.maxDaysInAdvance ?? '14'}
+                                onChange={(e) => updateCustomSpaceMaxDays(row.key, e.target.value)}
+                                aria-label="Días de antelación máxima"
+                              />
+                              <span className="admin-space-advance-suffix">días</span>
+                            </div>
+                          ) : (
+                            <span className="admin-space-advance-open">Sin límite máx.</span>
+                          )}
+                        </div>
                         <button
                           type="button"
-                          className="btn btn--ghost admin-space-remove"
-                          onClick={() => removeCustomSpaceRow(row.key)}
-                          aria-label="Quitar espacio"
+                          className="btn btn--ghost admin-space-regs-toggle"
+                          onClick={() =>
+                            patchCustomSpace(row.key, { regulationsOpen: !row.regulationsOpen })
+                          }
                         >
-                          ✕
+                          {row.regulationsOpen ? '▾' : '▸'} Normas y tarifas (opcional)
                         </button>
+                        {row.regulationsOpen ? (
+                          <div className="admin-space-regs-panel">
+                            <label className="admin-label">Texto del regulamento</label>
+                            <textarea
+                              className="admin-input admin-space-rules-text"
+                              rows={6}
+                              value={row.rulesText ?? ''}
+                              onChange={(e) => patchCustomSpace(row.key, { rulesText: e.target.value })}
+                              placeholder="Pega aquí las normas de uso del salón…"
+                            />
+                            <div className="admin-space-fees-row">
+                              <label className="admin-label">
+                                Tasa uso (€)
+                                <input
+                                  type="text"
+                                  className="admin-input"
+                                  inputMode="decimal"
+                                  value={row.usageFeeEur ?? ''}
+                                  onChange={(e) =>
+                                    patchCustomSpace(row.key, { usageFeeEur: e.target.value })
+                                  }
+                                  placeholder="15"
+                                />
+                              </label>
+                              <label className="admin-label">
+                                Fianza (€)
+                                <input
+                                  type="text"
+                                  className="admin-input"
+                                  inputMode="decimal"
+                                  value={row.depositEur ?? ''}
+                                  onChange={(e) =>
+                                    patchCustomSpace(row.key, { depositEur: e.target.value })
+                                  }
+                                  placeholder="60"
+                                />
+                              </label>
+                            </div>
+                            <label className="admin-space-advance-toggle">
+                              <input
+                                type="checkbox"
+                                checked={row.customSlotsEnabled === true}
+                                onChange={(e) => {
+                                  const checked = e.target.checked
+                                  if (checked && (!row.timeSlots || row.timeSlots.length === 0)) {
+                                    patchCustomSpace(row.key, {
+                                      customSlotsEnabled: true,
+                                      timeSlots: [
+                                        {
+                                          key: `ts-${Date.now()}-1`,
+                                          id: 'manana',
+                                          label: 'Mañana',
+                                          start: '12:00',
+                                          end: '17:00',
+                                        },
+                                        {
+                                          key: `ts-${Date.now()}-2`,
+                                          id: 'tarde',
+                                          label: 'Tarde',
+                                          start: '18:00',
+                                          end: '22:00',
+                                        },
+                                      ],
+                                    })
+                                  } else {
+                                    patchCustomSpace(row.key, {
+                                      customSlotsEnabled: checked,
+                                      timeSlots: checked ? row.timeSlots : [],
+                                    })
+                                  }
+                                }}
+                              />
+                              <span>Franjas horarias personalizadas</span>
+                            </label>
+                            <p className="admin-field-hint">
+                              Si no marcas esto, se usan mañana 08–12, tarde 12–18 y noche 18–22. La Joya: 12–17 y
+                              18–22.
+                            </p>
+                            {row.customSlotsEnabled && row.timeSlots?.length > 0 ? (
+                              <ul className="admin-space-slots-list">
+                                {row.timeSlots.map((slot) => (
+                                  <li key={slot.key} className="admin-space-slot-row">
+                                    <input
+                                      type="text"
+                                      className="admin-input"
+                                      value={slot.label}
+                                      onChange={(e) =>
+                                        updateCustomSpaceTimeSlot(row.key, slot.key, 'label', e.target.value)
+                                      }
+                                      placeholder="Etiqueta"
+                                      aria-label="Etiqueta franja"
+                                    />
+                                    <input
+                                      type="time"
+                                      className="admin-input admin-space-slot-time"
+                                      value={slot.start}
+                                      onChange={(e) =>
+                                        updateCustomSpaceTimeSlot(row.key, slot.key, 'start', e.target.value)
+                                      }
+                                      aria-label="Hora inicio"
+                                    />
+                                    <span aria-hidden="true">–</span>
+                                    <input
+                                      type="time"
+                                      className="admin-input admin-space-slot-time"
+                                      value={slot.end}
+                                      onChange={(e) =>
+                                        updateCustomSpaceTimeSlot(row.key, slot.key, 'end', e.target.value)
+                                      }
+                                      aria-label="Hora fin"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="btn btn--ghost"
+                                      onClick={() => removeCustomSpaceTimeSlot(row.key, slot.key)}
+                                      aria-label="Quitar franja"
+                                    >
+                                      ✕
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {row.customSlotsEnabled ? (
+                              <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                onClick={() => addCustomSpaceTimeSlot(row.key)}
+                              >
+                                + Añadir franja
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

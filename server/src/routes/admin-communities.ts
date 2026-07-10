@@ -329,6 +329,8 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   const appNavPaqueteriaEnabled = parseBool(req.body?.appNavPaqueteriaEnabled, false)
   const paqueteriaSpecialDeliveryEnabled =
     appNavPaqueteriaEnabled && parseBool(req.body?.paqueteriaSpecialDeliveryEnabled, false)
+  const paqueteriaKeyLoansEnabled =
+    appNavPaqueteriaEnabled && parseBool(req.body?.paqueteriaKeyLoansEnabled, false)
   const appNavCuadernoDiarioEnabled = parseBool(req.body?.appNavCuadernoDiarioEnabled, false)
   let serviceRequestCategoryModesJson: Prisma.InputJsonValue = {}
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'serviceRequestCategoryModes')) {
@@ -403,6 +405,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       appNavPoolAccessEnabled,
       appNavPaqueteriaEnabled,
       paqueteriaSpecialDeliveryEnabled,
+      paqueteriaKeyLoansEnabled,
       appNavCuadernoDiarioEnabled,
       serviceRequestCategoryModesJson,
       padelCourtCount,
@@ -1183,6 +1186,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     appNavPoolAccessEnabled?: boolean
     appNavPaqueteriaEnabled?: boolean
     paqueteriaSpecialDeliveryEnabled?: boolean
+    paqueteriaKeyLoansEnabled?: boolean
     appNavCuadernoDiarioEnabled?: boolean
     serviceRequestCategoryModesJson?: Prisma.InputJsonValue
     padelCourtCount?: number
@@ -1585,6 +1589,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     data.appNavPaqueteriaEnabled = parseBool(req.body.appNavPaqueteriaEnabled, false)
     if (data.appNavPaqueteriaEnabled === false) {
       data.paqueteriaSpecialDeliveryEnabled = false
+      data.paqueteriaKeyLoansEnabled = false
     }
   }
   if ('paqueteriaSpecialDeliveryEnabled' in req.body) {
@@ -1607,6 +1612,27 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       }
     }
     data.paqueteriaSpecialDeliveryEnabled = wantSpecial
+  }
+  if ('paqueteriaKeyLoansEnabled' in req.body) {
+    const wantKeys = parseBool(req.body.paqueteriaKeyLoansEnabled, false)
+    if (wantKeys) {
+      const paqueteriaOn =
+        'appNavPaqueteriaEnabled' in req.body
+          ? parseBool(req.body.appNavPaqueteriaEnabled, false)
+          : (
+              await prisma.community.findUnique({
+                where: { id },
+                select: { appNavPaqueteriaEnabled: true },
+              })
+            )?.appNavPaqueteriaEnabled === true
+      if (!paqueteriaOn) {
+        res.status(400).json({
+          error: 'Activa la pestaña Paquetería antes de habilitar el registro de llaves.',
+        })
+        return
+      }
+    }
+    data.paqueteriaKeyLoansEnabled = wantKeys
   }
   if ('appNavCuadernoDiarioEnabled' in req.body) {
     data.appNavCuadernoDiarioEnabled = parseBool(req.body.appNavCuadernoDiarioEnabled, false)

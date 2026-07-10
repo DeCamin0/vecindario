@@ -7,34 +7,13 @@ import { buildDwellingByPortalIndex } from '../lib/portal-dwelling-config.js'
 import { communityOperationalWhere, isCommunityOperationalStatus } from '../lib/community-status.js'
 import { normalizeServiceCategoryModes } from '../lib/service-request-category-modes.js'
 import { padelHoursForJson } from '../lib/padel-hours.js'
+import { parseCustomLocations, type CustomLocationItem } from '../lib/custom-locations.js'
 
 /** Rutas públicas (sin JWT): validar código de acceso para vecinos. */
 export const publicCommunitiesRouter = Router()
 
-function parseCustomLocationsPublic(raw: unknown): {
-  id: string
-  name: string
-  maxDaysInAdvance?: number | null
-}[] {
-  if (!Array.isArray(raw)) return []
-  const out: { id: string; name: string; maxDaysInAdvance?: number | null }[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const o = item as Record<string, unknown>
-    const id = typeof o.id === 'string' ? o.id.trim() : ''
-    const name = typeof o.name === 'string' ? o.name.trim() : ''
-    if (!id || !name) continue
-    const row: { id: string; name: string; maxDaysInAdvance?: number | null } = { id, name }
-    if ('maxDaysInAdvance' in o) {
-      if (o.maxDaysInAdvance === null) row.maxDaysInAdvance = null
-      else {
-        const n = Number(o.maxDaysInAdvance)
-        if (Number.isFinite(n) && n >= 1) row.maxDaysInAdvance = Math.min(365, Math.trunc(n))
-      }
-    }
-    out.push(row)
-  }
-  return out
+function parseCustomLocationsPublic(raw: unknown): CustomLocationItem[] {
+  return parseCustomLocations(raw)
 }
 
 /** Configuración de reservas / espacios (lo definido al crear o editar la comunidad en Super Admin). */
@@ -67,6 +46,7 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
       appNavPoolAccessEnabled: true,
       appNavPaqueteriaEnabled: true,
       paqueteriaSpecialDeliveryEnabled: true,
+      paqueteriaKeyLoansEnabled: true,
       appNavCuadernoDiarioEnabled: true,
       serviceRequestCategoryModesJson: true,
       portalCount: true,
@@ -98,6 +78,7 @@ publicCommunitiesRouter.get('/community-config', async (req, res) => {
     appNavPoolAccessEnabled: row.appNavPoolAccessEnabled === true,
     appNavPaqueteriaEnabled: row.appNavPaqueteriaEnabled === true,
     paqueteriaSpecialDeliveryEnabled: row.paqueteriaSpecialDeliveryEnabled === true,
+    paqueteriaKeyLoansEnabled: row.paqueteriaKeyLoansEnabled === true,
     appNavCuadernoDiarioEnabled: row.appNavCuadernoDiarioEnabled === true,
     serviceRequestCategoryModes: normalizeServiceCategoryModes(row.serviceRequestCategoryModesJson),
     portalSelectOptions: communityPortalSelectOptions(row.portalCount, row.portalLabels),

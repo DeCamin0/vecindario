@@ -13,6 +13,7 @@ import { publicCommunitiesRouter } from './routes/public-communities.js'
 import { communityBookingsRouter } from './routes/community-bookings.js'
 import { communityResidentsRouter } from './routes/community-residents.js'
 import { communityParcelsRouter } from './routes/community-parcels.js'
+import { communityKeyLoansRouter } from './routes/community-key-loans.js'
 import { communityDiarioRouter } from './routes/community-diario.js'
 import { communityIncidentsRouter } from './routes/community-incidents.js'
 import { communityServicesRouter } from './routes/community-services.js'
@@ -58,6 +59,7 @@ app.use('/api/notifications', notificationsRouter)
 app.use('/api/push', pushRouter)
 app.use('/api/community', communityResidentsRouter)
 app.use('/api/community', communityParcelsRouter)
+app.use('/api/community', communityKeyLoansRouter)
 app.use('/api/community', communityDiarioRouter)
 app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireSuperAdmin, adminCommunitiesRouter)

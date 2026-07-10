@@ -19,18 +19,26 @@ import {
 } from '../utils/padelMultiSlotSelection.js'
 import {
   SALON_UNLIMITED_MAX_DAYS,
-  resolveMaxDaysForSalonFacility,
   isDateInBookableWindow,
   firstSelectableDayInMonth,
 } from '../utils/salonBookingDates.js'
+import {
+  buildSpaceConfigForCustomFacility,
+  salonFacilityHasRegulations,
+  slotMinuteRangeFromConfig,
+  findCustomLocationByFacilityId,
+} from '../utils/salonFacilityConfig.js'
+import {
+  bookingHasConfiguredFees,
+  facilityFeeConfigForBooking,
+  formatDepositReturnedLabel,
+} from '../utils/bookingFacilityPayments.js'
 import SalonBookingCalendar from '../components/SalonBookingCalendar.jsx'
 import './Bookings.css'
 
 const DEFAULT_FACILITIES = [
   { id: 'padel', name: 'Pista de pádel', icon: '🎾' },
   { id: 'gym', name: 'Gimnasio', icon: '💪' },
-  { id: 'meeting', name: 'Sala de reuniones', icon: '📋' },
-  { id: 'social', name: 'Salón social', icon: '🛋️' },
 ]
 
 const ALL_TIME_SLOTS = [
@@ -43,14 +51,6 @@ function formatMinuteRange(startMin, endMin) {
   const f = (m) =>
     `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   return `${f(startMin)} – ${f(endMin)}`
-}
-
-/** Franjas preset (sala, gimnasio conceptual, etc.) → minutos en el día natural elegido. */
-function presetSlotToMinuteRange(slotId) {
-  if (slotId === 'morning') return { startMin: 8 * 60, endMin: 12 * 60 }
-  if (slotId === 'afternoon') return { startMin: 12 * 60, endMin: 18 * 60 }
-  if (slotId === 'evening') return { startMin: 18 * 60, endMin: 22 * 60 }
-  return null
 }
 
 function mapServerBookingRow(row) {
@@ -76,6 +76,10 @@ function mapServerBookingRow(row) {
     ...(row.actorPortal ? { portal: row.actorPortal } : {}),
     ...(row.bookedByName?.trim() ? { bookedByName: row.bookedByName.trim() } : {}),
     ...(row.vecindarioUserId != null ? { vecindarioUserId: row.vecindarioUserId } : {}),
+    usageFeePaid: row.usageFeePaid === true,
+    depositPaid: row.depositPaid === true,
+    depositReturnedAt: row.depositReturnedAt ?? null,
+    depositReturnedByName: row.depositReturnedByName?.trim() || null,
     startMinute: row.startMinute,
     endMinute: row.endMinute,
     recordedAt: row.createdAt,
@@ -88,6 +92,59 @@ function bookingCancelConfirmMessage(item) {
     ? `${item.date}${item.timeSlotLabel ? `, ${item.timeSlotLabel}` : ''}`
     : item.timeSlotLabel || 'esta reserva'
   return `¿Cancelar la reserva de ${item.facility || 'espacio'} (${when})? El tramo quedará libre para otros vecinos.`
+}
+
+function BookingPaymentStatus({
+  item,
+  customLocations,
+  isStaff,
+  onDepositReturn,
+  depositReturnBusyId,
+}) {
+  if (!bookingHasConfiguredFees(item, customLocations)) return null
+  const fees = facilityFeeConfigForBooking(item, customLocations)
+  const pendingDepositReturn = item.depositPaid && !item.depositReturnedAt
+  const returnedLabel = formatDepositReturnedLabel(item.depositReturnedAt)
+
+  return (
+    <div className="booking-payment-status" aria-label="Estado de tasas y fianza">
+      {fees.usageFeeEur > 0 ? (
+        <span
+          className={`booking-payment-pill${item.usageFeePaid ? ' booking-payment-pill--ok' : ' booking-payment-pill--owe'}`}
+        >
+          Tasa {fees.usageFeeEur} € · {item.usageFeePaid ? 'Cobrada' : 'Debe'}
+        </span>
+      ) : null}
+      {fees.depositEur > 0 ? (
+        <span
+          className={`booking-payment-pill${
+            item.depositPaid
+              ? item.depositReturnedAt
+                ? ' booking-payment-pill--ok'
+                : ' booking-payment-pill--pending'
+              : ' booking-payment-pill--owe'
+          }`}
+        >
+          Fianza {fees.depositEur} € ·{' '}
+          {!item.depositPaid
+            ? 'Debe'
+            : item.depositReturnedAt
+              ? `Devuelta${returnedLabel ? ` · ${returnedLabel}` : ''}`
+              : 'Pend. devolución'}
+        </span>
+      ) : null}
+      {isStaff && pendingDepositReturn && onDepositReturn ? (
+        <button
+          type="button"
+          className="btn btn--secondary btn--sm booking-payment-return-btn"
+          disabled={depositReturnBusyId === item.serverId}
+          onClick={() => onDepositReturn(item)}
+        >
+          {depositReturnBusyId === item.serverId ? 'Guardando…' : 'Marcar devolución'}
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 /** Con sesión + comunidad, la reserva se guarda en BD (mismo origen que Actividad). */
@@ -300,8 +357,11 @@ function getSlotConfigForFacility(facilityId, customLocations) {
   if (facilityId === 'meeting') return SLOT_PRESETS.meeting
   if (facilityId === 'social') return SLOT_PRESETS.social
   if (typeof facilityId === 'string' && facilityId.startsWith('custom:')) {
-    const maxDays = resolveMaxDaysForSalonFacility(facilityId, customLocations)
-    return { ...SLOT_PRESETS.customSpace, maxDaysInAdvance: maxDays }
+    return {
+      ...SLOT_PRESETS.customSpace,
+      ...buildSpaceConfigForCustomFacility(facilityId, customLocations),
+      maxDurationHours: 3,
+    }
   }
   return SLOT_PRESETS.customSpace
 }
@@ -322,23 +382,16 @@ function buildFacilitiesFromApi(cfg) {
     out.push({ id: 'gym', name: 'Gimnasio', icon: '💪' })
   }
   const customs = Array.isArray(cfg.customLocations) ? cfg.customLocations : []
-  if (customs.length > 0) {
-    customs.forEach((loc) => {
-      const sid = String(loc.id || '').trim()
-      const sname = String(loc.name || '').trim()
-      if (!sid || !sname) return
-      out.push({
-        id: `custom:${sid}`,
-        name: sname,
-        icon: '📌',
-      })
+  customs.forEach((loc) => {
+    const sid = String(loc.id || '').trim()
+    const sname = String(loc.name || '').trim()
+    if (!sid || !sname) return
+    out.push({
+      id: `custom:${sid}`,
+      name: sname,
+      icon: '📌',
     })
-  } else {
-    out.push(
-      { id: 'meeting', name: 'Sala de reuniones', icon: '📋' },
-      { id: 'social', name: 'Salón social', icon: '🛋️' },
-    )
-  }
+  })
   return out
 }
 
@@ -593,6 +646,10 @@ export default function Bookings() {
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`
   })
   const [cancellingBookingId, setCancellingBookingId] = useState(null)
+  const [usageFeePaid, setUsageFeePaid] = useState(false)
+  const [depositPaid, setDepositPaid] = useState(false)
+  const [depositReturnBusyId, setDepositReturnBusyId] = useState(null)
+  const [depositReturnError, setDepositReturnError] = useState('')
   const [cancelError, setCancelError] = useState('')
 
   const canConciergeCancelAny = userRole === 'concierge'
@@ -719,6 +776,58 @@ export default function Bookings() {
     [accessToken, canCancelBookingItem, cancellingBookingId, confirm, refreshServerBookings],
   )
 
+  const handleMarkDepositReturn = useCallback(
+    async (item) => {
+      if (!isStaffBookingMode || depositReturnBusyId != null || !item?.serverId) return
+      const fees = facilityFeeConfigForBooking(item, communityBookingConfig?.customLocations)
+      const ok = await confirm({
+        title: 'Devolución de fianza',
+        message: `¿Marcar la fianza de ${fees.depositEur ?? ''} € como devuelta para ${item.facility || 'esta reserva'} (${item.date})?`,
+        confirmLabel: 'Sí, marcar devuelta',
+        cancelLabel: 'Cancelar',
+      })
+      if (!ok) return
+      setDepositReturnError('')
+      setDepositReturnBusyId(item.serverId)
+      try {
+        const res = await fetch(apiUrl(`/api/bookings/${item.serverId}/deposit-return`), {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ communityId }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setDepositReturnError(
+            typeof data.error === 'string' ? data.error : 'No se pudo registrar la devolución.',
+          )
+          return
+        }
+        await refreshServerBookings()
+      } catch {
+        setDepositReturnError('Error de red al registrar la devolución.')
+      } finally {
+        setDepositReturnBusyId(null)
+      }
+    },
+    [
+      accessToken,
+      communityBookingConfig?.customLocations,
+      communityId,
+      confirm,
+      depositReturnBusyId,
+      isStaffBookingMode,
+      refreshServerBookings,
+    ],
+  )
+
+  useEffect(() => {
+    setUsageFeePaid(false)
+    setDepositPaid(false)
+  }, [selectedFacility])
+
   useEffect(() => {
     if (!canOnBehalfBooking || !accessToken || communityId == null) {
       setStaffNeighbors([])
@@ -835,16 +944,22 @@ export default function Bookings() {
     void refreshGymAccessPreview()
   }, [showGymAccessPanel, refreshGymAccessPreview])
 
-  const salonDayBookingFlow = useMemo(
-    () =>
-      Boolean(
-        communityBookingConfig &&
-          salonDayModeFromConfig(communityBookingConfig) &&
-          selectedFacility &&
-          isSalonLikeFacility(selectedFacility),
-      ),
-    [communityBookingConfig, selectedFacility],
-  )
+  const salonDayBookingFlow = useMemo(() => {
+    if (!communityBookingConfig || !selectedFacility || !isSalonLikeFacility(selectedFacility)) {
+      return false
+    }
+    if (!salonDayModeFromConfig(communityBookingConfig)) return false
+    if (selectedFacility.startsWith('custom:')) {
+      const loc = findCustomLocationByFacilityId(
+        selectedFacility,
+        communityBookingConfig.customLocations,
+      )
+      if (loc?.timeSlots && Array.isArray(loc.timeSlots) && loc.timeSlots.length > 0) {
+        return false
+      }
+    }
+    return true
+  }, [communityBookingConfig, selectedFacility])
 
   const spaceConfig = useMemo(() => {
     if (!selectedFacility) return null
@@ -868,7 +983,8 @@ export default function Bookings() {
   const getSalonCalendarDayStatus = useCallback(
     (dateKey) => {
       if (!selectedFacility || !spaceConfig) return 'disabled'
-      if (!isDateInBookableWindow(dateKey, spaceConfig.maxDaysInAdvance ?? 14)) return 'disabled'
+      if (!isDateInBookableWindow(dateKey, spaceConfig.maxDaysInAdvance ?? 14, new Date(), spaceConfig.minDaysInAdvance ?? 0))
+        return 'disabled'
       return salonCalendarDayStatus(
         dateKey,
         selectedFacility,
@@ -889,14 +1005,15 @@ export default function Bookings() {
   useEffect(() => {
     if (!showSalonDatePickers || !spaceConfig) return
     const max = spaceConfig.maxDaysInAdvance ?? 14
+    const min = spaceConfig.minDaysInAdvance ?? 0
     const inMonth = booking.date && booking.date.startsWith(salonPickerMonth)
     const valid =
-      booking.date && isDateInBookableWindow(booking.date, max) && inMonth
+      booking.date && isDateInBookableWindow(booking.date, max, new Date(), min) && inMonth
     if (valid) return
     const isFree = (key) => getSalonCalendarDayStatus(key) === 'free'
     const pick =
-      firstSelectableDayInMonth(salonPickerMonth, max, isFree) ||
-      firstSelectableDayInMonth(salonPickerMonth, max)
+      firstSelectableDayInMonth(salonPickerMonth, max, isFree, new Date(), min) ||
+      firstSelectableDayInMonth(salonPickerMonth, max, undefined, new Date(), min)
     if (pick && pick !== booking.date) {
       setBooking((prev) => ({
         ...prev,
@@ -1034,7 +1151,13 @@ export default function Bookings() {
           ),
       )
     }
-    return ALL_TIME_SLOTS.filter((slot) => spaceConfig.timeSlotIds.includes(slot.id))
+    return (spaceConfig.timeSlots || ALL_TIME_SLOTS.filter((slot) => spaceConfig.timeSlotIds.includes(slot.id))).map(
+      (slot) => ({
+        id: slot.id,
+        label: slot.label,
+        range: slot.range,
+      }),
+    )
   }, [
     spaceConfig,
     selectedFacility,
@@ -1450,7 +1573,8 @@ export default function Bookings() {
             })
           }
         } else if (booking.timeSlot) {
-          const pr = presetSlotToMinuteRange(booking.timeSlot)
+          const pr = slotMinuteRangeFromConfig(spaceConfig, booking.timeSlot)
+          const slotMeta = spaceConfig?.timeSlots?.find((s) => s.id === booking.timeSlot)
           const preset = ALL_TIME_SLOTS.find((s) => s.id === booking.timeSlot)
           if (!pr) {
             setPadelCapError('Tramo no válido para guardar en servidor.')
@@ -1460,7 +1584,11 @@ export default function Bookings() {
             startMinute: pr.startMin,
             endMinute: pr.endMin,
             slotKey: booking.timeSlot,
-            slotLabel: preset ? `${preset.label} (${preset.range})` : formatMinuteRange(pr.startMin, pr.endMin),
+            slotLabel: slotMeta
+              ? `${slotMeta.label} (${slotMeta.range})`
+              : preset
+                ? `${preset.label} (${preset.range})`
+                : formatMinuteRange(pr.startMin, pr.endMin),
           })
         }
 
@@ -1480,6 +1608,10 @@ export default function Bookings() {
           } else {
             if (user?.piso?.trim()) payload.actorPiso = user.piso.trim()
             if (user?.portal?.trim()) payload.actorPortal = user.portal.trim()
+          }
+          if (isStaffBookingMode) {
+            if (spaceConfig?.usageFeeEur > 0 && usageFeePaid) payload.usageFeePaid = true
+            if (spaceConfig?.depositEur > 0 && depositPaid) payload.depositPaid = true
           }
 
           const res = await fetch(apiUrl('/api/bookings'), {
@@ -1512,6 +1644,8 @@ export default function Bookings() {
       setBooking(initialBooking)
       setSelectedFacility(null)
       setStaffOnBehalfUserId('')
+      setUsageFeePaid(false)
+      setDepositPaid(false)
     } finally {
       setIsSubmitting(false)
     }
@@ -1521,6 +1655,8 @@ export default function Bookings() {
     setSuccess(false)
     setErrors({})
     setStaffOnBehalfUserId('')
+    setUsageFeePaid(false)
+    setDepositPaid(false)
   }
 
   const handleGymAccess = async (tipo) => {
@@ -1616,6 +1752,11 @@ export default function Bookings() {
           <p className="booking-config-loading" role="status">
             Cargando espacios configurados para tu comunidad…
           </p>
+        ) : facilities.length === 0 ? (
+          <p className="booking-config-warning" role="status">
+            Esta comunidad no tiene espacios configurados para reservar. La administración puede añadirlos en Super
+            Admin (pádel, gimnasio o salones en «Espacios / salones»).
+          </p>
         ) : (
           <div className="booking-facility-grid">
             {facilities.map(({ id, name, icon }) => (
@@ -1632,7 +1773,7 @@ export default function Bookings() {
             ))}
           </div>
         )}
-        {facilities != null && !selectedFacility && (
+        {facilities != null && facilities.length > 0 && !selectedFacility && (
           <p className="booking-select-hint">Selecciona un espacio para continuar.</p>
         )}
       </section>
@@ -1922,6 +2063,7 @@ export default function Bookings() {
                     selectedDate={booking.date}
                     onDateSelect={handleSalonDaySelect}
                     maxDaysInAdvance={spaceConfig.maxDaysInAdvance ?? 14}
+                    minDaysInAdvance={spaceConfig.minDaysInAdvance ?? 0}
                     getDayStatus={getSalonCalendarDayStatus}
                     showPartialLegend={!salonDayBookingFlow}
                   />
@@ -1947,8 +2089,17 @@ export default function Bookings() {
                       <>Reserva con antelación amplia (hasta 1 año).</>
                     ) : (
                       <>
-                        Puedes reservar hasta {spaceConfig.maxDaysInAdvance}{' '}
-                        {spaceConfig.maxDaysInAdvance === 1 ? 'día' : 'días'} por adelantado.
+                        {(spaceConfig.minDaysInAdvance ?? 0) > 0 ? (
+                          <>
+                            Entre <strong>{spaceConfig.minDaysInAdvance}</strong> y{' '}
+                            <strong>{spaceConfig.maxDaysInAdvance}</strong> días de antelación.
+                          </>
+                        ) : (
+                          <>
+                            Puedes reservar hasta {spaceConfig.maxDaysInAdvance}{' '}
+                            {spaceConfig.maxDaysInAdvance === 1 ? 'día' : 'días'} por adelantado.
+                          </>
+                        )}
                       </>
                     )}
                   </p>
@@ -2110,6 +2261,65 @@ export default function Bookings() {
               {padelCapError}
             </p>
           )}
+          {!staffHistoryMode && salonFacilityHasRegulations(spaceConfig) ? (
+            <div className="booking-salon-regulations card" role="region" aria-label="Normas del espacio">
+              <h3 className="booking-salon-regulations-title">Normas de uso</h3>
+              {(spaceConfig.usageFeeEur > 0 || spaceConfig.depositEur > 0) && (
+                <ul className="booking-salon-regulations-fees">
+                  {spaceConfig.usageFeeEur > 0 ? (
+                    <li>
+                      Tasa de uso: <strong>{spaceConfig.usageFeeEur} €</strong>
+                    </li>
+                  ) : null}
+                  {spaceConfig.depositEur > 0 ? (
+                    <li>
+                      Fianza (devolución si no hay desperfectos): <strong>{spaceConfig.depositEur} €</strong>
+                    </li>
+                  ) : null}
+                </ul>
+              )}
+              {spaceConfig.rulesText ? (
+                <div className="booking-salon-regulations-text">{spaceConfig.rulesText}</div>
+              ) : null}
+              {isStaffBookingMode && (spaceConfig.usageFeeEur > 0 || spaceConfig.depositEur > 0) ? (
+                <div className="booking-salon-payments">
+                  <p className="booking-salon-payments-title">Cobro en conserjería</p>
+                  <p className="booking-field-hint booking-salon-payments-hint">
+                    Marca lo que el vecino entrega al reservar (como en el cuaderno de reservas).
+                  </p>
+                  {spaceConfig.usageFeeEur > 0 ? (
+                    <label className="booking-salon-payment-check">
+                      <input
+                        type="checkbox"
+                        checked={usageFeePaid}
+                        onChange={(e) => setUsageFeePaid(e.target.checked)}
+                      />
+                      <span>
+                        Tasa de uso cobrada <strong>({spaceConfig.usageFeeEur} €)</strong>
+                      </span>
+                    </label>
+                  ) : null}
+                  {spaceConfig.depositEur > 0 ? (
+                    <label className="booking-salon-payment-check">
+                      <input
+                        type="checkbox"
+                        checked={depositPaid}
+                        onChange={(e) => setDepositPaid(e.target.checked)}
+                      />
+                      <span>
+                        Fianza entregada <strong>({spaceConfig.depositEur} €)</strong>
+                      </span>
+                    </label>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="booking-field-hint">
+                  Al confirmar la reserva aceptas estas normas. El pago de tasas y fianza se gestiona con la
+                  administración.
+                </p>
+              )}
+            </div>
+          ) : null}
           <button
             type="submit"
             className={`btn btn--primary btn--block booking-submit ${isSubmitting ? 'btn--loading' : ''}`}
@@ -2150,6 +2360,11 @@ export default function Bookings() {
             {cancelError}
           </p>
         ) : null}
+        {depositReturnError ? (
+          <p className="form-error form-error--block booking-cancel-error" role="alert">
+            {depositReturnError}
+          </p>
+        ) : null}
         {recentRecordsPreview.length === 0 ? (
           <div className="booking-my-records-empty card">
             <p className="booking-my-records-empty-text">
@@ -2167,6 +2382,13 @@ export default function Bookings() {
                 <div className="booking-my-records-item-main">
                   <span className="booking-my-records-facility">{item.facility}</span>
                   <p className="booking-my-records-meta">{formatBookingMeta(item)}</p>
+                  <BookingPaymentStatus
+                    item={item}
+                    customLocations={communityBookingConfig?.customLocations}
+                    isStaff={isStaffBookingMode}
+                    onDepositReturn={handleMarkDepositReturn}
+                    depositReturnBusyId={depositReturnBusyId}
+                  />
                 </div>
                 {canCancelBookingItem(item) ? (
                   <button
@@ -2202,6 +2424,13 @@ export default function Bookings() {
                   <div className="booking-management-card-main">
                     <span className="booking-management-facility">{item.facility}</span>
                     <p className="booking-management-meta">{formatBookingMeta(item)}</p>
+                    <BookingPaymentStatus
+                      item={item}
+                      customLocations={communityBookingConfig?.customLocations}
+                      isStaff={isStaffBookingMode}
+                      onDepositReturn={handleMarkDepositReturn}
+                      depositReturnBusyId={depositReturnBusyId}
+                    />
                   </div>
                   {canCancelBookingItem(item) ? (
                     <button

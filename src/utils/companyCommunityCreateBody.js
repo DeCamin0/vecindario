@@ -103,6 +103,8 @@ export function buildCompanyCommunityCreateBody(form) {
   body.appNavPaqueteriaEnabled = form.appNavPaqueteriaEnabled === true
   body.paqueteriaSpecialDeliveryEnabled =
     form.appNavPaqueteriaEnabled === true && form.paqueteriaSpecialDeliveryEnabled === true
+  body.paqueteriaKeyLoansEnabled =
+    form.appNavPaqueteriaEnabled === true && form.paqueteriaKeyLoansEnabled === true
   body.appNavCuadernoDiarioEnabled = form.appNavCuadernoDiarioEnabled === true
 
   const pcc = String(form.padelCourtCount ?? '').trim()

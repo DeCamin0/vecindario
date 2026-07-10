@@ -29,6 +29,7 @@ import RequireRole from './components/RequireRole'
 import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
 import RequirePaqueteriaSpecialDelivery from './components/RequirePaqueteriaSpecialDelivery'
+import RequirePaqueteriaKeyLoans from './components/RequirePaqueteriaKeyLoans'
 import CompletePiso from './pages/CompletePiso'
 import OpenAppLanding from './pages/OpenAppLanding'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
@@ -42,6 +43,8 @@ import PoolValidatePage from './pages/PoolValidatePage'
 import PaqueteriaListPage from './pages/paqueteria/PaqueteriaListPage'
 import PaqueteriaNewPage from './pages/paqueteria/PaqueteriaNewPage'
 import PaqueteriaDetailPage from './pages/paqueteria/PaqueteriaDetailPage'
+import KeyLoansListPage from './pages/paqueteria/KeyLoansListPage'
+import KeyLoanNewPage from './pages/paqueteria/KeyLoanNewPage'
 import CuadernoDiarioPage from './pages/cuaderno-diario/CuadernoDiarioPage'
 import './App.css'
 
@@ -204,6 +207,26 @@ function App() {
               element={
                 <RequireCommunityNavTab tab="paqueteria">
                   <PaqueteriaListPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="paqueteria/llaves"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <RequirePaqueteriaKeyLoans>
+                    <KeyLoansListPage />
+                  </RequirePaqueteriaKeyLoans>
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="paqueteria/llaves/nuevo"
+              element={
+                <RequireCommunityNavTab tab="paqueteria">
+                  <RequirePaqueteriaKeyLoans>
+                    <KeyLoanNewPage />
+                  </RequirePaqueteriaKeyLoans>
                 </RequireCommunityNavTab>
               }
             />

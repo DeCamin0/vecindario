@@ -222,6 +222,8 @@ companyCommunitiesRouter.post('/', async (req, res) => {
   const appNavPaqueteriaEnabled = parseBool(body?.appNavPaqueteriaEnabled, false)
   const paqueteriaSpecialDeliveryEnabled =
     appNavPaqueteriaEnabled && parseBool(body?.paqueteriaSpecialDeliveryEnabled, false)
+  const paqueteriaKeyLoansEnabled =
+    appNavPaqueteriaEnabled && parseBool(body?.paqueteriaKeyLoansEnabled, false)
   const appNavCuadernoDiarioEnabled = parseBool(body?.appNavCuadernoDiarioEnabled, false)
   const padelCourtCount = parsePadelCourtCount(body?.padelCourtCount)
   const customLocations = parseCustomLocations(body?.customLocations)
@@ -283,6 +285,7 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       appNavPoolAccessEnabled,
       appNavPaqueteriaEnabled,
       paqueteriaSpecialDeliveryEnabled,
+      paqueteriaKeyLoansEnabled,
       appNavCuadernoDiarioEnabled,
       padelCourtCount,
       padelMaxHoursPerBooking,

@@ -11,6 +11,14 @@ import { companyAdminOwnsCommunity, userLinkedToCommunity } from '../lib/communi
 import { residentMatchesPresidentUnit } from '../lib/president-by-unit.js'
 import { isCommunityOperationalStatus } from '../lib/community-status.js'
 import { conciergeEmailMatches } from '../lib/concierge-emails.js'
+import {
+  findCustomLocationByFacilityId,
+  isSalonLikeFacilityId,
+  parseCustomLocations,
+  resolveFacilityFeesFromLocation,
+  validateSalonBookingAdvance,
+  validateSalonSlotAgainstLocation,
+} from '../lib/custom-locations.js'
 
 export const communityBookingsRouter = Router()
 
@@ -111,6 +119,11 @@ function mapBookingRowJson(r: {
   bookedByUserId: number | null
   bookedByName: string | null
   vecindarioUserId: number | null
+  usageFeePaid: boolean
+  depositPaid: boolean
+  depositReturnedAt: Date | null
+  depositReturnedByUserId: number | null
+  depositReturnedByName: string | null
   createdAt: Date
   user?: { name: string | null; email: string | null } | null
 }) {
@@ -134,8 +147,26 @@ function mapBookingRowJson(r: {
     bookedByUserId: r.bookedByUserId,
     bookedByName: r.bookedByName,
     vecindarioUserId: r.vecindarioUserId,
+    usageFeePaid: r.usageFeePaid === true,
+    depositPaid: r.depositPaid === true,
+    depositReturnedAt: r.depositReturnedAt?.toISOString() ?? null,
+    depositReturnedByUserId: r.depositReturnedByUserId,
+    depositReturnedByName: r.depositReturnedByName?.trim() || null,
     createdAt: r.createdAt.toISOString(),
   }
+}
+
+function parseBoolField(v: unknown): boolean {
+  return v === true || v === 'true' || v === 1 || v === '1'
+}
+
+function staffMayRecordBookingPayments(user: VecindarioUser): boolean {
+  return user.role === 'concierge' || user.role === 'super_admin' || user.role === 'community_admin'
+}
+
+function resolveFacilityFeeFlags(comm: Community, facilityId: string) {
+  const loc = findCustomLocationByFacilityId(facilityId, parseCustomLocations(comm.customLocations))
+  return resolveFacilityFeesFromLocation(loc)
 }
 
 /** Propia reserva o conserje de la comunidad. */
@@ -395,6 +426,25 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     typeof req.body?.slotKey === 'string' && req.body.slotKey.trim()
       ? req.body.slotKey.trim().slice(0, 128)
       : null
+
+  if (isSalonLikeFacilityId(facilityId)) {
+    const customLocs = parseCustomLocations(comm.customLocations)
+    const loc = findCustomLocationByFacilityId(facilityId, customLocs)
+    const advanceErr = validateSalonBookingAdvance(bookingDate, loc)
+    if (advanceErr) {
+      res.status(400).json({ error: advanceErr })
+      return
+    }
+    const isFullDay = startMinute === 0 && endMinute >= 1440
+    if (!isFullDay) {
+      const slotErr = validateSalonSlotAgainstLocation(loc, startMinute, endMinute, slotKey)
+      if (slotErr) {
+        res.status(400).json({ error: slotErr })
+        return
+      }
+    }
+  }
+
   const slotLabel =
     typeof req.body?.slotLabel === 'string' && req.body.slotLabel.trim()
       ? req.body.slotLabel.trim().slice(0, 255)
@@ -461,6 +511,18 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     return
   }
 
+  const feeFlags = resolveFacilityFeeFlags(comm, facilityId)
+  let usageFeePaid = false
+  let depositPaid = false
+  if (staffMayRecordBookingPayments(user)) {
+    if (feeFlags.usageFeeEur != null && parseBoolField(req.body?.usageFeePaid)) {
+      usageFeePaid = true
+    }
+    if (feeFlags.depositEur != null && parseBoolField(req.body?.depositPaid)) {
+      depositPaid = true
+    }
+  }
+
   try {
     const row = await prisma.communityBooking.create({
       data: {
@@ -478,6 +540,8 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
         actorEmail,
         actorPiso,
         actorPortal,
+        usageFeePaid,
+        depositPaid,
         status: 'confirmed',
       },
       include: { user: { select: { name: true, email: true } } },
@@ -496,6 +560,57 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
     }
     throw e
   }
+})
+
+/** Marcar devolución de fianza (conserje / gestión). */
+communityBookingsRouter.patch('/:id/deposit-return', requireAuth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'id inválido' })
+    return
+  }
+
+  const user = await prisma.vecindarioUser.findUnique({ where: { id: req.userId! } })
+  if (!user || !staffMayRecordBookingPayments(user)) {
+    res.status(403).json({ error: 'Solo el conserje o la gestión puede registrar la devolución de fianza.' })
+    return
+  }
+
+  const row = await prisma.communityBooking.findUnique({ where: { id } })
+  if (!row || row.status !== 'confirmed') {
+    res.status(404).json({ error: 'Reserva no encontrada.' })
+    return
+  }
+
+  const comm = await prisma.community.findUnique({ where: { id: row.communityId } })
+  if (!comm || !assertUserMayAccessCommunity(user, comm)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+
+  if (!row.depositPaid) {
+    res.status(400).json({ error: 'Esta reserva no consta con fianza entregada.' })
+    return
+  }
+  if (row.depositReturnedAt) {
+    res.status(400).json({ error: 'La fianza ya consta como devuelta.' })
+    return
+  }
+
+  const returnedAt = new Date()
+  const returnedByName = bookedByDisplayName(user)
+
+  const updated = await prisma.communityBooking.update({
+    where: { id },
+    data: {
+      depositReturnedAt: returnedAt,
+      depositReturnedByUserId: user.id,
+      depositReturnedByName: returnedByName,
+    },
+    include: { user: { select: { name: true, email: true } } },
+  })
+
+  res.json(mapBookingRowJson(updated))
 })
 
 /** Anular reserva: el vecino la suya; el conserje cualquiera de su comunidad. Libera el tramo al eliminar la fila. */

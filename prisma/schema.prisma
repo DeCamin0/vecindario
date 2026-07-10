@@ -83,6 +83,8 @@ model VecindarioUser {
   parcelsReceived            CommunityConciergeParcel[]  @relation("ParcelRecipient")
   parcelsCreated             CommunityConciergeParcel[]  @relation("ParcelCreatedBy")
   parcelsHandedOver          CommunityConciergeParcel[]  @relation("ParcelPickedUpBy")
+  keyLoansCreated            CommunityKeyLoan[]          @relation("KeyLoanCreatedBy")
+  keyLoansReturned           CommunityKeyLoan[]          @relation("KeyLoanReturnedBy")
   diarioEntriesCreated       CommunityDiarioEntry[]      @relation("DiarioCreatedBy")
 
   @@index([communityId], map: "vecindario_users_community_id_idx")
@@ -188,6 +190,8 @@ model Community {
   appNavPaqueteriaEnabled Boolean @default(false) @map("app_nav_paqueteria_enabled")
   /// Paquetería: entrega especial (llaves, sobres, etc.) en conserjería.
   paqueteriaSpecialDeliveryEnabled Boolean @default(false) @map("paqueteria_special_delivery_enabled")
+  /// Paquetería: registro de préstamo/devolución de llaves (cuaderno de conserjería).
+  paqueteriaKeyLoansEnabled Boolean @default(false) @map("paqueteria_key_loans_enabled")
   /// Cuaderno diario del conserje (junta y administración: solo lectura).
   appNavCuadernoDiarioEnabled Boolean @default(false) @map("app_nav_cuaderno_diario_enabled")
   /// Sistema de acceso a piscina (códigos / validación por socorrista).
@@ -214,6 +218,7 @@ model Community {
   poolAccessValidationLogs PoolAccessValidationLog[]
   poolPresenceSessions     PoolPresenceSession[]
   conciergeParcels         CommunityConciergeParcel[]
+  keyLoans                 CommunityKeyLoan[]
   diarioEntries            CommunityDiarioEntry[]
 
   @@index([companyId], map: "communities_company_id_idx")
@@ -279,6 +284,33 @@ model CommunityConciergeParcel {
   @@index([communityId, status], map: "ccp_comm_status_idx")
   @@index([recipientUserId, status], map: "ccp_recipient_status_idx")
   @@map("community_concierge_parcels")
+}
+
+/// Préstamo de llaves en conserjería (cuaderno: entrega y devolución).
+model CommunityKeyLoan {
+  id               Int            @id @default(autoincrement())
+  communityId      Int            @map("community_id")
+  community        Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  keyReference     String         @map("key_reference") @db.VarChar(120)
+  borrowerName     String         @map("borrower_name") @db.VarChar(255)
+  handedOutAt      DateTime       @map("handed_out_at")
+  returnedAt       DateTime?      @map("returned_at")
+  notes            String?        @db.VarChar(512)
+  portal           String?        @db.VarChar(64)
+  piso             String?        @db.VarChar(64)
+  puerta           String?        @db.VarChar(64)
+  createdByUserId  Int            @map("created_by_user_id")
+  createdBy        VecindarioUser @relation("KeyLoanCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByName    String?        @map("created_by_name") @db.VarChar(255)
+  returnedByUserId Int?           @map("returned_by_user_id")
+  returnedBy       VecindarioUser? @relation("KeyLoanReturnedBy", fields: [returnedByUserId], references: [id], onDelete: SetNull)
+  returnedByName   String?        @map("returned_by_name") @db.VarChar(255)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  @@index([communityId, handedOutAt], map: "ckl_comm_handout_idx")
+  @@index([communityId, returnedAt], map: "ckl_comm_return_idx")
+  @@map("community_key_loans")
 }
 
 /// Código corto de acceso a piscina (vecino); caducidad típica 24h.
@@ -376,6 +408,13 @@ model CommunityBooking {
   bookedBy         VecindarioUser? @relation("BookingBookedBy", fields: [bookedByUserId], references: [id], onDelete: SetNull)
   /// Nombre del conserje/gestor en el momento del alta (histórico si cambia el perfil).
   bookedByName     String?         @map("booked_by_name") @db.VarChar(255)
+  /// Tasa de uso cobrada en conserjería al reservar (salón con usageFeeEur).
+  usageFeePaid     Boolean         @default(false) @map("usage_fee_paid")
+  /// Fianza entregada en conserjería al reservar (salón con depositEur).
+  depositPaid      Boolean         @default(false) @map("deposit_paid")
+  depositReturnedAt DateTime?      @map("deposit_returned_at")
+  depositReturnedByUserId Int?     @map("deposit_returned_by_user_id")
+  depositReturnedByName   String?  @map("deposit_returned_by_name") @db.VarChar(255)
   actorEmail       String?         @map("actor_email") @db.VarChar(255)
   actorPiso        String?         @map("actor_piso") @db.VarChar(64)
   actorPortal      String?         @map("actor_portal") @db.VarChar(64)

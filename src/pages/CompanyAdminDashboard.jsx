@@ -1054,7 +1054,7 @@ export default function CompanyAdminDashboard() {
                         onChange={(e) =>
                           setForm((f) => ({ ...f, portalDwellingConfigJson: e.target.value }))
                         }
-                        placeholder='[{ "floors": 5, "doorsPerFloor": 4, "doorScheme": "letters", "doorsTopFloor": 2, "streetLocales": ["Farmacia"] }]'
+                        placeholder='[{ "floors": 9, "doorScheme": "numbers", "doorsPerFloorByPiso": { "1": 13, "2": 13, "7": 10, "8": 8, "9": 2 } }]'
                       />
                     </div>
                     <div className="admin-modal-field">

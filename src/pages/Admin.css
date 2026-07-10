@@ -1112,6 +1112,69 @@
   margin: var(--space-2) 0 0;
 }
 
+.admin-space-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated, var(--color-bg));
+}
+
+.admin-space-advance-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.admin-space-regs-toggle {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+}
+
+.admin-space-regs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
+  border-top: 1px dashed var(--color-border);
+}
+
+.admin-space-rules-text {
+  min-height: 8rem;
+  resize: vertical;
+  font-family: inherit;
+  line-height: var(--leading-normal);
+}
+
+.admin-space-fees-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}
+
+.admin-space-slots-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.admin-space-slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.admin-space-slot-time {
+  width: 7rem;
+}
+
 .admin-community-spaces-preview {
   margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
@@ -1762,6 +1825,33 @@
 .admin-portal-ground-floor input {
   margin-top: 0.2rem;
   flex-shrink: 0;
+}
+
+.admin-portal-doors-by-floor {
+  margin-top: var(--space-2);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.admin-portal-doors-by-floor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: var(--space-2);
+}
+
+.admin-portal-floor-doors-row {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.admin-portal-floor-doors-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-muted, #64748b);
+}
+
+.admin-portal-floor-doors-input {
+  min-width: 0;
 }
 
 .admin-portal-street-locales {
