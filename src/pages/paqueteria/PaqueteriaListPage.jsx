@@ -17,6 +17,15 @@ import {
   canRegisterPaquete,
 } from './paqueteriaRoles.js'
 import { isSpecialParcel } from './parcelDeliveryKind.js'
+import {
+  formatParcelDateTime,
+  normalizeParcelPackageCount,
+  parcelBultosLabel,
+  parcelLastActivityIso,
+  parcelShowsInitialRegistration,
+  patchParcelPackageCount,
+  PARCEL_MAX_BULTOS,
+} from './parcelPackageCount.js'
 
 export default function PaqueteriaListPage() {
   const { accessToken, communityId, communityAccessCode, userRole, paqueteriaSpecialDeliveryEnabled, paqueteriaKeyLoansEnabled, appNavFlagsReady } =
@@ -26,6 +35,8 @@ export default function PaqueteriaListPage() {
   const [error, setError] = useState('')
   const [filterPiso, setFilterPiso] = useState('')
   const [filterDwellingKey, setFilterDwellingKey] = useState('')
+  const [packageUpdateBusyId, setPackageUpdateBusyId] = useState(null)
+  const [packageUpdateError, setPackageUpdateError] = useState('')
 
   const isStaff = PAQUETERIA_STAFF_LIST_ROLES.has(userRole)
   const canRegister = canRegisterPaquete(userRole)
@@ -99,6 +110,14 @@ export default function PaqueteriaListPage() {
     return list
   }, [parcels, filterPiso, filterDwellingKey])
 
+  const sortedParcels = useMemo(() => {
+    return [...filteredParcels].sort((a, b) => {
+      const ta = parcelLastActivityIso(a)
+      const tb = parcelLastActivityIso(b)
+      return (tb ? new Date(tb).getTime() : 0) - (ta ? new Date(ta).getTime() : 0)
+    })
+  }, [filteredParcels])
+
   const hasActiveFilter = Boolean(filterPiso || filterDwellingKey)
 
   const clearFilters = () => {
@@ -116,9 +135,34 @@ export default function PaqueteriaListPage() {
     if (piso) setFilterDwellingKey('')
   }
 
-  const bultosLabel = (n) => {
-    const c = typeof n === 'number' && Number.isFinite(n) ? Math.max(1, Math.trunc(n)) : 1
-    return c === 1 ? '1 bulto' : `${c} bultos`
+  const bultosLabel = parcelBultosLabel
+
+  const handleAddBulto = async (ev, parcel) => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    if (!canRegister || packageUpdateBusyId != null || !accessToken || communityId == null) return
+    const pkg = normalizeParcelPackageCount(parcel.packageCount)
+    if (pkg >= PARCEL_MAX_BULTOS) {
+      setPackageUpdateError(`Máximo ${PARCEL_MAX_BULTOS} bultos por registro.`)
+      return
+    }
+    setPackageUpdateError('')
+    setPackageUpdateBusyId(parcel.id)
+    try {
+      await patchParcelPackageCount({
+        apiUrl,
+        accessToken,
+        communityId,
+        communityAccessCode,
+        parcelId: parcel.id,
+        addOne: true,
+      })
+      await load()
+    } catch (e) {
+      setPackageUpdateError(e.message || 'No se pudo añadir el bulto.')
+    } finally {
+      setPackageUpdateBusyId(null)
+    }
   }
 
   return (
@@ -228,6 +272,11 @@ export default function PaqueteriaListPage() {
             {error}
           </p>
         ) : null}
+        {packageUpdateError ? (
+          <p className="auth-error" role="alert">
+            {packageUpdateError}
+          </p>
+        ) : null}
         {!loading && !error && parcels.length === 0 ? (
           <div className="pq-list-empty card">
             <p className="pq-list-empty-title">No hay paquetes</p>
@@ -251,14 +300,15 @@ export default function PaqueteriaListPage() {
         ) : null}
         {!loading && !error && filteredParcels.length > 0 ? (
           <ul className="pq-parcel-list">
-            {filteredParcels.map((p) => {
+            {sortedParcels.map((p) => {
               const pending = p.status !== 'picked_up'
               const special = isSpecialParcel(p)
               const staffMeta = isStaff ? parcelStaffMetaLine(p) : null
-              const pkg =
-                typeof p.packageCount === 'number' && Number.isFinite(p.packageCount)
-                  ? Math.max(1, Math.trunc(p.packageCount))
-                  : 1
+              const pkg = normalizeParcelPackageCount(p.packageCount)
+              const activityIso = parcelLastActivityIso(p)
+              const showInitial = parcelShowsInitialRegistration(p)
+              const canAddBulto = canRegister && pending && !special && pkg < PARCEL_MAX_BULTOS
+              const addBusy = packageUpdateBusyId === p.id
               return (
                 <li key={p.id}>
                   <Link to={`/paqueteria/${p.id}`} className="pq-parcel-card">
@@ -293,18 +343,32 @@ export default function PaqueteriaListPage() {
                         <span className={pending ? 'pq-parcel-status pq-parcel-status--pending' : 'pq-parcel-status pq-parcel-status--done'}>
                           {pending ? 'Pendiente de recogida' : 'Recogido'}
                         </span>
-                        {p.createdAt ? (
-                          <time className="pq-parcel-date" dateTime={p.createdAt}>
-                            {new Date(p.createdAt).toLocaleString('es-ES', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </time>
+                        {activityIso ? (
+                          <div className="pq-parcel-dates">
+                            <time className="pq-parcel-date" dateTime={activityIso}>
+                              {formatParcelDateTime(activityIso)}
+                            </time>
+                            {showInitial && p.createdAt ? (
+                              <span className="pq-parcel-date-initial">
+                                Registrado inicial: {formatParcelDateTime(p.createdAt)}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
+                      {canAddBulto ? (
+                        <div className="pq-parcel-card__actions">
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm pq-parcel-add-bulto"
+                            disabled={addBusy}
+                            aria-label={`Añadir bulto al paquete ${p.id}`}
+                            onClick={(ev) => void handleAddBulto(ev, p)}
+                          >
+                            {addBusy ? '…' : '+ Bulto'}
+                          </button>
+                        </div>
+                      ) : null}
                       {staffMeta ? (
                         <p className="pq-parcel-staff-meta">{staffMeta}</p>
                       ) : null}

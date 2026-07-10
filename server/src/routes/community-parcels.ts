@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/require-auth.js'
 import { assertStaffOwnsCommunity } from '../lib/community-staff-gate.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
 import { pushDelivery } from '../lib/push-delivery.js'
-import { sendParcelCreatedNotificationEmail } from '../lib/parcel-notification-mail.js'
+import { sendParcelCreatedNotificationEmail, sendParcelPackageCountUpdatedEmail } from '../lib/parcel-notification-mail.js'
 import { staffDisplayName } from '../lib/staff-display-name.js'
 import { realtimeHub } from '../lib/realtime-hub.js'
 
@@ -179,6 +179,8 @@ function serializeParcel(p: {
   packageCount?: number
   deliveryKind?: string
   itemDescription?: string | null
+  lastPackageAt?: Date | null
+  lastPackageByName?: string | null
   signatureImage: string | null
   pickedUpAt: Date | null
   pickedUpByUserId?: number | null
@@ -203,6 +205,8 @@ function serializeParcel(p: {
     packageCount: pkg,
     deliveryKind: p.deliveryKind === 'special' ? 'special' : 'courier',
     itemDescription: p.itemDescription?.trim() || null,
+    lastPackageAt: p.lastPackageAt?.toISOString() ?? null,
+    lastPackageByName: p.lastPackageByName?.trim() || null,
     photos: Array.isArray(p.photosJson) ? p.photosJson : [],
     status: p.status,
     hasSignature: Boolean(p.signatureImage && String(p.signatureImage).length > 0),
@@ -244,7 +248,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     }
     const rows = await prisma.communityConciergeParcel.findMany({
       where: { communityId, recipientUserId: uid },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
       take: 100,
     })
     res.json({ parcels: rows.map(serializeParcel) })
@@ -260,7 +264,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     if (role === 'super_admin') {
       const rows = await prisma.communityConciergeParcel.findMany({
         where: { communityId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
         take: 200,
       })
       res.json({ parcels: rows.map(serializeParcel) })
@@ -273,7 +277,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     }
     const rows = await prisma.communityConciergeParcel.findMany({
       where: { communityId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
       take: 200,
     })
     res.json({ parcels: rows.map(serializeParcel) })
@@ -458,6 +462,9 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
       packageCount,
       deliveryKind,
       itemDescription,
+      lastPackageAt: new Date(),
+      lastPackageByUserId: uid,
+      lastPackageByName: createdByName,
     },
   })
 
@@ -496,6 +503,190 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
 
   res.status(201).json({ parcel: serializeParcel(created) })
 })
+
+/** Actualizar número de bultos (conserje): añadir o corregir mientras pendiente de recogida. */
+communityParcelsRouter.patch('/parcels/:id/package-count', requireAuth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'id inválido' })
+    return
+  }
+  const communityId = Number(req.body?.communityId)
+  if (!Number.isInteger(communityId) || communityId < 1) {
+    res.status(400).json({ error: 'communityId inválido' })
+    return
+  }
+  const accessCode = typeof req.body?.accessCode === 'string' ? req.body.accessCode : undefined
+
+  const gate = await loadCommunityForParcels(communityId, accessCode)
+  if (!gate.ok) {
+    res.status(gate.status).json({ error: gate.message })
+    return
+  }
+
+  const uid = req.userId!
+  const role = req.userRole!
+
+  if (role !== 'concierge' && role !== 'super_admin') {
+    res.status(403).json({ error: 'Solo el conserje puede actualizar el número de bultos.' })
+    return
+  }
+
+  if (role !== 'super_admin') {
+    const staff = await assertStaffOwnsCommunity(uid, communityId, accessCode)
+    if (!staff.ok) {
+      res.status(staff.status).json({ error: staff.message })
+      return
+    }
+  }
+
+  const row = await prisma.communityConciergeParcel.findFirst({
+    where: { id, communityId },
+  })
+  if (!row) {
+    res.status(404).json({ error: 'Paquete no encontrado' })
+    return
+  }
+  if (row.status !== 'awaiting_pickup') {
+    res.status(400).json({ error: 'Solo se pueden modificar bultos en registros pendientes de recogida.' })
+    return
+  }
+  if (row.deliveryKind === 'special') {
+    res.status(400).json({ error: 'Las entregas especiales no admiten cambio de bultos.' })
+    return
+  }
+
+  const previousCount = parsePackageCount(row.packageCount)
+  let nextCount = previousCount
+
+  if (parseBoolField(req.body?.addOne)) {
+    nextCount = Math.min(MAX_PACKAGE_COUNT, previousCount + 1)
+  } else if (req.body?.packageCount !== undefined && req.body?.packageCount !== null) {
+    nextCount = parsePackageCount(req.body.packageCount)
+  } else {
+    res.status(400).json({ error: 'Indica packageCount o addOne.' })
+    return
+  }
+
+  if (nextCount === previousCount) {
+    res.json({ parcel: serializeParcel(row) })
+    return
+  }
+
+  const actor = await prisma.vecindarioUser.findUnique({
+    where: { id: uid },
+    select: { name: true, email: true },
+  })
+  const lastPackageByName = actor ? staffDisplayName(actor) : null
+  const now = new Date()
+
+  const updated = await prisma.communityConciergeParcel.update({
+    where: { id: row.id },
+    data: {
+      packageCount: nextCount,
+      lastPackageAt: now,
+      lastPackageByUserId: uid,
+      lastPackageByName,
+    },
+  })
+
+  if (nextCount > previousCount) {
+    const title =
+      nextCount > 1 ? 'Bultos actualizados en conserjería' : 'Bulto añadido en conserjería'
+    const body =
+      nextCount > 1
+        ? `Ahora tienes ${nextCount} bultos pendientes · portal ${row.portal}, piso ${row.piso}, puerta ${row.puerta}.`
+        : `Se ha añadido un bulto a tu registro · portal ${row.portal}, piso ${row.piso}, puerta ${row.puerta}.`
+    await prisma.vecindarioNotification.create({
+      data: {
+        recipientUserId: row.recipientUserId,
+        type: 'paqueteria_new',
+        title,
+        body,
+        serviceRequestId: null,
+        parcelId: row.id,
+      },
+    })
+    realtimeHub.emitNotificationRefresh([row.recipientUserId])
+    void pushDelivery
+      .sendToUser(row.recipientUserId, title, body, { parcelId: row.id })
+      .catch((e) => console.error('[parcels push bulto-update]', e))
+    void sendParcelPackageCountUpdatedEmail({
+      recipientUserId: row.recipientUserId,
+      communityName: gate.row.name,
+      portal: row.portal,
+      piso: row.piso,
+      puerta: row.puerta,
+      packageCount: nextCount,
+      previousCount,
+      parcelId: row.id,
+    }).catch((e) => console.error('[parcels email bulto-update]', e))
+  }
+
+  res.json({ parcel: serializeParcel(updated) })
+})
+
+/** Eliminar registro de paquete (conserje): error de registro o duplicado. */
+communityParcelsRouter.delete('/parcels/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'id inválido' })
+    return
+  }
+  const communityId = Number(req.query.communityId ?? req.body?.communityId)
+  if (!Number.isInteger(communityId) || communityId < 1) {
+    res.status(400).json({ error: 'communityId inválido' })
+    return
+  }
+  const accessCode =
+    typeof req.query.accessCode === 'string'
+      ? req.query.accessCode
+      : typeof req.body?.accessCode === 'string'
+        ? req.body.accessCode
+        : undefined
+
+  const gate = await loadCommunityForParcels(communityId, accessCode)
+  if (!gate.ok) {
+    res.status(gate.status).json({ error: gate.message })
+    return
+  }
+
+  const uid = req.userId!
+  const role = req.userRole!
+
+  if (role !== 'concierge' && role !== 'super_admin') {
+    res.status(403).json({ error: 'Solo el conserje puede eliminar registros de paquetería.' })
+    return
+  }
+
+  if (role !== 'super_admin') {
+    const staff = await assertStaffOwnsCommunity(uid, communityId, accessCode)
+    if (!staff.ok) {
+      res.status(staff.status).json({ error: staff.message })
+      return
+    }
+  }
+
+  const row = await prisma.communityConciergeParcel.findFirst({
+    where: { id, communityId },
+  })
+  if (!row) {
+    res.status(404).json({ error: 'Paquete no encontrado' })
+    return
+  }
+
+  await prisma.vecindarioNotification.updateMany({
+    where: { parcelId: id },
+    data: { parcelId: null },
+  })
+  await prisma.communityConciergeParcel.delete({ where: { id: row.id } })
+
+  res.json({ ok: true, deletedId: id })
+})
+
+function parseBoolField(v: unknown): boolean {
+  return v === true || v === 'true' || v === 1 || v === '1'
+}
 
 /** Marcar recogido + firma: solo personal de conserjería / admin (entrega presencial en conserjería). */
 communityParcelsRouter.patch('/parcels/:id/pickup', requireAuth, async (req, res) => {

@@ -265,6 +265,11 @@ model CommunityConciergeParcel {
   status            String         @default("awaiting_pickup") @map("status") @db.VarChar(32)
   /// Número de bultos entregados en este registro (1–20 en API).
   packageCount      Int            @default(1) @map("package_count")
+  /// Última vez que se registró o actualizó el número de bultos (incluye alta inicial).
+  lastPackageAt     DateTime?      @map("last_package_at")
+  /// Conserje/gestor que actualizó por última vez el número de bultos.
+  lastPackageByUserId Int?         @map("last_package_by_user_id")
+  lastPackageByName String?        @map("last_package_by_name") @db.VarChar(255)
   /// courier (paquete de mensajería) | special (llaves, sobres, etc.)
   deliveryKind      String         @default("courier") @map("delivery_kind") @db.VarChar(16)
   /// Descripción breve cuando deliveryKind = special (ej. «Llaves buzón», «Sobre»).

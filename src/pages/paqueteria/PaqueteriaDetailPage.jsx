@@ -6,8 +6,18 @@ import PaqueteriaBackLink from './PaqueteriaBackLink.jsx'
 import {
   PAQUETERIA_STAFF_LIST_ROLES,
   canConfirmPaquetePickup,
+  canRegisterPaquete,
 } from './paqueteriaRoles.js'
 import { isSpecialParcel } from './parcelDeliveryKind.js'
+import {
+  formatParcelDateTime,
+  normalizeParcelPackageCount,
+  parcelBultosLabel,
+  parcelLastActivityIso,
+  parcelShowsInitialRegistration,
+  patchParcelPackageCount,
+  PARCEL_MAX_BULTOS,
+} from './parcelPackageCount.js'
 import './paqueteria.css'
 import '../Admin.css'
 
@@ -18,6 +28,8 @@ export default function PaqueteriaDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pickupBusy, setPickupBusy] = useState(false)
+  const [draftPackageCount, setDraftPackageCount] = useState(1)
+  const [packageSaveBusy, setPackageSaveBusy] = useState(false)
   const canvasRef = useRef(null)
   const drawing = useRef(false)
 
@@ -26,6 +38,19 @@ export default function PaqueteriaDetailPage() {
   const canSign = Boolean(
     parcel && parcel.status === 'awaiting_pickup' && canConfirmPaquetePickup(userRole),
   )
+  const canEditBultos = Boolean(
+    parcel &&
+      parcel.status === 'awaiting_pickup' &&
+      !isSpecialParcel(parcel) &&
+      canRegisterPaquete(userRole),
+  )
+  const savedPackageCount = parcel ? normalizeParcelPackageCount(parcel.packageCount) : 1
+  const packageCountDirty = canEditBultos && draftPackageCount !== savedPackageCount
+
+  useEffect(() => {
+    if (!parcel) return
+    setDraftPackageCount(normalizeParcelPackageCount(parcel.packageCount))
+  }, [parcel])
 
   const load = useCallback(async () => {
     if (!accessToken || communityId == null || !id) {
@@ -95,6 +120,30 @@ export default function PaqueteriaDetailPage() {
     ctx.fillRect(0, 0, c.width, c.height)
   }
 
+  const savePackageCount = async (opts = {}) => {
+    if (!canEditBultos || packageSaveBusy || !accessToken || communityId == null) return
+    const next = opts.addOne ? Math.min(PARCEL_MAX_BULTOS, savedPackageCount + 1) : draftPackageCount
+    if (!opts.addOne && next === savedPackageCount) return
+    setPackageSaveBusy(true)
+    setError('')
+    try {
+      const updated = await patchParcelPackageCount({
+        apiUrl,
+        accessToken,
+        communityId,
+        communityAccessCode,
+        parcelId: id,
+        ...(opts.addOne ? { addOne: true } : { packageCount: next }),
+      })
+      setParcel(updated)
+      setDraftPackageCount(normalizeParcelPackageCount(updated.packageCount))
+    } catch (e) {
+      setError(e.message || 'No se pudo actualizar el número de bultos.')
+    } finally {
+      setPackageSaveBusy(false)
+    }
+  }
+
   const submitPickup = async () => {
     const c = canvasRef.current
     if (!c || !accessToken || communityId == null) return
@@ -157,12 +206,62 @@ export default function PaqueteriaDetailPage() {
               <strong>Entrega:</strong> {parcel.itemDescription?.trim() || 'Entrega especial'}
             </p>
           ) : (
-          <p>
-            <strong>Bultos:</strong>{' '}
-            {typeof parcel.packageCount === 'number' && parcel.packageCount > 0
-              ? parcel.packageCount
-              : 1}
-          </p>
+          <div className="pq-detail-bultos">
+            {canEditBultos ? (
+              <fieldset className="pq-fieldset pq-detail-bultos-edit">
+                <legend className="admin-label">Número de bultos</legend>
+                <p className="admin-field-hint admin-field-hint--block pq-detail-bultos-hint">
+                  Actualiza si llegan más paquetes para este registro (máx. {PARCEL_MAX_BULTOS}).
+                </p>
+                <div className="pq-detail-bultos-controls">
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    disabled={packageSaveBusy || draftPackageCount <= 1}
+                    aria-label="Quitar un bulto"
+                    onClick={() => setDraftPackageCount((n) => Math.max(1, n - 1))}
+                  >
+                    −
+                  </button>
+                  <span className="pq-detail-bultos-value" aria-live="polite">
+                    {draftPackageCount}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    disabled={packageSaveBusy || draftPackageCount >= PARCEL_MAX_BULTOS}
+                    aria-label="Añadir un bulto"
+                    onClick={() => setDraftPackageCount((n) => Math.min(PARCEL_MAX_BULTOS, n + 1))}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    disabled={packageSaveBusy || !packageCountDirty}
+                    onClick={() => void savePackageCount()}
+                  >
+                    {packageSaveBusy ? 'Guardando…' : 'Guardar bultos'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    disabled={packageSaveBusy || savedPackageCount >= PARCEL_MAX_BULTOS}
+                    onClick={() => void savePackageCount({ addOne: true })}
+                  >
+                    {packageSaveBusy ? '…' : '+ Añadir bulto'}
+                  </button>
+                </div>
+                <p className="pq-detail-bultos-current">
+                  Guardado: <strong>{parcelBultosLabel(savedPackageCount)}</strong>
+                </p>
+              </fieldset>
+            ) : (
+              <p>
+                <strong>Bultos:</strong> {savedPackageCount}
+              </p>
+            )}
+          </div>
           )}
           <p>
             <strong>Estado:</strong> {parcel.status === 'picked_up' ? 'Recogido' : 'Pendiente de recogida'}
@@ -170,6 +269,18 @@ export default function PaqueteriaDetailPage() {
           {parcel.createdByName?.trim() ? (
             <p>
               <strong>Recibido en conserjería por:</strong> {parcel.createdByName.trim()}
+            </p>
+          ) : null}
+          {parcelLastActivityIso(parcel) ? (
+            <p>
+              <strong>Último bulto registrado:</strong>{' '}
+              {formatParcelDateTime(parcelLastActivityIso(parcel))}
+              {parcel.lastPackageByName?.trim() ? ` · ${parcel.lastPackageByName.trim()}` : null}
+            </p>
+          ) : null}
+          {parcelShowsInitialRegistration(parcel) && parcel.createdAt ? (
+            <p className="pq-detail-date-initial">
+              <strong>Registrado inicial:</strong> {formatParcelDateTime(parcel.createdAt)}
             </p>
           ) : null}
           {parcel.pickedUpByName?.trim() ? (
