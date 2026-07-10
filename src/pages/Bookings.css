@@ -635,6 +635,14 @@
   border-color: rgba(37, 99, 235, 0.28);
 }
 
+.booking-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.booking-payment-action-btn,
 .booking-payment-return-btn {
   flex-shrink: 0;
 }

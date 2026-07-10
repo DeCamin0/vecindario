@@ -98,13 +98,15 @@ function BookingPaymentStatus({
   item,
   customLocations,
   isStaff,
+  onMarkPayment,
   onDepositReturn,
-  depositReturnBusyId,
+  paymentActionBusyId,
 }) {
   if (!bookingHasConfiguredFees(item, customLocations)) return null
   const fees = facilityFeeConfigForBooking(item, customLocations)
   const pendingDepositReturn = item.depositPaid && !item.depositReturnedAt
   const returnedLabel = formatDepositReturnedLabel(item.depositReturnedAt)
+  const busy = paymentActionBusyId === item.serverId
 
   return (
     <div className="booking-payment-status" aria-label="Estado de tasas y fianza">
@@ -133,15 +135,39 @@ function BookingPaymentStatus({
               : 'Pend. devolución'}
         </span>
       ) : null}
-      {isStaff && pendingDepositReturn && onDepositReturn ? (
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm booking-payment-return-btn"
-          disabled={depositReturnBusyId === item.serverId}
-          onClick={() => onDepositReturn(item)}
-        >
-          {depositReturnBusyId === item.serverId ? 'Guardando…' : 'Marcar devolución'}
-        </button>
+      {isStaff && onMarkPayment ? (
+        <div className="booking-payment-actions">
+          {!item.usageFeePaid && fees.usageFeeEur > 0 ? (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm booking-payment-action-btn"
+              disabled={busy}
+              onClick={() => onMarkPayment(item, 'usageFeePaid')}
+            >
+              {busy ? 'Guardando…' : 'Marcar tasa cobrada'}
+            </button>
+          ) : null}
+          {!item.depositPaid && fees.depositEur > 0 ? (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm booking-payment-action-btn"
+              disabled={busy}
+              onClick={() => onMarkPayment(item, 'depositPaid')}
+            >
+              {busy ? 'Guardando…' : 'Marcar fianza entregada'}
+            </button>
+          ) : null}
+          {pendingDepositReturn && onDepositReturn ? (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm booking-payment-action-btn"
+              disabled={busy}
+              onClick={() => onDepositReturn(item)}
+            >
+              {busy ? 'Guardando…' : 'Marcar devolución'}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
@@ -648,7 +674,7 @@ export default function Bookings() {
   const [cancellingBookingId, setCancellingBookingId] = useState(null)
   const [usageFeePaid, setUsageFeePaid] = useState(false)
   const [depositPaid, setDepositPaid] = useState(false)
-  const [depositReturnBusyId, setDepositReturnBusyId] = useState(null)
+  const [paymentActionBusyId, setPaymentActionBusyId] = useState(null)
   const [depositReturnError, setDepositReturnError] = useState('')
   const [cancelError, setCancelError] = useState('')
 
@@ -776,9 +802,59 @@ export default function Bookings() {
     [accessToken, canCancelBookingItem, cancellingBookingId, confirm, refreshServerBookings],
   )
 
+  const handleMarkPayment = useCallback(
+    async (item, field) => {
+      if (!isStaffBookingMode || paymentActionBusyId != null || !item?.serverId) return
+      const fees = facilityFeeConfigForBooking(item, communityBookingConfig?.customLocations)
+      const isUsage = field === 'usageFeePaid'
+      const ok = await confirm({
+        title: isUsage ? 'Tasa de uso' : 'Fianza',
+        message: isUsage
+          ? `¿Marcar la tasa de ${fees.usageFeeEur ?? ''} € como cobrada para ${item.facility || 'esta reserva'} (${item.date})?`
+          : `¿Marcar la fianza de ${fees.depositEur ?? ''} € como entregada para ${item.facility || 'esta reserva'} (${item.date})?`,
+        confirmLabel: 'Sí, marcar',
+        cancelLabel: 'Cancelar',
+      })
+      if (!ok) return
+      setDepositReturnError('')
+      setPaymentActionBusyId(item.serverId)
+      try {
+        const res = await fetch(apiUrl(`/api/bookings/${item.serverId}/payments`), {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ communityId, [field]: true }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setDepositReturnError(
+            typeof data.error === 'string' ? data.error : 'No se pudo registrar el cobro.',
+          )
+          return
+        }
+        await refreshServerBookings()
+      } catch {
+        setDepositReturnError('Error de red al registrar el cobro.')
+      } finally {
+        setPaymentActionBusyId(null)
+      }
+    },
+    [
+      accessToken,
+      communityBookingConfig?.customLocations,
+      communityId,
+      confirm,
+      isStaffBookingMode,
+      paymentActionBusyId,
+      refreshServerBookings,
+    ],
+  )
+
   const handleMarkDepositReturn = useCallback(
     async (item) => {
-      if (!isStaffBookingMode || depositReturnBusyId != null || !item?.serverId) return
+      if (!isStaffBookingMode || paymentActionBusyId != null || !item?.serverId) return
       const fees = facilityFeeConfigForBooking(item, communityBookingConfig?.customLocations)
       const ok = await confirm({
         title: 'Devolución de fianza',
@@ -788,7 +864,7 @@ export default function Bookings() {
       })
       if (!ok) return
       setDepositReturnError('')
-      setDepositReturnBusyId(item.serverId)
+      setPaymentActionBusyId(item.serverId)
       try {
         const res = await fetch(apiUrl(`/api/bookings/${item.serverId}/deposit-return`), {
           method: 'PATCH',
@@ -809,7 +885,7 @@ export default function Bookings() {
       } catch {
         setDepositReturnError('Error de red al registrar la devolución.')
       } finally {
-        setDepositReturnBusyId(null)
+        setPaymentActionBusyId(null)
       }
     },
     [
@@ -817,7 +893,7 @@ export default function Bookings() {
       communityBookingConfig?.customLocations,
       communityId,
       confirm,
-      depositReturnBusyId,
+      paymentActionBusyId,
       isStaffBookingMode,
       refreshServerBookings,
     ],
@@ -2386,8 +2462,9 @@ export default function Bookings() {
                     item={item}
                     customLocations={communityBookingConfig?.customLocations}
                     isStaff={isStaffBookingMode}
+                    onMarkPayment={handleMarkPayment}
                     onDepositReturn={handleMarkDepositReturn}
-                    depositReturnBusyId={depositReturnBusyId}
+                    paymentActionBusyId={paymentActionBusyId}
                   />
                 </div>
                 {canCancelBookingItem(item) ? (
@@ -2428,8 +2505,9 @@ export default function Bookings() {
                       item={item}
                       customLocations={communityBookingConfig?.customLocations}
                       isStaff={isStaffBookingMode}
+                      onMarkPayment={handleMarkPayment}
                       onDepositReturn={handleMarkDepositReturn}
-                      depositReturnBusyId={depositReturnBusyId}
+                      paymentActionBusyId={paymentActionBusyId}
                     />
                   </div>
                   {canCancelBookingItem(item) ? (

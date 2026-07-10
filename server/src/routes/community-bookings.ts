@@ -562,6 +562,81 @@ communityBookingsRouter.post('/', requireAuth, async (req, res) => {
   }
 })
 
+/** Marcar tasa o fianza cobrada después de crear la reserva (conserje / gestión). */
+communityBookingsRouter.patch('/:id/payments', requireAuth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'id inválido' })
+    return
+  }
+
+  const user = await prisma.vecindarioUser.findUnique({ where: { id: req.userId! } })
+  if (!user || !staffMayRecordBookingPayments(user)) {
+    res.status(403).json({ error: 'Solo el conserje o la gestión puede registrar cobros de reserva.' })
+    return
+  }
+
+  const row = await prisma.communityBooking.findUnique({ where: { id } })
+  if (!row || row.status !== 'confirmed') {
+    res.status(404).json({ error: 'Reserva no encontrada.' })
+    return
+  }
+
+  const comm = await prisma.community.findUnique({ where: { id: row.communityId } })
+  if (!comm || !assertUserMayAccessCommunity(user, comm)) {
+    res.status(403).json({ error: 'No autorizado' })
+    return
+  }
+
+  const feeFlags = resolveFacilityFeeFlags(comm, row.facilityId)
+  const wantUsageFee = parseBoolField(req.body?.usageFeePaid)
+  const wantDeposit = parseBoolField(req.body?.depositPaid)
+
+  if (!wantUsageFee && !wantDeposit) {
+    res.status(400).json({ error: 'Indica al menos una tasa o fianza a marcar como cobrada.' })
+    return
+  }
+
+  const data: { usageFeePaid?: boolean; depositPaid?: boolean } = {}
+
+  if (wantUsageFee) {
+    if (feeFlags.usageFeeEur == null) {
+      res.status(400).json({ error: 'Esta reserva no tiene tasa de uso configurada.' })
+      return
+    }
+    if (!row.usageFeePaid) data.usageFeePaid = true
+  }
+
+  if (wantDeposit) {
+    if (feeFlags.depositEur == null) {
+      res.status(400).json({ error: 'Esta reserva no tiene fianza configurada.' })
+      return
+    }
+    if (row.depositReturnedAt) {
+      res.status(400).json({ error: 'La fianza ya consta como devuelta; no se puede modificar.' })
+      return
+    }
+    if (!row.depositPaid) data.depositPaid = true
+  }
+
+  if (Object.keys(data).length === 0) {
+    const current = await prisma.communityBooking.findUnique({
+      where: { id },
+      include: { user: { select: { name: true, email: true } } },
+    })
+    res.json(mapBookingRowJson(current!))
+    return
+  }
+
+  const updated = await prisma.communityBooking.update({
+    where: { id },
+    data,
+    include: { user: { select: { name: true, email: true } } },
+  })
+
+  res.json(mapBookingRowJson(updated))
+})
+
 /** Marcar devolución de fianza (conserje / gestión). */
 communityBookingsRouter.patch('/:id/deposit-return', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
