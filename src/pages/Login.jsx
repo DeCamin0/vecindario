@@ -361,7 +361,10 @@ function Login() {
       }
       if (data.user.role === 'company_admin') {
         applyServerSession(data.accessToken, data.user, { company: data.company })
-        navigate('/company-admin', { replace: true })
+        const serviceSuper =
+          data.company?.scopedSuperAdmin === true ||
+          data.company?.kind === 'prestacion_servicios'
+        navigate(serviceSuper ? '/admin' : '/company-admin', { replace: true })
         setDemoPickerOpen(false)
         return
       }
@@ -464,7 +467,10 @@ function Login() {
         applyServerSession(data.accessToken, data.user, {
           company: data.company,
         })
-        navigate('/company-admin', { replace: true })
+        const serviceSuper =
+          data.company?.scopedSuperAdmin === true ||
+          data.company?.kind === 'prestacion_servicios'
+        navigate(serviceSuper ? '/admin' : '/company-admin', { replace: true })
       } catch {
         setError('No se pudo conectar con el servidor')
       } finally {

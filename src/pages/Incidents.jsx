@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   useAuth,
@@ -40,12 +40,6 @@ function formatDate(isoDate) {
   return new Date(isoDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function parseDataUrl(dataUrl) {
-  const m = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(dataUrl.trim())
-  if (!m) return { mime: 'image/jpeg', base64: dataUrl.replace(/\s/g, '') }
-  return { mime: m[1], base64: m[2] }
-}
-
 export default function Incidents() {
   const { user, userRole, accessToken, communityId } = useAuth()
   const showIncidentManagement = canResolveIncidents(userRole)
@@ -56,8 +50,12 @@ export default function Incidents() {
   const [form, setForm] = useState(initialForm)
   const [portalChoice, setPortalChoice] = useState('')
   const [portalOptions, setPortalOptions] = useState(null)
-  const [photoDataUrl, setPhotoDataUrl] = useState(null)
-  const fileInputRef = useRef(null)
+
+  const [listTab, setListTab] = useState('pendientes')
+  const [archivedDateFrom, setArchivedDateFrom] = useState('')
+  const [archivedDateTo, setArchivedDateTo] = useState('')
+  const [archivedSearchApplied, setArchivedSearchApplied] = useState({ from: '', to: '' })
+  const archivedDateSearchActive = Boolean(archivedSearchApplied.from || archivedSearchApplied.to)
 
   const [list, setList] = useState([])
   const [listLoading, setListLoading] = useState(false)
@@ -88,7 +86,15 @@ export default function Incidents() {
     setListLoading(true)
     setListError('')
     try {
-      const res = await fetch(apiUrl(`/api/incidents?communityId=${communityId}`), {
+      const params = new URLSearchParams({ communityId: String(communityId) })
+      if (listTab === 'archivados') {
+        params.set('status', 'resuelta')
+        if (archivedSearchApplied.from) params.set('dateFrom', archivedSearchApplied.from)
+        if (archivedSearchApplied.to) params.set('dateTo', archivedSearchApplied.to)
+      } else {
+        params.set('status', 'pendiente')
+      }
+      const res = await fetch(apiUrl(`/api/incidents?${params.toString()}`), {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await res.json().catch(() => ({}))
@@ -104,7 +110,7 @@ export default function Incidents() {
     } finally {
       setListLoading(false)
     }
-  }, [accessToken, communityId])
+  }, [accessToken, communityId, listTab, archivedSearchApplied])
 
   useEffect(() => {
     void loadList()
@@ -141,28 +147,12 @@ export default function Incidents() {
     if (selectedCategory !== id) {
       setForm(initialForm)
       setPortalChoice('')
-      setPhotoDataUrl(null)
     }
   }
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: null }))
-  }
-
-  const onFileChange = (e) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file || !file.type.startsWith('image/')) return
-    if (file.size > 2.5 * 1024 * 1024) {
-      setSubmitError('La imagen no debe superar ~2,5 MB.')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setPhotoDataUrl(reader.result)
-    }
-    reader.readAsDataURL(file)
   }
 
   const validate = () => {
@@ -186,14 +176,6 @@ export default function Incidents() {
       return
     }
 
-    let photoBase64 = null
-    let photoMime = null
-    if (photoDataUrl) {
-      const parsed = parseDataUrl(photoDataUrl)
-      photoMime = parsed.mime
-      photoBase64 = parsed.base64
-    }
-
     setIsSubmitting(true)
     try {
       const res = await fetch(apiUrl('/api/incidents'), {
@@ -209,7 +191,6 @@ export default function Incidents() {
           locationText: form.location.trim(),
           portalLabel: portalOptions?.length ? portalChoice.trim() : portalChoice.trim() || null,
           urgency: form.urgency,
-          ...(photoBase64 ? { photoBase64, photoMime } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -221,7 +202,6 @@ export default function Incidents() {
       setForm(initialForm)
       setSelectedCategory(null)
       setPortalChoice('')
-      setPhotoDataUrl(null)
       await loadList()
     } catch {
       setSubmitError('Error de red al enviar.')
@@ -246,7 +226,16 @@ export default function Incidents() {
         setListError(typeof data.error === 'string' ? data.error : 'No se pudo actualizar')
         return
       }
-      setList((prev) => prev.map((row) => (row.id === id ? { ...row, ...data } : row)))
+      setList((prev) => {
+        if (status === 'resuelta' && listTab === 'pendientes') {
+          return prev.filter((row) => row.id !== id)
+        }
+        if (status === 'pendiente' && listTab === 'archivados') {
+          return prev.filter((row) => row.id !== id)
+        }
+        return prev.map((row) => (row.id === id ? { ...row, ...data } : row))
+      })
+      if (editingId === id) cancelEdit()
     } catch {
       setListError('Error de red')
     }
@@ -347,6 +336,7 @@ export default function Incidents() {
             : row,
         ),
       )
+      if (editingId === incidentId) cancelEdit()
     } catch {
       setThreadError('Error de red')
     } finally {
@@ -449,7 +439,7 @@ export default function Incidents() {
             ? 'Reporta como vecino. Las incidencias nuevas quedan pendientes; puedes marcarlas resueltas cuando estén atendidas. Todos los vecinos ven la lista y pueden comentar.'
             : showIncidentManagement
               ? 'Revisa y actualiza el estado de las incidencias de la comunidad. Los vecinos ven todas y comentan; solo tú cambias el estado.'
-              : 'Indica el tipo de problema, la ubicación y los detalles. Se guarda como pendiente. Abajo ves las incidencias de toda la comunidad: puedes comentar; solo quien abrió el reporte puede editarlo mientras esté pendiente.'}
+              : 'Indica el tipo de problema, la ubicación y los detalles. Se guarda como pendiente. Abajo ves las incidencias de toda la comunidad: puedes comentar; solo quien abrió el reporte puede editarlo mientras siga pendiente y sin comentarios.'}
         </p>
       </header>
 
@@ -550,38 +540,6 @@ export default function Incidents() {
               </div>
 
               <div className="form-field">
-                <label className="form-label">Foto (opcional)</label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="incident-file-input"
-                  onChange={onFileChange}
-                />
-                <div className="incident-photo-row">
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {photoDataUrl ? 'Cambiar foto' : 'Adjuntar imagen'}
-                  </button>
-                  {photoDataUrl ? (
-                    <button type="button" className="btn btn--ghost" onClick={() => setPhotoDataUrl(null)}>
-                      Quitar
-                    </button>
-                  ) : null}
-                </div>
-                {photoDataUrl ? (
-                  <div className="incident-photo-preview-wrap">
-                    <img src={photoDataUrl} alt="" className="incident-photo-preview" />
-                  </div>
-                ) : (
-                  <p className="form-hint-muted">PNG o JPG, máx. ~2,5 MB.</p>
-                )}
-              </div>
-
-              <div className="form-field">
                 <label className="form-label" htmlFor="incident-urgency">Urgencia</label>
                 <select
                   id="incident-urgency"
@@ -618,7 +576,94 @@ export default function Incidents() {
       )}
 
       <section className="incident-management-section">
-        <h2 className="section-label">Incidencias de la comunidad</h2>
+        <div className="incident-list-head">
+          <h2 className="section-label incident-list-head__title">Incidencias de la comunidad</h2>
+          <div className="incident-list-tabs" role="tablist" aria-label="Filtrar incidencias">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={listTab === 'pendientes'}
+              className={`incident-list-tab${listTab === 'pendientes' ? ' incident-list-tab--active' : ''}`}
+              onClick={() => setListTab('pendientes')}
+            >
+              Pendientes
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={listTab === 'archivados'}
+              className={`incident-list-tab${listTab === 'archivados' ? ' incident-list-tab--active' : ''}`}
+              onClick={() => {
+                setListTab('archivados')
+                setArchivedSearchApplied({ from: '', to: '' })
+                setArchivedDateFrom('')
+                setArchivedDateTo('')
+              }}
+            >
+              Archivados
+            </button>
+          </div>
+        </div>
+        {listTab === 'archivados' ? (
+          <form
+            className="incident-archive-filters card"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setArchivedSearchApplied({
+                from: archivedDateFrom.trim(),
+                to: archivedDateTo.trim(),
+              })
+            }}
+          >
+            <p className="incident-archive-filters__hint">
+              {archivedDateSearchActive
+                ? 'Resultados filtrados por fecha de cierre. Usa «Limpiar fechas» para volver a las 5 más recientes.'
+                : 'Por defecto se muestran solo las 5 incidencias resueltas más recientes. Indica fechas y pulsa Buscar para ver más.'}
+            </p>
+            <div className="incident-archive-filters__row">
+              <div className="form-field incident-archive-filters__field">
+                <label className="form-label" htmlFor="incident-arch-from">
+                  Desde
+                </label>
+                <input
+                  id="incident-arch-from"
+                  type="date"
+                  className="form-input"
+                  value={archivedDateFrom}
+                  onChange={(e) => setArchivedDateFrom(e.target.value)}
+                />
+              </div>
+              <div className="form-field incident-archive-filters__field">
+                <label className="form-label" htmlFor="incident-arch-to">
+                  Hasta
+                </label>
+                <input
+                  id="incident-arch-to"
+                  type="date"
+                  className="form-input"
+                  value={archivedDateTo}
+                  onChange={(e) => setArchivedDateTo(e.target.value)}
+                />
+              </div>
+              <button type="submit" className="btn btn--secondary incident-archive-filters__btn">
+                Buscar
+              </button>
+              {(archivedDateFrom || archivedDateTo || archivedDateSearchActive) ? (
+                <button
+                  type="button"
+                  className="btn btn--ghost incident-archive-filters__btn"
+                  onClick={() => {
+                    setArchivedDateFrom('')
+                    setArchivedDateTo('')
+                    setArchivedSearchApplied({ from: '', to: '' })
+                  }}
+                >
+                  Limpiar fechas
+                </button>
+              ) : null}
+            </div>
+          </form>
+        ) : null}
         {listLoading ? (
           <p className="incident-list-hint">Cargando…</p>
         ) : null}
@@ -629,9 +674,13 @@ export default function Incidents() {
           {!listLoading && list.length === 0 ? (
             <div className="incident-management-empty card">
               <p className="incident-management-empty-text">
-                {showReportForm
-                  ? 'Aún no hay incidencias en la comunidad.'
-                  : 'No hay incidencias registradas.'}
+                {listTab === 'archivados'
+                  ? archivedDateSearchActive
+                    ? 'No hay incidencias resueltas en ese intervalo de fechas.'
+                    : 'No hay incidencias archivadas recientes.'
+                  : showReportForm
+                    ? 'No hay incidencias pendientes en la comunidad.'
+                    : 'No hay incidencias pendientes.'}
               </p>
             </div>
           ) : (
@@ -640,7 +689,8 @@ export default function Incidents() {
                 user?.id != null &&
                 item.reporterUserId != null &&
                 Number(user.id) === Number(item.reporterUserId)
-              const canEditReport = myReport && item.status === 'pendiente'
+              const canEditReport =
+                myReport && item.status === 'pendiente' && (item.commentCount ?? 0) === 0
               const nComments = item.commentCount ?? 0
               return (
                 <div key={item.id} className="incident-management-card card incident-management-card--modern">

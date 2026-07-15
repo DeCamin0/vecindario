@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, canAccessAdminPanel } from '../context/AuthContext'
 import { canManageCommunity } from '../context/AuthContext'
 import './AppNav.css'
 
@@ -107,8 +107,14 @@ const poolStaffLinks = [
 ]
 
 export default function AppNav({ id, ariaLabel = 'Navegación principal' }) {
-  const { userRole, appNavFlags, appNavFlagsReady, cuadernoDiarioAccess, cuadernoDiarioAccessReady } =
-    useAuth()
+  const {
+    userRole,
+    user,
+    appNavFlags,
+    appNavFlagsReady,
+    cuadernoDiarioAccess,
+    cuadernoDiarioAccessReady,
+  } = useAuth()
   if (userRole === 'pool_staff') {
     return (
       <nav className="app-nav" id={id} aria-label={ariaLabel}>
@@ -148,7 +154,7 @@ export default function AppNav({ id, ariaLabel = 'Navegación principal' }) {
     return true
   })
   const showGestion = canManageCommunity(userRole)
-  const showAdmin = userRole === 'super_admin'
+  const showAdmin = canAccessAdminPanel(userRole, user)
   const links = [
     ...filteredBase,
     ...(showGestion ? [{ to: '/community-admin', label: 'Gestión', icon: 'gestion' }] : []),

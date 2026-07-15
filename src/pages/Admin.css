@@ -96,6 +96,12 @@
 }
 
 .admin-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 22rem);
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
   font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -104,6 +110,17 @@
   padding: var(--space-1) var(--space-3);
   background: var(--color-primary-soft);
   border-radius: var(--radius-full);
+}
+
+.admin-badge--company {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--text-sm);
 }
 
 .admin-dashboard-back {
@@ -407,6 +424,21 @@
 }
 
 /* Acciones por tarjeta de empresa */
+.admin-company-kind-row {
+  margin: 0.75rem 0 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--admin-border, rgba(148, 163, 184, 0.25));
+}
+
+.admin-company-kind-row__select {
+  max-width: 100%;
+}
+
+.admin-company-kind-row__hint {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+}
+
 .admin-company-card-actions {
   margin-top: var(--space-3);
   display: flex;
@@ -1708,6 +1740,25 @@
   font-weight: 600;
 }
 
+.admin-users-status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.admin-users-status-pill--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-users-status-pill--inactive {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .admin-users-actions {
   white-space: nowrap;
 }
@@ -1881,4 +1932,52 @@
 .admin-portal-locale-add {
   justify-self: start;
   font-size: 0.9rem;
+}
+
+.admin-concierge-block {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.admin-concierge-slot--row {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-light, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-muted, #f8fafc);
+}
+
+.admin-concierge-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.admin-concierge-slot-subtitle {
+  margin: 0;
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.admin-concierge-active-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.admin-concierge-remove {
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+.admin-concierge-add {
+  justify-self: start;
+}
+
+.admin-concierge-inactive-hint {
+  color: var(--color-warning-text, #b45309);
 }

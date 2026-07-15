@@ -22,6 +22,7 @@ function conciergeFieldsFromCommunity(community: {
   conciergeSubstituteEmail?: string | null
   conciergeSubstituteName?: string | null
   conciergeEmailsJson?: unknown
+  conciergeSubstitutesJson?: unknown
 }): ConciergeEmailFields {
   return {
     conciergeEmail: community.conciergeEmail,
@@ -29,6 +30,7 @@ function conciergeFieldsFromCommunity(community: {
     conciergeSubstituteEmail: community.conciergeSubstituteEmail ?? null,
     conciergeSubstituteName: community.conciergeSubstituteName ?? null,
     conciergeEmailsJson: community.conciergeEmailsJson,
+    conciergeSubstitutesJson: community.conciergeSubstitutesJson,
   }
 }
 

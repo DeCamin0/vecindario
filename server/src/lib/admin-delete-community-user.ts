@@ -4,6 +4,7 @@ import { normEmail } from './community-user-access.js'
 import {
   normalizeConciergeEmailsForDb,
   parseConciergeEntries,
+  parseConciergeSubstituteEntries,
 } from './concierge-emails.js'
 import { resolveStaffUserIdsForCommunity } from './admin-community-staff-ids.js'
 import {
@@ -35,26 +36,21 @@ export function buildCommunityFichaClearForEmail(
   const conciergeEntries = parseConciergeEntries(community).filter(
     (e) => normEmail(e.email) !== emailNorm,
   )
-  const subNorm = normEmail(community.conciergeSubstituteEmail)
-  const substitute =
-    subNorm === emailNorm ? null : (community.conciergeSubstituteEmail ?? null)
-  const substituteName =
-    subNorm === emailNorm ? null : (community.conciergeSubstituteName ?? null)
-  const conciergeNorm = normalizeConciergeEmailsForDb(
-    conciergeEntries,
-    substitute ?? '',
-    substituteName,
+  const substituteEntries = parseConciergeSubstituteEntries(community).filter(
+    (e) => normEmail(e.email) !== emailNorm,
   )
+  const conciergeNorm = normalizeConciergeEmailsForDb(conciergeEntries, substituteEntries)
   const hadConcierge =
     normEmail(community.conciergeEmail) === emailNorm ||
     normEmail(community.conciergeEmail2) === emailNorm ||
-    subNorm === emailNorm ||
-    parseConciergeEntries(community).some((e) => normEmail(e.email) === emailNorm)
+    parseConciergeEntries(community).some((e) => normEmail(e.email) === emailNorm) ||
+    parseConciergeSubstituteEntries(community).some((e) => normEmail(e.email) === emailNorm)
 
   if (hadConcierge) {
     data.conciergeEmailsJson = conciergeNorm.conciergeEmailsJson
     data.conciergeEmail = conciergeNorm.conciergeEmail
     data.conciergeEmail2 = conciergeNorm.conciergeEmail2
+    data.conciergeSubstitutesJson = conciergeNorm.conciergeSubstitutesJson
     data.conciergeSubstituteEmail = conciergeNorm.conciergeSubstituteEmail
     data.conciergeSubstituteName = conciergeNorm.conciergeSubstituteName
   }

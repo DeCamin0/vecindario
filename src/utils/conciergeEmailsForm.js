@@ -1,73 +1,87 @@
-/** @typedef {{ email: string, name: string }} ConciergeFormSlot */
+/** @typedef {{ email: string, name: string, active: boolean }} ConciergeFormSlot */
 
-/** @param {import('../../server/src/lib/concierge-emails.js').ConciergeEmailFields} c */
-export function conciergeEmailsFromCommunity(c) {
+export const emptyConciergeSlot = () => ({ email: '', name: '', active: true })
+
+const MAX_STAFF = 30
+
+function parseActive(raw) {
+  if (raw === false || raw === 0 || raw === '0' || raw === 'false') return false
+  return true
+}
+
+function pushSlot(list, seen, emailRaw, nameRaw, activeRaw) {
+  const t = (emailRaw || '').trim()
+  if (!t) return
+  const n = t.toLowerCase()
+  if (seen.has(n) || list.length >= MAX_STAFF) return
+  seen.add(n)
+  list.push({
+    email: t,
+    name: (nameRaw || '').trim(),
+    active: parseActive(activeRaw),
+  })
+}
+
+function parseJsonList(json, legacyEmails = []) {
   const seen = new Set()
   /** @type {ConciergeFormSlot[]} */
   const list = []
-  if (Array.isArray(c?.conciergeEmailsJson)) {
-    for (const item of c.conciergeEmailsJson) {
+  if (Array.isArray(json)) {
+    for (const item of json) {
       if (typeof item === 'string') {
-        const t = item.trim()
-        if (!t) continue
-        const n = t.toLowerCase()
-        if (seen.has(n) || list.length >= 5) continue
-        seen.add(n)
-        list.push({ email: t, name: '' })
+        pushSlot(list, seen, item, '', true)
         continue
       }
       if (item && typeof item === 'object' && !Array.isArray(item)) {
-        const em = typeof item.email === 'string' ? item.email.trim() : ''
-        if (!em) continue
-        const n = em.toLowerCase()
-        if (seen.has(n) || list.length >= 5) continue
-        seen.add(n)
-        const nm =
-          item.name != null && String(item.name).trim() ? String(item.name).trim() : ''
-        list.push({ email: em, name: nm })
+        pushSlot(list, seen, item.email, item.name, item.active)
       }
     }
   }
   if (!list.length) {
-    for (const raw of [c?.conciergeEmail, c?.conciergeEmail2]) {
-      const t = (raw || '').trim()
-      if (!t) continue
-      const n = t.toLowerCase()
-      if (seen.has(n) || list.length >= 5) continue
-      seen.add(n)
-      list.push({ email: t, name: '' })
+    for (const raw of legacyEmails) {
+      pushSlot(list, seen, raw, '', true)
     }
   }
-  const count = Math.max(1, Math.min(5, list.length || 1))
-  /** @type {ConciergeFormSlot[]} */
-  const slots = Array.from({ length: 5 }, () => ({ email: '', name: '' }))
-  for (let i = 0; i < list.length && i < 5; i++) slots[i] = list[i]
+  return list
+}
+
+/** @param {import('../../server/src/lib/concierge-emails.js').ConciergeEmailFields} c */
+export function conciergeEmailsFromCommunity(c) {
+  const conciergeStaff = parseJsonList(c?.conciergeEmailsJson, [
+    c?.conciergeEmail,
+    c?.conciergeEmail2,
+  ])
+  const conciergeSubstitutes = parseJsonList(c?.conciergeSubstitutesJson, [
+    c?.conciergeSubstituteEmail,
+  ])
+  if (
+    conciergeSubstitutes.length === 1 &&
+    !conciergeSubstitutes[0].name &&
+    (c?.conciergeSubstituteName || '').trim()
+  ) {
+    conciergeSubstitutes[0].name = (c.conciergeSubstituteName || '').trim()
+  }
+
   return {
-    conciergeCount: count,
-    conciergeStaff: slots,
-    conciergeSubstituteEmail: (c?.conciergeSubstituteEmail || '').trim(),
-    conciergeSubstituteName: (c?.conciergeSubstituteName || '').trim(),
+    conciergeStaff: conciergeStaff.length ? conciergeStaff : [emptyConciergeSlot()],
+    conciergeSubstitutes,
   }
 }
 
-function formatSlotLabel(slot) {
+function formatSlotLabel(slot, suffix = '') {
   if (!slot?.email) return ''
   const nm = (slot.name || '').trim()
-  return nm ? `${nm} <${slot.email}>` : slot.email
+  const inactive = slot.active === false ? ' (inactivo)' : ''
+  const base = nm ? `${nm} <${slot.email}>` : slot.email
+  return `${base}${suffix}${inactive}`
 }
 
-/** Texto para checkbox de correos de alta (lista + suplente). */
+/** Texto para checkbox de correos de alta (lista + suplentes). */
 export function conciergeEmailsSummary(c) {
-  const { conciergeStaff, conciergeSubstituteEmail, conciergeSubstituteName } =
-    conciergeEmailsFromCommunity(c)
-  const parts = conciergeStaff.map(formatSlotLabel).filter(Boolean)
-  if (conciergeSubstituteEmail) {
-    const nm = (conciergeSubstituteName || '').trim()
-    parts.push(
-      nm
-        ? `${nm} <${conciergeSubstituteEmail}> (supl.)`
-        : `${conciergeSubstituteEmail} (supl.)`,
-    )
+  const { conciergeStaff, conciergeSubstitutes } = conciergeEmailsFromCommunity(c)
+  const parts = conciergeStaff.map((s) => formatSlotLabel(s)).filter(Boolean)
+  for (const s of conciergeSubstitutes) {
+    parts.push(formatSlotLabel(s, ' (supl.)'))
   }
   return parts.length ? parts.join(', ') : ''
 }
@@ -76,25 +90,47 @@ export function hasAnyConciergeEmail(c) {
   return Boolean(conciergeEmailsSummary(c))
 }
 
-export function conciergePayloadFromForm(form) {
-  const n = Math.min(5, Math.max(1, Number(form.conciergeCount) || 1))
-  const staff = (form.conciergeStaff || [])
-    .slice(0, n)
+function slotsToPayload(slots) {
+  return (slots || [])
     .map((s) => ({
       email: String(s?.email ?? '').trim(),
       name: String(s?.name ?? '').trim(),
+      active: s?.active !== false,
     }))
     .filter((s) => s.email)
     .map((s) => ({
       email: s.email,
       ...(s.name ? { name: s.name } : {}),
+      ...(s.active === false ? { active: false } : {}),
     }))
+}
+
+export function conciergePayloadFromForm(form) {
   /** @type {Record<string, unknown>} */
-  const payload = { conciergeStaff: staff }
-  const sub = String(form.conciergeSubstituteEmail ?? '').trim()
-  payload.conciergeSubstituteEmail = sub
-  const subName = String(form.conciergeSubstituteName ?? '').trim()
-  if (subName) payload.conciergeSubstituteName = subName
-  else if (sub === '') payload.conciergeSubstituteName = null
+  const payload = {
+    conciergeStaff: slotsToPayload(form.conciergeStaff),
+    conciergeSubstitutes: slotsToPayload(form.conciergeSubstitutes),
+  }
   return payload
+}
+
+export function conciergeDisplayItems(c) {
+  const { conciergeStaff, conciergeSubstitutes } = conciergeEmailsFromCommunity(c)
+  const titulars = conciergeStaff
+    .filter((s) => (s.email || '').trim())
+    .map((s) => ({
+      name: (s.name || '').trim() || 'Conserje',
+      email: s.email.trim(),
+      kind: 'titular',
+      active: s.active !== false,
+    }))
+  const subs = conciergeSubstitutes
+    .filter((s) => (s.email || '').trim())
+    .map((s) => ({
+      name: (s.name || '').trim() || 'Suplente',
+      email: s.email.trim(),
+      kind: 'suplente',
+      active: s.active !== false,
+    }))
+  return [...titulars, ...subs]
 }

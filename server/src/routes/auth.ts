@@ -17,7 +17,7 @@ import {
   isDemoExplorePreset,
 } from '../lib/demo-explore-presets.js'
 import { syncPasswordPlainSnapshotAfterVerify } from '../lib/password-plain-snapshot.js'
-import { conciergeEmailMatches, conciergeEmailPrismaSelect } from '../lib/concierge-emails.js'
+import { conciergeEmailMatches, conciergeEmailListedInactive, conciergeEmailPrismaSelect } from '../lib/concierge-emails.js'
 import {
   notificationPrefsFromRow,
   type NotificationPrefs,
@@ -407,10 +407,13 @@ authRouter.post('/login', async (req, res) => {
 
     const conciergeUserMail = normEmail(user.email)
     if (!conciergeUserMail || !conciergeEmailMatches(comm, conciergeUserMail)) {
+      const inactive =
+        conciergeUserMail && conciergeEmailListedInactive(comm, conciergeUserMail)
       res.status(403).json({
-        error: 'Código no autorizado',
-        message:
-          'Este código no corresponde a una comunidad donde figuras como conserje con este correo.',
+        error: inactive ? 'Cuenta desactivada' : 'Código no autorizado',
+        message: inactive
+          ? 'Figuras en la ficha de la comunidad pero tu acceso de conserje está desactivado. Contacta administración.'
+          : 'Este código no corresponde a una comunidad donde figuras como conserje con este correo.',
       })
       return
     }
@@ -609,27 +612,22 @@ authRouter.post('/login', async (req, res) => {
     )
   }
 
-  const accessToken = signAccessToken({
-    sub: String(userOut.id),
-    email: userOut.email || '',
-    role: userOut.role,
-    companyId: user.companyAdminCompanyId,
-  })
-
-  debugLogin('200 email+password', {
-    userId: userOut.id,
-    effectiveRole: userOut.role,
-    communityId: communityForClient?.id ?? null,
-    communityInResponse: Boolean(communityForClient),
-  })
-
-  let companyForClient: { id: number; name: string } | undefined
+  let companyForClient:
+    | { id: number; name: string; kind: string; scopedSuperAdmin: boolean }
+    | undefined
   if (user.role === 'company_admin' && user.companyAdminCompanyId != null) {
     const co = await prisma.company.findUnique({
       where: { id: user.companyAdminCompanyId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, kind: true },
     })
-    if (co) companyForClient = co
+    if (co) {
+      companyForClient = {
+        id: co.id,
+        name: co.name,
+        kind: co.kind,
+        scopedSuperAdmin: co.kind === 'prestacion_servicios',
+      }
+    }
   }
 
   /** Vecino/presidente con email: comunidad desde communityId (sin VEC en el login). */
@@ -651,6 +649,20 @@ authRouter.post('/login', async (req, res) => {
       })
     }
   }
+
+  const accessToken = signAccessToken({
+    sub: String(userOut.id),
+    email: userOut.email || '',
+    role: userOut.role,
+    companyId: user.companyAdminCompanyId,
+  })
+
+  debugLogin('200 email+password', {
+    userId: userOut.id,
+    effectiveRole: userOut.role,
+    communityId: communityForClient?.id ?? null,
+    communityInResponse: Boolean(communityForClient),
+  })
 
   res.json({
     accessToken,
@@ -731,7 +743,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       communityId: true,
       companyAdminCompanyId: true,
       companyAdminCompany: {
-        select: { id: true, name: true },
+        select: { id: true, name: true, kind: true },
       },
     },
   })
@@ -771,6 +783,8 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       company: {
         id: user.companyAdminCompany.id,
         name: user.companyAdminCompany.name,
+        kind: user.companyAdminCompany.kind,
+        scopedSuperAdmin: user.companyAdminCompany.kind === 'prestacion_servicios',
       },
     })
     return
@@ -1456,13 +1470,22 @@ authRouter.post('/demo-explore', async (req, res) => {
     communityForClient = communityClientFromRow(demoComm)
   }
 
-  let companyForClient: { id: number; name: string } | undefined
+  let companyForClient:
+    | { id: number; name: string; kind: string; scopedSuperAdmin: boolean }
+    | undefined
   if (user.role === 'company_admin' && user.companyAdminCompanyId != null) {
     const co = await prisma.company.findUnique({
       where: { id: user.companyAdminCompanyId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, kind: true },
     })
-    if (co) companyForClient = { id: co.id, name: co.name }
+    if (co) {
+      companyForClient = {
+        id: co.id,
+        name: co.name,
+        kind: co.kind,
+        scopedSuperAdmin: co.kind === 'prestacion_servicios',
+      }
+    }
   }
 
   const accessToken = signAccessToken({

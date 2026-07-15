@@ -29,7 +29,9 @@ adminCompaniesRouter.get('/', async (_req, res) => {
   const items = await prisma.company.findMany({
     orderBy: { id: 'asc' },
     include: {
-      _count: { select: { communities: true, companyAdminUsers: true } },
+      _count: {
+        select: { communities: true, serviceProviderCommunities: true, companyAdminUsers: true },
+      },
       companyAdminUsers: {
         where: { role: 'company_admin' },
         select: { id: true, email: true, name: true },
@@ -41,9 +43,11 @@ adminCompaniesRouter.get('/', async (_req, res) => {
     items.map((c: (typeof items)[number]) => ({
       id: c.id,
       name: c.name,
+      kind: c.kind,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       communityCount: c._count.communities,
+      serviceProviderCommunityCount: c._count.serviceProviderCommunities,
       companyAdminCount: c._count.companyAdminUsers,
       companyAdmins: c.companyAdminUsers.map((u) => ({
         id: u.id,
@@ -60,8 +64,12 @@ adminCompaniesRouter.post('/', async (req, res) => {
     res.status(400).json({ error: 'El nombre de la empresa es obligatorio.' })
     return
   }
+  const kindRaw =
+    typeof req.body?.kind === 'string' ? req.body.kind.trim() : 'administracion'
+  const kind =
+    kindRaw === 'prestacion_servicios' ? ('prestacion_servicios' as const) : ('administracion' as const)
   const row = await prisma.company.create({
-    data: { name: nameRaw },
+    data: { name: nameRaw, kind },
   })
   res.status(201).json(row)
 })
@@ -77,10 +85,17 @@ adminCompaniesRouter.patch('/:id', async (req, res) => {
     res.status(400).json({ error: 'Indica un nombre válido.' })
     return
   }
+  const patch: { name: string; kind?: 'administracion' | 'prestacion_servicios' } = { name: nameRaw }
+  if (typeof req.body?.kind === 'string') {
+    const k = req.body.kind.trim()
+    if (k === 'prestacion_servicios' || k === 'administracion') {
+      patch.kind = k
+    }
+  }
   try {
     const row = await prisma.company.update({
       where: { id },
-      data: { name: nameRaw },
+      data: patch,
     })
     res.json(row)
   } catch {
@@ -268,7 +283,7 @@ adminCompaniesRouter.post('/:companyId/admins/:userId/impersonate', async (req, 
   }
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, kind: true },
   })
   if (!company) {
     res.status(404).json({ error: 'Empresa no encontrada' })
@@ -300,7 +315,12 @@ adminCompaniesRouter.post('/:companyId/admins/:userId/impersonate', async (req, 
       name: target.name?.trim() || (em ? em.split('@')[0] : 'Administrador'),
       role: target.role,
     },
-    company: { id: company.id, name: company.name },
+    company: {
+      id: company.id,
+      name: company.name,
+      kind: company.kind,
+      scopedSuperAdmin: company.kind === 'prestacion_servicios',
+    },
   })
 })
 

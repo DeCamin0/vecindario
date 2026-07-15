@@ -11,8 +11,10 @@ import {
   conciergeEmailsFromCommunity,
   conciergeEmailsSummary,
   conciergePayloadFromForm,
+  emptyConciergeSlot,
   hasAnyConciergeEmail,
 } from '../utils/conciergeEmailsForm.js'
+import ConciergeStaffEditor from '../components/ConciergeStaffEditor.jsx'
 import CommunityLoginQrModal from '../components/CommunityLoginQrModal.jsx'
 import { useDialog } from '../context/DialogContext.jsx'
 import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
@@ -474,10 +476,8 @@ const emptyForm = {
   presidentPiso: '',
   communityAdminEmail: '',
   communityAdminName: '',
-  conciergeCount: 1,
-  conciergeStaff: Array.from({ length: 5 }, () => ({ email: '', name: '' })),
-  conciergeSubstituteEmail: '',
-  conciergeSubstituteName: '',
+  conciergeStaff: [emptyConciergeSlot()],
+  conciergeSubstitutes: [],
   poolStaffEmail: '',
   status: 'active',
   portalCount: '1',
@@ -510,10 +510,15 @@ const emptyForm = {
   /** YYYY-MM-DD o vacío = sin caducidad de plan */
   planExpiresOn: '',
   companyId: '',
+  serviceProviderCompanyId: '',
 }
 
 export default function Admin() {
-  const { accessToken } = useAuth()
+  const { accessToken, userRole, user } = useAuth()
+  const isFullSuperAdmin = userRole === 'super_admin'
+  const isScopedServiceAdmin =
+    userRole === 'company_admin' &&
+    (user?.company?.scopedSuperAdmin === true || user?.company?.kind === 'prestacion_servicios')
   const { confirm, prompt } = useDialog()
   const [communities, setCommunities] = useState([])
   const [loading, setLoading] = useState(true)
@@ -539,6 +544,7 @@ export default function Admin() {
   const [usersModalLoading, setUsersModalLoading] = useState(false)
   const [usersModalError, setUsersModalError] = useState('')
   const [usersActionBusyId, setUsersActionBusyId] = useState(null)
+  const [usersConciergeStatusBusy, setUsersConciergeStatusBusy] = useState(null)
   const [usersBulkDeleteBusy, setUsersBulkDeleteBusy] = useState(false)
   const [usersTempPasswordFlash, setUsersTempPasswordFlash] = useState('')
   const [portalsModalCommunity, setPortalsModalCommunity] = useState(null)
@@ -550,8 +556,10 @@ export default function Admin() {
   const [posterPdfBusyId, setPosterPdfBusyId] = useState(null)
   const [navTabSavingId, setNavTabSavingId] = useState(null)
   const [companiesList, setCompaniesList] = useState([])
+  const [companyOptions, setCompanyOptions] = useState({ administration: [], service: [] })
   const [companiesLoading, setCompaniesLoading] = useState(false)
   const [newCompanyName, setNewCompanyName] = useState('')
+  const [newCompanyKind, setNewCompanyKind] = useState('administracion')
   const [creatingCompany, setCreatingCompany] = useState(false)
   const [companyAdminForm, setCompanyAdminForm] = useState({
     open: false,
@@ -566,6 +574,7 @@ export default function Admin() {
   const [companyPasswordBusy, setCompanyPasswordBusy] = useState(null)
   const [companyAdminLoginBusyId, setCompanyAdminLoginBusyId] = useState(null)
   const [companyAdminDeleteBusyId, setCompanyAdminDeleteBusyId] = useState(null)
+  const [companyKindBusyId, setCompanyKindBusyId] = useState(null)
   const [passwordPickModal, setPasswordPickModal] = useState({
     open: false,
     companyId: null,
@@ -596,11 +605,37 @@ export default function Admin() {
     for (const c of companiesList) {
       if (c?.id != null) m.set(Number(c.id), typeof c.name === 'string' ? c.name : '')
     }
+    for (const c of companyOptions.administration) {
+      if (c?.id != null) m.set(Number(c.id), typeof c.name === 'string' ? c.name : '')
+    }
+    for (const c of companyOptions.service) {
+      if (c?.id != null) m.set(Number(c.id), typeof c.name === 'string' ? c.name : '')
+    }
     return m
-  }, [companiesList])
+  }, [companiesList, companyOptions])
+
+  const loadCompanyOptions = useCallback(async () => {
+    if (!accessToken) {
+      setCompanyOptions({ administration: [], service: [] })
+      return
+    }
+    try {
+      const res = await fetch(apiUrl('/api/admin/communities/company-options'), {
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
+      setCompanyOptions({
+        administration: Array.isArray(d.administration) ? d.administration : [],
+        service: Array.isArray(d.service) ? d.service : [],
+      })
+    } catch {
+      setCompanyOptions({ administration: [], service: [] })
+    }
+  }, [accessToken])
 
   const loadCompaniesList = useCallback(async () => {
-    if (!accessToken) {
+    if (!accessToken || !isFullSuperAdmin) {
       setCompaniesList([])
       return
     }
@@ -617,11 +652,12 @@ export default function Admin() {
     } finally {
       setCompaniesLoading(false)
     }
-  }, [accessToken])
+  }, [accessToken, isFullSuperAdmin])
 
   useEffect(() => {
     loadCompaniesList()
-  }, [loadCompaniesList])
+    loadCompanyOptions()
+  }, [loadCompaniesList, loadCompanyOptions])
 
   useEffect(() => {
     if (!companyAdminFlash) return
@@ -762,17 +798,47 @@ export default function Admin() {
       const res = await fetch(apiUrl('/api/admin/companies'), {
         method: 'POST',
         headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: n }),
+        body: JSON.stringify({ name: n, kind: newCompanyKind }),
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
       setNewCompanyName('')
+      setNewCompanyKind('administracion')
       setSuccessFlash(`Empresa creada: ${d.name || n}`)
       await loadCompaniesList()
+      await loadCompanyOptions()
     } catch (err) {
       setError(err.message || 'No se pudo crear la empresa')
     } finally {
       setCreatingCompany(false)
+    }
+  }
+
+  const patchCompanyKind = async (co, nextKind) => {
+    if (!accessToken || !co?.id) return
+    const current = co.kind === 'prestacion_servicios' ? 'prestacion_servicios' : 'administracion'
+    if (nextKind === current) return
+    setCompanyKindBusyId(co.id)
+    setError('')
+    try {
+      const res = await fetch(apiUrl(`/api/admin/companies/${co.id}`), {
+        method: 'PATCH',
+        headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: co.name, kind: nextKind }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`)
+      setSuccessFlash(
+        nextKind === 'prestacion_servicios'
+          ? `«${co.name}» marcada como prestador de servicios.`
+          : `«${co.name}» marcada como administración de fincas.`,
+      )
+      await loadCompaniesList()
+      await loadCompanyOptions()
+    } catch (err) {
+      setError(err.message || 'No se pudo cambiar el tipo de empresa')
+    } finally {
+      setCompanyKindBusyId(null)
     }
   }
 
@@ -990,7 +1056,12 @@ export default function Admin() {
 
   const openAdd = () => {
     setEditingId(null)
-    setForm(emptyForm)
+    setForm({
+      ...emptyForm,
+      ...(isScopedServiceAdmin && user?.company?.id != null
+        ? { serviceProviderCompanyId: String(user.company.id) }
+        : {}),
+    })
     setModalOpen(true)
   }
 
@@ -1047,6 +1118,8 @@ export default function Admin() {
       customSpaces: normalizeCustomSpacesFromApi(c.customLocations),
       planExpiresOn: planExpiresOnForInput(c.planExpiresOn),
       companyId: c.companyId != null ? String(c.companyId) : '',
+      serviceProviderCompanyId:
+        c.serviceProviderCompanyId != null ? String(c.serviceProviderCompanyId) : '',
     })
     setModalOpen(true)
   }
@@ -1451,11 +1524,36 @@ export default function Admin() {
       if (rawCo !== '') {
         const n = Number.parseInt(rawCo, 10)
         if (!Number.isInteger(n) || n < 1) {
-          setError('ID de empresa inválido (o déjalo vacío).')
+          setError('ID de empresa de administración inválido (o déjalo vacío).')
           setSaving(false)
           return
         }
         companyIdPayload = n
+      }
+
+      let serviceProviderCompanyIdPayload = null
+      if (isScopedServiceAdmin && user?.company?.id != null) {
+        serviceProviderCompanyIdPayload = Number(user.company.id)
+      } else {
+        const rawSp = String(form.serviceProviderCompanyId ?? '').trim()
+        if (rawSp !== '') {
+          const n = Number.parseInt(rawSp, 10)
+          if (!Number.isInteger(n) || n < 1) {
+            setError('ID de empresa de servicios inválido (o déjalo vacío).')
+            setSaving(false)
+            return
+          }
+          serviceProviderCompanyIdPayload = n
+        }
+      }
+      if (
+        companyIdPayload != null &&
+        serviceProviderCompanyIdPayload != null &&
+        companyIdPayload === serviceProviderCompanyIdPayload
+      ) {
+        setError('La empresa de administración y la de servicios deben ser distintas.')
+        setSaving(false)
+        return
       }
 
       const common = {
@@ -1471,6 +1569,7 @@ export default function Admin() {
         poolStaffEmail: form.poolStaffEmail.trim(),
         status: form.status,
         companyId: companyIdPayload,
+        serviceProviderCompanyId: serviceProviderCompanyIdPayload,
         portalCount,
         residentSlots,
         gymAccessEnabled: form.gymAccessEnabled,
@@ -1548,27 +1647,7 @@ export default function Admin() {
           }
           msg += ` · Cuentas que ya no figuran en la ficha: pasadas a vecino — ${d.staffDemoted.map((x) => `${x.email} (era ${roleEs[x.previousRole] || x.previousRole})`).join('; ')}`
         }
-        const conserjes = conciergeEmailsFromCommunity(d)
-        const conserjesLabel = [
-          ...conserjes.conciergeStaff
-            .map((s) => {
-              const em = (s.email || '').trim()
-              if (!em) return ''
-              const nm = (s.name || '').trim()
-              return nm ? `${nm} <${em}>` : em
-            })
-            .filter(Boolean),
-          conserjes.conciergeSubstituteEmail
-            ? (() => {
-                const nm = (conserjes.conciergeSubstituteName || '').trim()
-                return nm
-                  ? `${nm} <${conserjes.conciergeSubstituteEmail}> (supl.)`
-                  : `${conserjes.conciergeSubstituteEmail} (supl.)`
-              })()
-            : '',
-        ]
-          .filter(Boolean)
-          .join(', ')
+        const conserjesLabel = conciergeEmailsSummary(d)
         msg += ` · Guardado en servidor: presidente ${formatPresidentOnCard(d)}, admin ${d.communityAdminEmail?.trim() || '—'}, conserje ${conserjesLabel || '—'}, socorrista ${d.poolStaffEmail?.trim() || '—'}.`
         setSuccessFlash(msg)
       }
@@ -1714,8 +1793,12 @@ export default function Admin() {
         user: d.user,
         company: d.company ?? { id: companyId, name: companyName || 'Empresa' },
       })
+      const serviceSuper =
+        d.company?.scopedSuperAdmin === true || d.company?.kind === 'prestacion_servicios'
       setSuccessFlash(
-        'Se abrió una pestaña como administrador de empresa. Esta pestaña sigue siendo super administrador.',
+        serviceSuper
+          ? 'Se abrió una pestaña como prestador de servicios (panel super admin acotado). Esta pestaña sigue siendo super administrador.'
+          : 'Se abrió una pestaña como administrador de empresa. Esta pestaña sigue siendo super administrador.',
       )
     } catch (err) {
       setError(err.message || 'No se pudo iniciar sesión como administrador de empresa')
@@ -1890,6 +1973,44 @@ export default function Admin() {
     }
   }
 
+  const toggleConciergeFichaActive = async (email, currentlyActive, label) => {
+    if (!accessToken || !usersModalCommunity) return
+    const nextActive = !currentlyActive
+    if (!nextActive) {
+      const okConfirm = await confirm({
+        title: 'Desactivar conserje',
+        message: `¿Desactivar a ${label} en la ficha?\n\nNo podrá entrar en la app hasta reactivarlo. El correo permanece en la ficha (vacaciones / relevo).`,
+        confirmLabel: 'Desactivar',
+        cancelLabel: 'Cancelar',
+        variant: 'warning',
+      })
+      if (!okConfirm) return
+    }
+    setUsersConciergeStatusBusy(email)
+    setUsersModalError('')
+    try {
+      const res = await fetch(
+        apiUrl(`/api/admin/communities/${usersModalCommunity.id}/concierge-ficha-active`),
+        {
+          method: 'PATCH',
+          headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, active: nextActive }),
+        },
+      )
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || d.message || `Error ${res.status}`)
+      setUsersTempPasswordFlash(d.message || (nextActive ? 'Conserje activado.' : 'Conserje desactivado.'))
+      await loadCommunityUsers(usersModalCommunity)
+      setCommunities((prev) =>
+        prev.map((c) => (c.id === usersModalCommunity.id ? { ...c, ...(d.community || {}) } : c)),
+      )
+    } catch (err) {
+      setUsersModalError(err.message || 'No se pudo cambiar el estado')
+    } finally {
+      setUsersConciergeStatusBusy(null)
+    }
+  }
+
   const issueTemporaryPassword = async (userId, label) => {
     if (!accessToken || !usersModalCommunity) return
     const okConfirm = await confirm({
@@ -2009,19 +2130,36 @@ export default function Admin() {
       <header className="admin-dashboard-header">
         <div className="admin-dashboard-header-inner">
           <div className="admin-dashboard-brand">
-            <h1 className="admin-dashboard-title">Panel super administrador</h1>
+            <h1 className="admin-dashboard-title">
+              {isScopedServiceAdmin
+                ? `Panel ${user?.company?.name?.trim() || 'prestador de servicios'}`
+                : 'Panel super administrador'}
+            </h1>
             <p className="admin-dashboard-subtitle">
-              Gestión de comunidades, ajustes, incidencias y reservas
+              {isScopedServiceAdmin
+                ? 'Gestión acotada de las comunidades donde prestáis servicios'
+                : 'Gestión de comunidades, ajustes, incidencias y reservas'}
             </p>
           </div>
           <div className="admin-dashboard-header-actions">
-            <span className="admin-badge" aria-label="Super administrador">Super administrador</span>
-            <Link to="/admin/solicitudes-oferta" className="btn btn--ghost">
-              Solicitudes de oferta
-            </Link>
-            <Link to="/admin/services" className="btn btn--ghost">
-              Solicitudes de servicio
-            </Link>
+            <span
+              className={`admin-badge${isScopedServiceAdmin ? ' admin-badge--company' : ''}`}
+              aria-label={isScopedServiceAdmin ? 'Empresa prestadora' : 'Super administrador'}
+            >
+              {isScopedServiceAdmin
+                ? user?.company?.name?.trim() || 'Prestador de servicios'
+                : 'Super administrador'}
+            </span>
+            {isFullSuperAdmin ? (
+              <>
+                <Link to="/admin/solicitudes-oferta" className="btn btn--ghost">
+                  Solicitudes de oferta
+                </Link>
+                <Link to="/admin/services" className="btn btn--ghost">
+                  Solicitudes de servicio
+                </Link>
+              </>
+            ) : null}
             <Link to="/" className="admin-dashboard-back btn btn--ghost">
               Volver a la app vecinos
             </Link>
@@ -2088,9 +2226,16 @@ export default function Admin() {
                           {c.id}
                         </span>
                         <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Empresa</span>
+                          <span className="admin-community-detail-label">Administración</span>
                           {c.companyId != null
                             ? companyNameById.get(Number(c.companyId)) || `id ${c.companyId}`
+                            : '—'}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">Servicios</span>
+                          {c.serviceProviderCompanyId != null
+                            ? companyNameById.get(Number(c.serviceProviderCompanyId)) ||
+                              `id ${c.serviceProviderCompanyId}`
                             : '—'}
                         </span>
                         <span className="admin-community-detail admin-community-detail--block">
@@ -2150,6 +2295,7 @@ export default function Admin() {
             </section>
           ) : null}
 
+          {isFullSuperAdmin ? (
           <section className="admin-section">
             <div className="admin-section-head">
               <h2 className="admin-section-title">Empresas y administradores de empresa</h2>
@@ -2177,6 +2323,21 @@ export default function Admin() {
                     Añade el nombre comercial de la firma. Después podrás vincular comunidades y crear
                     administradores de empresa.
                   </p>
+                </div>
+                <div className="admin-new-company__field">
+                  <label className="admin-label" htmlFor="new-company-kind">
+                    Tipo de empresa
+                  </label>
+                  <select
+                    id="new-company-kind"
+                    className="admin-input admin-select"
+                    value={newCompanyKind}
+                    onChange={(e) => setNewCompanyKind(e.target.value)}
+                    disabled={companiesLoading}
+                  >
+                    <option value="administracion">Administración de fincas</option>
+                    <option value="prestacion_servicios">Prestación de servicios (super admin acotado)</option>
+                  </select>
                 </div>
                 <div className="admin-new-company__field">
                   <label className="admin-label" htmlFor="new-company-name">
@@ -2214,8 +2375,28 @@ export default function Admin() {
                     <div className="admin-directory-card-head">
                       <span className="admin-directory-email">{co.name}</span>
                       <span className="admin-directory-count">
-                        {co.communityCount ?? 0} com. · {co.companyAdminCount ?? 0} adm.
+                        {co.kind === 'prestacion_servicios' ? 'Servicios' : 'Administración'} ·{' '}
+                        {co.communityCount ?? 0} adm. · {co.serviceProviderCommunityCount ?? 0} serv. ·{' '}
+                        {co.companyAdminCount ?? 0} usu.
                       </span>
+                    </div>
+                    <div className="admin-company-kind-row">
+                      <label className="admin-label" htmlFor={`company-kind-${co.id}`}>
+                        Tipo de empresa
+                      </label>
+                      <select
+                        id={`company-kind-${co.id}`}
+                        className="admin-input admin-select admin-company-kind-row__select"
+                        value={co.kind === 'prestacion_servicios' ? 'prestacion_servicios' : 'administracion'}
+                        disabled={companyKindBusyId === co.id || companiesLoading}
+                        onChange={(e) => void patchCompanyKind(co, e.target.value)}
+                      >
+                        <option value="administracion">Administración de fincas</option>
+                        <option value="prestacion_servicios">Prestación de servicios</option>
+                      </select>
+                      <p className="admin-field-hint admin-company-kind-row__hint">
+                        Administración → panel empresa. Servicios → super admin acotado a sus comunidades.
+                      </p>
                     </div>
                     <div className="admin-company-admins-block">
                       <span className="admin-company-admins-block__label">Correos con acceso</span>
@@ -2317,6 +2498,7 @@ export default function Admin() {
               </div>
             )}
           </section>
+          ) : null}
 
           {!loading && administratorsDirectory.length > 0 ? (
             <section className="admin-section">
@@ -2389,9 +2571,16 @@ export default function Admin() {
                           {community.id}
                         </span>
                         <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Empresa</span>
+                          <span className="admin-community-detail-label">Administración</span>
                           {community.companyId != null
                             ? companyNameById.get(Number(community.companyId)) || `id ${community.companyId}`
+                            : '—'}
+                        </span>
+                        <span className="admin-community-detail">
+                          <span className="admin-community-detail-label">Servicios</span>
+                          {community.serviceProviderCompanyId != null
+                            ? companyNameById.get(Number(community.serviceProviderCompanyId)) ||
+                              `id ${community.serviceProviderCompanyId}`
                             : '—'}
                         </span>
                         <span className="admin-community-detail">
@@ -2480,26 +2669,7 @@ export default function Admin() {
                             </span>
                             <span>
                               Conserje:{' '}
-                              {(() => {
-                                const cf = conciergeEmailsFromCommunity(community)
-                                const parts = cf.conciergeStaff
-                                  .map((s) => {
-                                    const em = (s.email || '').trim()
-                                    if (!em) return ''
-                                    const nm = (s.name || '').trim()
-                                    return nm ? `${nm} <${em}>` : em
-                                  })
-                                  .filter(Boolean)
-                                if (cf.conciergeSubstituteEmail) {
-                                  const nm = (cf.conciergeSubstituteName || '').trim()
-                                  parts.push(
-                                    nm
-                                      ? `${nm} <${cf.conciergeSubstituteEmail}> (supl.)`
-                                      : `${cf.conciergeSubstituteEmail} (supl.)`,
-                                  )
-                                }
-                                return parts.length ? parts.join(', ') : '—'
-                              })()}
+                              {conciergeEmailsSummary(community) || '—'}
                             </span>
                             <span>Socorrista: {community.poolStaffEmail || '—'}</span>
                           </span>
@@ -2798,6 +2968,7 @@ export default function Admin() {
                         <tr>
                           <th>Puesto</th>
                           <th>Email</th>
+                          <th>Estado</th>
                           <th>Piso</th>
                           <th>Portal</th>
                           <th>Cuenta</th>
@@ -2807,6 +2978,9 @@ export default function Admin() {
                       <tbody>
                         {(usersModalData.staff || []).map((row) => {
                           const staffBlockedHint = staffFichaRowBlockedReason(row)
+                          const isConciergeFicha = row.conciergeFichaActive != null
+                          const conciergeActive = row.conciergeFichaActive !== false
+                          const statusBusy = usersConciergeStatusBusy === row.email
                           return (
                           <tr key={row.email}>
                             <td>
@@ -2823,6 +2997,21 @@ export default function Admin() {
                             </td>
                             <td>
                               <code className="admin-users-email">{row.email}</code>
+                            </td>
+                            <td>
+                              {isConciergeFicha ? (
+                                <span
+                                  className={`admin-users-status-pill ${
+                                    conciergeActive
+                                      ? 'admin-users-status-pill--active'
+                                      : 'admin-users-status-pill--inactive'
+                                  }`}
+                                >
+                                  {conciergeActive ? 'Activo' : 'Inactivo'}
+                                </span>
+                              ) : (
+                                <span className="admin-users-muted">—</span>
+                              )}
                             </td>
                             <td>
                               {!row.user ? (
@@ -2853,6 +3042,37 @@ export default function Admin() {
                               )}
                             </td>
                             <td className="admin-users-actions">
+                              {isConciergeFicha && (
+                                <button
+                                  type="button"
+                                  className={`btn btn--sm ${
+                                    conciergeActive ? 'btn--secondary' : 'btn--primary'
+                                  }`}
+                                  disabled={
+                                    statusBusy ||
+                                    usersActionBusyId != null ||
+                                    usersBulkDeleteBusy
+                                  }
+                                  title={
+                                    conciergeActive
+                                      ? 'Desactivar acceso (vacaciones / relevo); el correo sigue en la ficha'
+                                      : 'Reactivar acceso de conserje'
+                                  }
+                                  onClick={() =>
+                                    void toggleConciergeFichaActive(
+                                      row.email,
+                                      conciergeActive,
+                                      row.user?.name || row.email,
+                                    )
+                                  }
+                                >
+                                  {statusBusy
+                                    ? '…'
+                                    : conciergeActive
+                                      ? 'Desactivar'
+                                      : 'Activar'}
+                                </button>
+                              )}
                               {row.user && row.canImpersonate && (
                                 <>
                                   <button
@@ -4488,107 +4708,26 @@ export default function Admin() {
                     </div>
                   </div>
                 )}
-                <div className="admin-modal-field">
-                  <label className="admin-label" htmlFor="comm-concierge-count">
-                    Número de conserjes (portería)
-                  </label>
-                  <select
-                    id="comm-concierge-count"
-                    className="admin-input auth-select"
-                    value={String(form.conciergeCount)}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        conciergeCount: Math.min(5, Math.max(1, Number(e.target.value) || 1)),
-                      }))
-                    }
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={String(n)}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="admin-field-hint">
-                    Cada correo crea cuenta <strong>Conserje</strong> (VEC + email). Mismos permisos en la
-                    app.
-                  </p>
-                </div>
-                {Array.from({ length: form.conciergeCount }, (_, i) => i + 1).map((n) => (
-                  <div key={n} className="admin-modal-field admin-concierge-slot">
-                    <p className="admin-label admin-concierge-slot-title">Conserje {n}</p>
-                    <label className="admin-label" htmlFor={`comm-concierge-name-${n}`}>
-                      Nombre (opcional)
-                    </label>
-                    <input
-                      id={`comm-concierge-name-${n}`}
-                      type="text"
-                      className="admin-input"
-                      value={form.conciergeStaff?.[n - 1]?.name ?? ''}
-                      onChange={(e) =>
-                        setForm((f) => {
-                          const next = [...(f.conciergeStaff || Array.from({ length: 5 }, () => ({ email: '', name: '' })))]
-                          next[n - 1] = { ...next[n - 1], name: e.target.value }
-                          return { ...f, conciergeStaff: next }
-                        })
-                      }
-                      placeholder="Ej. María García"
-                      autoComplete="name"
-                    />
-                    <label className="admin-label" htmlFor={`comm-concierge-email-${n}`}>
-                      Email
-                    </label>
-                    <input
-                      id={`comm-concierge-email-${n}`}
-                      type="email"
-                      className="admin-input"
-                      value={form.conciergeStaff?.[n - 1]?.email ?? ''}
-                      onChange={(e) =>
-                        setForm((f) => {
-                          const next = [...(f.conciergeStaff || Array.from({ length: 5 }, () => ({ email: '', name: '' })))]
-                          next[n - 1] = { ...next[n - 1], email: e.target.value }
-                          return { ...f, conciergeStaff: next }
-                        })
-                      }
-                      placeholder={n === 1 ? 'conserje@ejemplo.es' : `conserje${n}@ejemplo.es`}
-                      autoComplete="email"
-                    />
-                  </div>
-                ))}
-                <div className="admin-modal-field admin-concierge-slot">
-                  <p className="admin-label admin-concierge-slot-title">Conserje suplente (opcional)</p>
-                  <label className="admin-label" htmlFor="comm-concierge-sub-name">
-                    Nombre (opcional)
-                  </label>
-                  <input
-                    id="comm-concierge-sub-name"
-                    type="text"
-                    className="admin-input"
-                    value={form.conciergeSubstituteName}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, conciergeSubstituteName: e.target.value }))
-                    }
-                    placeholder="Ej. Juan López"
-                    autoComplete="name"
-                  />
-                  <label className="admin-label" htmlFor="comm-concierge-substitute">
-                    Email
-                  </label>
-                  <input
-                    id="comm-concierge-substitute"
-                    type="email"
-                    className="admin-input"
-                    value={form.conciergeSubstituteEmail}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, conciergeSubstituteEmail: e.target.value }))
-                    }
-                    placeholder="suplente@ejemplo.es"
-                    autoComplete="email"
-                  />
-                  <p className="admin-field-hint">
-                    Refuerzo o relevo: misma app y permisos; cada persona entra con su correo y el VEC.
-                  </p>
-                </div>
+                <ConciergeStaffEditor
+                  title="Conserjes titulares (portería)"
+                  hint="Cada correo crea cuenta Conserje (VEC + email). Mismos permisos en la app. Desactiva en lugar de borrar si está de vacaciones."
+                  list={form.conciergeStaff}
+                  onChange={(conciergeStaff) => setForm((f) => ({ ...f, conciergeStaff }))}
+                  idPrefix="comm-concierge"
+                  addLabel="+ Añadir conserje titular"
+                  rowLabel={(n) => `Conserje ${n}`}
+                />
+                <ConciergeStaffEditor
+                  title="Conserjes suplentes (opcional)"
+                  hint="Refuerzo o relevo: misma app y permisos; cada persona entra con su correo y el VEC."
+                  list={form.conciergeSubstitutes}
+                  onChange={(conciergeSubstitutes) =>
+                    setForm((f) => ({ ...f, conciergeSubstitutes }))
+                  }
+                  idPrefix="comm-concierge-sub"
+                  addLabel="+ Añadir conserje suplente"
+                  rowLabel={(n) => `Suplente ${n}`}
+                />
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-pool-staff-email">
                     Email socorrista / piscina (opcional)
@@ -4640,7 +4779,9 @@ export default function Admin() {
                 </select>
               </div>
               <div className="admin-modal-field">
-                <label className="admin-label" htmlFor="comm-company-id">Empresa (opcional)</label>
+                <label className="admin-label" htmlFor="comm-company-id">
+                  Empresa de administración (opcional)
+                </label>
                 <select
                   id="comm-company-id"
                   className="admin-input admin-select"
@@ -4656,15 +4797,42 @@ export default function Admin() {
                     }))
                   }}
                 >
-                  <option value="">— Sin empresa —</option>
-                  {companiesList.map((co) => (
+                  <option value="">— Sin empresa de administración —</option>
+                  {companyOptions.administration.map((co) => (
                     <option key={co.id} value={String(co.id)}>
                       {co.name} (id {co.id})
                     </option>
                   ))}
                 </select>
                 <p className="admin-field-hint">
-                  Vincula la comunidad a una empresa para que sus administradores de empresa la gestionen.
+                  Administrador de fincas (p. ej. MANDATARIA). Sus administradores de empresa gestionan
+                  la comunidad desde el panel de empresa.
+                </p>
+              </div>
+              <div className="admin-modal-field">
+                <label className="admin-label" htmlFor="comm-service-company-id">
+                  Empresa de servicios (opcional)
+                </label>
+                <select
+                  id="comm-service-company-id"
+                  className="admin-input admin-select"
+                  value={form.serviceProviderCompanyId}
+                  disabled={isScopedServiceAdmin}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, serviceProviderCompanyId: e.target.value }))
+                  }
+                >
+                  <option value="">— Sin empresa de servicios —</option>
+                  {companyOptions.service.map((co) => (
+                    <option key={co.id} value={String(co.id)}>
+                      {co.name} (id {co.id})
+                    </option>
+                  ))}
+                </select>
+                <p className="admin-field-hint">
+                  Prestador (p. ej. DE CAMINO): super administrador acotado solo a las comunidades donde
+                  figure esta empresa.
+                  {isScopedServiceAdmin ? ' Tu empresa se asigna automáticamente.' : ''}
                 </p>
               </div>
               <div className="admin-modal-actions">

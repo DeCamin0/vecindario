@@ -4,6 +4,7 @@ import {
   useAuth,
   canEditResidentFichaFields,
   canViewCommunityResidents,
+  canAccessAdminPanel,
 } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js'
@@ -74,6 +75,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
     communityAccessCode,
     community,
     userRole,
+    user,
     appNavFlags,
   } = useAuth()
   const { confirm } = useDialog()
@@ -90,14 +92,15 @@ export default function CommunityResidents({ superAdminScope = false }) {
     : communityAccessCode?.trim().toUpperCase() || ''
   const effectiveCommunityName = superAdminScope ? adminCtx?.name ?? '' : community ?? ''
 
-  const canCreateResidents = superAdminScope && userRole === 'super_admin'
+  const adminPanelAccess = canAccessAdminPanel(userRole, user)
+  const canCreateResidents = superAdminScope && adminPanelAccess
   const canFichaEdit =
-    (superAdminScope && userRole === 'super_admin') || canEditResidentFichaFields(userRole)
+    (superAdminScope && adminPanelAccess) || canEditResidentFichaFields(userRole)
   const showPoolFichaEdit = canFichaEdit && appNavFlags.poolAccess
 
   useEffect(() => {
     if (superAdminScope) {
-      if (userRole !== 'super_admin') {
+      if (!adminPanelAccess) {
         navigate('/admin', { replace: true })
       }
       return
@@ -105,7 +108,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
     if (!canViewCommunityResidents(userRole)) {
       navigate('/', { replace: true })
     }
-  }, [userRole, navigate, superAdminScope])
+  }, [userRole, navigate, superAdminScope, adminPanelAccess])
 
   useEffect(() => {
     if (!superAdminScope || !accessToken) {

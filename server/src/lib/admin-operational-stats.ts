@@ -18,9 +18,14 @@ export type AdminOperationalAggregates = {
 /**
  * KPIs del panel super admin: solo comunidades operativas (active + demo).
  */
-export async function getAdminOperationalAggregates(): Promise<AdminOperationalAggregates> {
+export async function getAdminOperationalAggregates(
+  communityIds?: number[],
+): Promise<AdminOperationalAggregates> {
   const operational = await prisma.community.findMany({
-    where: communityOperationalWhere(),
+    where: {
+      ...communityOperationalWhere(),
+      ...(communityIds != null ? { id: { in: communityIds } } : {}),
+    },
     select: {
       id: true,
       residentSlots: true,

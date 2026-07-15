@@ -25,6 +25,7 @@ import CommunityAdmin from './pages/CommunityAdmin'
 import CommunityServicesOverview from './pages/CommunityServicesOverview'
 import CommunityResidents from './pages/CommunityResidents'
 import CompanyAdminDashboard from './pages/CompanyAdminDashboard'
+import RequireAdminPanel from './components/RequireAdminPanel'
 import RequireRole from './components/RequireRole'
 import RequirePiso from './components/RequirePiso'
 import RequireCommunityNavTab from './components/RequireCommunityNavTab'
@@ -72,13 +73,13 @@ function App() {
           <Route path="/solicitar-oferta" element={<QuoteRequestPage />} />
           <Route path="/register" element={<Navigate to="/solicitar-oferta" replace />} />
           <Route path="/completar-piso" element={<CompletePiso />} />
-          <Route path="/admin" element={<RequireRole role="super_admin"><Admin /></RequireRole>} />
+          <Route path="/admin" element={<RequireAdminPanel><Admin /></RequireAdminPanel>} />
           <Route
             path="/admin/communities/:communityId/vecinos"
             element={
-              <RequireRole role="super_admin">
+              <RequireAdminPanel>
                 <CommunityResidents superAdminScope />
-              </RequireRole>
+              </RequireAdminPanel>
             }
           />
           <Route

@@ -3,6 +3,7 @@
  * @param {Record<string, unknown>} form — campos de formulario (strings y booleanos)
  * @returns {{ body?: Record<string, unknown>, error?: string }}
  */
+import { conciergePayloadFromForm } from './conciergeEmailsForm.js'
 import { parsePadelHoursFormValue } from './padelHours.js'
 
 export function buildCompanyCommunityCreateBody(form) {
@@ -52,23 +53,7 @@ export function buildCompanyCommunityCreateBody(form) {
   const pe = String(form.presidentEmail ?? '').trim()
   if (pe) body.presidentEmail = pe
   /* Las comunidades de empresa no llevan administrador en ficha. */
-  const n = Math.min(5, Math.max(1, Number(form.conciergeCount) || 1))
-  const staff = (form.conciergeStaff || [])
-    .slice(0, n)
-    .map((s) => ({
-      email: String(s?.email ?? '').trim(),
-      name: String(s?.name ?? '').trim(),
-    }))
-    .filter((s) => s.email)
-    .map((s) => ({
-      email: s.email,
-      ...(s.name ? { name: s.name } : {}),
-    }))
-  if (staff.length) body.conciergeStaff = staff
-  const ces = String(form.conciergeSubstituteEmail ?? '').trim()
-  if (ces) body.conciergeSubstituteEmail = ces
-  const cesn = String(form.conciergeSubstituteName ?? '').trim()
-  if (cesn) body.conciergeSubstituteName = cesn
+  Object.assign(body, conciergePayloadFromForm(form))
   const pse = String(form.poolStaffEmail ?? '').trim()
   if (pse) body.poolStaffEmail = pse
 

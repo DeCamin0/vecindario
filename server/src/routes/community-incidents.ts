@@ -31,24 +31,9 @@ const CATEGORY_LABELS_ES: Record<string, string> = {
   other: 'Otro',
 }
 
-const MAX_PHOTO_BASE64_CHARS = 2_800_000
 const MAX_COMMENT_CHARS = 2000
-
-function normalizePhotoPayload(
-  raw: string | null,
-  mimeIn: string | null,
-): { base64: string | null; mime: string | null } {
-  if (!raw) return { base64: null, mime: null }
-  const trimmed = raw.trim()
-  const m = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(trimmed)
-  if (m) {
-    return { base64: m[2].replace(/\s/g, ''), mime: m[1] }
-  }
-  return {
-    base64: trimmed.replace(/\s/g, ''),
-    mime: mimeIn && mimeIn.startsWith('image/') ? mimeIn : 'image/jpeg',
-  }
-}
+/** Archivadas sin filtro de fecha: solo las N más recientes. */
+const ARCHIVED_PREVIEW_LIMIT = 5
 
 type IncidentWithReporter = {
   id: number
@@ -162,12 +147,24 @@ function mapCommentRow(row: CommentWithAuthor) {
   }
 }
 
+/** YYYY-MM-DD → inicio/fin de día UTC para filtro en BD. */
+function parseDateQueryBound(raw: unknown, endOfDay: boolean): Date | null {
+  if (typeof raw !== 'string') return null
+  const t = raw.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z'
+  const d = new Date(`${t}${suffix}`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
   const communityId = Number(req.query.communityId)
   const statusFilter =
     typeof req.query.status === 'string' && (req.query.status === 'pendiente' || req.query.status === 'resuelta')
       ? req.query.status
       : undefined
+  const dateFrom = parseDateQueryBound(req.query.dateFrom, false)
+  const dateTo = parseDateQueryBound(req.query.dateTo, true)
 
   if (!Number.isInteger(communityId) || communityId < 1) {
     res.status(400).json({ error: 'communityId inválido' })
@@ -190,13 +187,30 @@ communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
   const mayManage = userMayManageIncidents(user, comm)
   const viewer: IncidentListViewer = { userId: user.id, mayManageIncidents: mayManage }
 
-  const where: { communityId: number; status?: string } = { communityId }
+  const where: {
+    communityId: number
+    status?: string
+    resolvedAt?: { gte?: Date; lte?: Date }
+  } = { communityId }
   if (statusFilter) where.status = statusFilter
+  if (statusFilter === 'resuelta' && (dateFrom || dateTo)) {
+    where.resolvedAt = {}
+    if (dateFrom) where.resolvedAt.gte = dateFrom
+    if (dateTo) where.resolvedAt.lte = dateTo
+  }
+
+  const archivedDateSearch = statusFilter === 'resuelta' && Boolean(dateFrom || dateTo)
+  const listLimit =
+    statusFilter === 'resuelta' && !archivedDateSearch ? ARCHIVED_PREVIEW_LIMIT : 200
+  const orderBy =
+    statusFilter === 'resuelta'
+      ? [{ resolvedAt: 'desc' as const }, { id: 'desc' as const }]
+      : [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
 
   const rows = await incidentDb.communityIncident.findMany({
     where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: 200,
+    orderBy,
+    take: listLimit,
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
       resolvedBy: { select: { email: true, name: true } },
@@ -345,13 +359,6 @@ communityIncidentsRouter.post('/', requireAuth, async (req, res) => {
     typeof req.body?.portalLabel === 'string' ? req.body.portalLabel.trim().slice(0, 128) : ''
   const urgencyRaw = typeof req.body?.urgency === 'string' ? req.body.urgency.trim() : 'medium'
   const urgency = ['low', 'medium', 'high'].includes(urgencyRaw) ? urgencyRaw : 'medium'
-  const photoMimeRaw =
-    typeof req.body?.photoMime === 'string' ? req.body.photoMime.trim().slice(0, 64) : null
-  const rawPhoto =
-    typeof req.body?.photoBase64 === 'string' ? req.body.photoBase64.trim() : null
-  const normalized = normalizePhotoPayload(rawPhoto, photoMimeRaw)
-  let photoBase64 = normalized.base64
-  const photoMime = normalized.mime
 
   if (!user) {
     res.status(401).json({ error: 'Usuario no encontrado' })
@@ -397,19 +404,7 @@ communityIncidentsRouter.post('/', requireAuth, async (req, res) => {
     portalLabel = portalLabelRaw || null
   }
 
-  if (photoBase64 && photoBase64.length > MAX_PHOTO_BASE64_CHARS) {
-    res.status(400).json({ error: 'La imagen es demasiado grande' })
-    return
-  }
-
   const categoryLabel = CATEGORY_LABELS_ES[categoryId] ?? categoryId
-  const mimeStored =
-    photoBase64 != null && photoBase64.length > 0
-      ? photoMime && photoMime.startsWith('image/')
-        ? photoMime
-        : 'image/jpeg'
-      : null
-  if (!photoBase64) photoBase64 = null
 
   const created = await incidentDb.communityIncident.create({
     data: {
@@ -422,8 +417,8 @@ communityIncidentsRouter.post('/', requireAuth, async (req, res) => {
       portalLabel,
       urgency,
       status: 'pendiente',
-      photoMime: photoBase64 ? mimeStored : null,
-      photoBase64: photoBase64 || null,
+      photoMime: null,
+      photoBase64: null,
     },
     include: {
       reporter: { select: { email: true, piso: true, portal: true, name: true } },
@@ -447,7 +442,11 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
   const user = await loadVecindarioUser(req.userId!)
   const rowPatch = await incidentDb.communityIncident.findUnique({
     where: { id },
-    include: { community: true, reporter: { select: { email: true, piso: true, portal: true, name: true } } },
+    include: {
+      community: true,
+      reporter: { select: { email: true, piso: true, portal: true, name: true } },
+      _count: { select: { comments: true } },
+    },
   })
 
   if (!user || !rowPatch?.community) {
@@ -538,6 +537,12 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
   }
   if (rowPatch.status !== 'pendiente') {
     res.status(403).json({ error: 'No se puede editar una incidencia ya resuelta' })
+    return
+  }
+  if ((rowPatch._count?.comments ?? 0) > 0) {
+    res.status(403).json({
+      error: 'Ya no se puede editar el reporte: hay comentarios en la incidencia',
+    })
     return
   }
 

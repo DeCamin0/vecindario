@@ -21,6 +21,12 @@ enum VecindarioRole {
   pool_staff
 }
 
+/// Tipo de empresa: administración de fincas vs prestación de servicios (operador Vecindario).
+enum CompanyKind {
+  administracion
+  prestacion_servicios
+}
+
 /// Utilizatori Vecindario (login API). Tabel dedicat, separat de DeCamino.
 model VecindarioUser {
   id           Int            @id @default(autoincrement())
@@ -94,13 +100,17 @@ model VecindarioUser {
 
 /// Empresa (administradores de empresa crean comunidades pendientes de aprobación).
 model Company {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(255)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id        Int         @id @default(autoincrement())
+  name      String      @db.VarChar(255)
+  kind      CompanyKind @default(administracion)
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
 
-  communities        Community[]
-  companyAdminUsers  VecindarioUser[] @relation("CompanyAdminUsers")
+  /// Comunidades gestionadas por esta empresa (administración de fincas).
+  communities              Community[] @relation("AdministrationCompany")
+  /// Comunidades donde esta empresa es prestador de servicios (super admin acotado).
+  serviceProviderCommunities Community[] @relation("ServiceProviderCompany")
+  companyAdminUsers        VecindarioUser[] @relation("CompanyAdminUsers")
 
   @@map("companies")
 }
@@ -140,9 +150,11 @@ model Community {
   conciergeEmail String? @map("concierge_email") @db.VarChar(255)
   /// Segundo conserje (legacy; espejo de [1] en conciergeEmailsJson).
   conciergeEmail2 String? @map("concierge_email_2") @db.VarChar(255)
-  /// Hasta 5 conserjes: JSON array de correos (fuente principal).
+  /// Conserjes titulares: JSON [{ email, name?, active? }, …] (active=false → sin acceso app).
   conciergeEmailsJson Json @default("[]") @map("concierge_emails_json")
-  /// Conserje suplente / refuerzo (mismo rol; no cuenta en el límite de 5).
+  /// Suplentes: JSON [{ email, name?, active? }, …] (mismo rol conserje).
+  conciergeSubstitutesJson Json @default("[]") @map("concierge_substitutes_json")
+  /// Legacy: espejo del primer suplente en conciergeSubstitutesJson (lectura/compat).
   conciergeSubstituteEmail String? @map("concierge_substitute_email") @db.VarChar(255)
   conciergeSubstituteName String? @map("concierge_substitute_name") @db.VarChar(255)
   /// Email del socorrista / validación de acceso a piscina (mismo criterio que conserje: ficha + VEC en login).
@@ -205,9 +217,12 @@ model Community {
   /// Tope de personas en la instalación a la vez (null = sin límite global; sigue el tope por vivienda al admitir).
   poolMaxOccupancy        Int?      @map("pool_max_occupancy")
   createdAt        DateTime @default(now()) @map("created_at")
-  /// Empresa propietaria (opcional; comunidades legacy sin empresa).
+  /// Empresa de administración de fincas (opcional; comunidades legacy sin empresa).
   companyId        Int?     @map("company_id")
-  company          Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company          Company? @relation("AdministrationCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  /// Empresa prestadora de servicios (p. ej. DeCamino): super admin acotado a estas comunidades.
+  serviceProviderCompanyId Int?     @map("service_provider_company_id")
+  serviceProviderCompany   Company? @relation("ServiceProviderCompany", fields: [serviceProviderCompanyId], references: [id], onDelete: SetNull)
 
   bookings         CommunityBooking[]
   gymAccessLogs    CommunityGymAccessLog[]
@@ -222,6 +237,7 @@ model Community {
   diarioEntries            CommunityDiarioEntry[]
 
   @@index([companyId], map: "communities_company_id_idx")
+  @@index([serviceProviderCompanyId], map: "communities_service_provider_company_id_idx")
   @@map("communities")
 }
 

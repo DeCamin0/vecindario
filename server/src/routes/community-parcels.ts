@@ -11,12 +11,60 @@ import { realtimeHub } from '../lib/realtime-hub.js'
 
 export const communityParcelsRouter = Router()
 
-const MAX_PHOTOS = 5
-const MAX_PHOTO_CHARS = 900_000
 const MAX_SIGNATURE_CHARS = 600_000
 const MAX_PACKAGE_COUNT = 20
 const MIN_PACKAGE_COUNT = 1
 const MAX_ITEM_DESCRIPTION = 255
+/** Recogidos sin filtro de fecha: solo los N más recientes. */
+const ARCHIVED_PREVIEW_LIMIT = 5
+
+type ParcelStatusFilter = 'awaiting_pickup' | 'picked_up'
+
+function parseParcelStatusFilter(raw: unknown): ParcelStatusFilter {
+  if (raw === 'picked_up' || raw === 'awaiting_pickup') return raw
+  return 'awaiting_pickup'
+}
+
+/** YYYY-MM-DD → inicio/fin de día UTC para filtro en BD. */
+function parseDateQueryBound(raw: unknown, endOfDay: boolean): Date | null {
+  if (typeof raw !== 'string') return null
+  const t = raw.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z'
+  const d = new Date(`${t}${suffix}`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+async function queryCommunityParcels(
+  communityId: number,
+  statusFilter: ParcelStatusFilter,
+  dateFrom: Date | null,
+  dateTo: Date | null,
+  recipientUserId?: number,
+) {
+  const where: {
+    communityId: number
+    recipientUserId?: number
+    status: ParcelStatusFilter
+    pickedUpAt?: { gte?: Date; lte?: Date }
+  } = { communityId, status: statusFilter }
+  if (recipientUserId != null) where.recipientUserId = recipientUserId
+  if (statusFilter === 'picked_up' && (dateFrom || dateTo)) {
+    where.pickedUpAt = {}
+    if (dateFrom) where.pickedUpAt.gte = dateFrom
+    if (dateTo) where.pickedUpAt.lte = dateTo
+  }
+
+  const archivedDateSearch = statusFilter === 'picked_up' && Boolean(dateFrom || dateTo)
+  const take =
+    statusFilter === 'picked_up' && !archivedDateSearch ? ARCHIVED_PREVIEW_LIMIT : 200
+  const orderBy =
+    statusFilter === 'picked_up'
+      ? [{ pickedUpAt: 'desc' as const }, { createdAt: 'desc' as const }]
+      : [{ lastPackageAt: 'desc' as const }, { createdAt: 'desc' as const }]
+
+  return prisma.communityConciergeParcel.findMany({ where, orderBy, take })
+}
 
 type ParcelDeliveryKind = 'courier' | 'special'
 
@@ -109,20 +157,6 @@ async function findParcelRecipient(
   }
 
   return { ok: false, reason: 'none' }
-}
-
-function parsePhotos(raw: unknown): string[] | null {
-  if (!Array.isArray(raw)) return null
-  const out: string[] = []
-  for (const x of raw) {
-    if (typeof x !== 'string') continue
-    const u = x.trim()
-    if (!u.startsWith('data:image/')) continue
-    if (u.length > MAX_PHOTO_CHARS) return null
-    out.push(u)
-    if (out.length >= MAX_PHOTOS) break
-  }
-  return out
 }
 
 async function loadCommunityForParcels(
@@ -227,6 +261,9 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     return
   }
   const accessCode = typeof req.query.accessCode === 'string' ? req.query.accessCode : undefined
+  const statusFilter = parseParcelStatusFilter(req.query.status)
+  const dateFrom = parseDateQueryBound(req.query.dateFrom, false)
+  const dateTo = parseDateQueryBound(req.query.dateTo, true)
 
   const gate = await loadCommunityForParcels(communityId, accessCode)
   if (!gate.ok) {
@@ -246,11 +283,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
       res.status(403).json({ error: 'No perteneces a esta comunidad.' })
       return
     }
-    const rows = await prisma.communityConciergeParcel.findMany({
-      where: { communityId, recipientUserId: uid },
-      orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
-      take: 100,
-    })
+    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo, uid)
     res.json({ parcels: rows.map(serializeParcel) })
     return
   }
@@ -262,11 +295,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     role === 'super_admin'
   ) {
     if (role === 'super_admin') {
-      const rows = await prisma.communityConciergeParcel.findMany({
-        where: { communityId },
-        orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
-        take: 200,
-      })
+      const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo)
       res.json({ parcels: rows.map(serializeParcel) })
       return
     }
@@ -275,11 +304,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
       res.status(staff.status).json({ error: staff.message })
       return
     }
-    const rows = await prisma.communityConciergeParcel.findMany({
-      where: { communityId },
-      orderBy: [{ lastPackageAt: 'desc' }, { createdAt: 'desc' }],
-      take: 200,
-    })
+    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo)
     res.json({ parcels: rows.map(serializeParcel) })
     return
   }
@@ -402,12 +427,6 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
     return
   }
 
-  const photos = parsePhotos(req.body?.photos)
-  if (photos == null) {
-    res.status(400).json({ error: 'photos debe ser un array de data URLs de imagen (máx. 5).' })
-    return
-  }
-
   const deliveryKind = parseDeliveryKind(req.body?.deliveryKind)
   const itemDescription = parseItemDescription(req.body?.itemDescription, deliveryKind)
   if (deliveryKind === 'special' && gate.row.paqueteriaSpecialDeliveryEnabled !== true) {
@@ -457,7 +476,7 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
       recipientUserId: recipient.id,
       createdByUserId: uid,
       createdByName,
-      photosJson: photos,
+      photosJson: [],
       status: 'awaiting_pickup',
       packageCount,
       deliveryKind,

@@ -7,6 +7,7 @@ import {
   normalizeConciergeEmailsForDb,
   parseConciergeEmailsFromBody,
   parseConciergeEntries,
+  parseConciergeSubstituteEntries,
 } from '../lib/concierge-emails.js'
 import { signAccessToken } from '../lib/jwt.js'
 import { generateUniqueAccessCode } from '../lib/access-code.js'
@@ -158,15 +159,17 @@ companyCommunitiesRouter.post('/', async (req, res) => {
   const conciergeParsed = parseConciergeEmailsFromBody({
     ...(Array.isArray(body?.conciergeStaff)
       ? { conciergeStaff: body.conciergeStaff }
-      : {
-          conciergeEmails: Array.isArray(body?.conciergeEmails)
-            ? body.conciergeEmails
-            : [],
-        }),
-    conciergeSubstituteEmail:
-      Object.prototype.hasOwnProperty.call(body ?? {}, 'conciergeSubstituteEmail')
-        ? body.conciergeSubstituteEmail
-        : '',
+      : Array.isArray(body?.conciergeEmails)
+        ? { conciergeEmails: body.conciergeEmails }
+        : typeof body?.conciergeEmail === 'string' && body.conciergeEmail.trim()
+          ? { conciergeEmails: [body.conciergeEmail] }
+          : { conciergeEmails: [] }),
+    ...(Array.isArray(body?.conciergeSubstitutes)
+      ? { conciergeSubstitutes: body.conciergeSubstitutes }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(body ?? {}, 'conciergeSubstituteEmail')
+      ? { conciergeSubstituteEmail: body.conciergeSubstituteEmail }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(body ?? {}, 'conciergeSubstituteName')
       ? { conciergeSubstituteName: body.conciergeSubstituteName }
       : {}),
@@ -177,8 +180,7 @@ companyCommunitiesRouter.post('/', async (req, res) => {
   }
   const conciergeNorm = normalizeConciergeEmailsForDb(
     conciergeParsed.staff,
-    conciergeParsed.substitute ?? '',
-    conciergeParsed.substituteName,
+    conciergeParsed.substitutes,
   )
   const poolSt = parseOptionalInstructionEmail(body?.poolStaffEmail)
   if (poolSt.invalidFormat) {
@@ -268,6 +270,7 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       conciergeEmail: conciergeNorm.conciergeEmail,
       conciergeEmail2: conciergeNorm.conciergeEmail2,
       conciergeEmailsJson: conciergeNorm.conciergeEmailsJson,
+      conciergeSubstitutesJson: conciergeNorm.conciergeSubstitutesJson,
       conciergeSubstituteEmail: conciergeNorm.conciergeSubstituteEmail,
       conciergeSubstituteName: conciergeNorm.conciergeSubstituteName,
       poolStaffEmail: poolSt.value,
@@ -369,28 +372,27 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
   const hasStaffBody =
     Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeStaff') ||
     Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeEmails')
-  const hasSubBody = Object.prototype.hasOwnProperty.call(
-    req.body ?? {},
-    'conciergeSubstituteEmail',
-  )
-  const hasSubNameBody = Object.prototype.hasOwnProperty.call(
-    req.body ?? {},
-    'conciergeSubstituteName',
-  )
-  if (hasStaffBody || hasSubBody || hasSubNameBody) {
+  const hasSubstitutesBody =
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstitutes') ||
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteEmail') ||
+    Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteName')
+  if (hasStaffBody || hasSubstitutesBody) {
     const parsed = parseConciergeEmailsFromBody({
       ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeStaff')
         ? { conciergeStaff: (req.body as Record<string, unknown>).conciergeStaff }
         : Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeEmails')
           ? { conciergeEmails: (req.body as Record<string, unknown>).conciergeEmails }
           : {}),
-      ...(hasSubBody
+      ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstitutes')
+        ? { conciergeSubstitutes: (req.body as Record<string, unknown>).conciergeSubstitutes }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteEmail')
         ? {
             conciergeSubstituteEmail: (req.body as Record<string, unknown>)
               .conciergeSubstituteEmail,
           }
         : {}),
-      ...(hasSubNameBody
+      ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteName')
         ? {
             conciergeSubstituteName: (req.body as Record<string, unknown>)
               .conciergeSubstituteName,
@@ -409,6 +411,7 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
         conciergeEmailsJson: true,
         conciergeSubstituteEmail: true,
         conciergeSubstituteName: true,
+        conciergeSubstitutesJson: true,
       },
     })
     const staffForNorm = hasStaffBody
@@ -416,21 +419,16 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
       : snap
         ? parseConciergeEntries(snap)
         : []
-    const substituteForNorm = hasSubBody
-      ? (parsed.substitute ?? null)
-      : (snap?.conciergeSubstituteEmail ?? null)
-    let substituteNameForNorm = hasSubNameBody
-      ? (parsed.substituteName ?? null)
-      : (snap?.conciergeSubstituteName ?? null)
-    if (hasSubBody && !substituteForNorm) substituteNameForNorm = null
-    const norm = normalizeConciergeEmailsForDb(
-      staffForNorm,
-      substituteForNorm ?? '',
-      substituteNameForNorm,
-    )
+    const substitutesForNorm = parsed.hasSubstitutesPayload
+      ? parsed.substitutes
+      : snap
+        ? parseConciergeSubstituteEntries(snap)
+        : []
+    const norm = normalizeConciergeEmailsForDb(staffForNorm, substitutesForNorm)
     data.conciergeEmailsJson = norm.conciergeEmailsJson
     data.conciergeEmail = norm.conciergeEmail
     data.conciergeEmail2 = norm.conciergeEmail2
+    data.conciergeSubstitutesJson = norm.conciergeSubstitutesJson
     data.conciergeSubstituteEmail = norm.conciergeSubstituteEmail
     data.conciergeSubstituteName = norm.conciergeSubstituteName
   }

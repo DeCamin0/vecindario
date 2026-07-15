@@ -17,12 +17,19 @@ export function openVecindarioImpersonationTab(params) {
     throw new Error('Respuesta incompleta del servidor')
   }
   const isCompanyAdmin = user.role === 'company_admin'
+  const isServiceProviderAdmin =
+    isCompanyAdmin &&
+    (company?.scopedSuperAdmin === true || company?.kind === 'prestacion_servicios')
   const manageCommunity =
     Boolean(community?.name) &&
     (relativePath === 'community-admin' || String(relativePath || '').includes('community-admin'))
   const rel =
     relativePath ||
-    (isCompanyAdmin && !manageCommunity ? 'company-admin' : 'community-admin')
+    (isCompanyAdmin && !manageCommunity
+      ? isServiceProviderAdmin
+        ? 'admin'
+        : 'company-admin'
+      : 'community-admin')
   if (isCompanyAdmin && !manageCommunity) {
     if (!company?.name) {
       throw new Error('Respuesta incompleta del servidor')
@@ -68,6 +75,11 @@ export function openVecindarioImpersonationTab(params) {
                   company: {
                     id: company.id,
                     name: company.name,
+                    ...(company.kind ? { kind: company.kind } : {}),
+                    ...(company.scopedSuperAdmin === true ||
+                    company.kind === 'prestacion_servicios'
+                      ? { scopedSuperAdmin: true }
+                      : {}),
                   },
                 }
               : {

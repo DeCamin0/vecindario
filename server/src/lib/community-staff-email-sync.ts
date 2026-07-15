@@ -1,7 +1,7 @@
 import type { Community } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { normEmail } from './community-user-access.js'
-import { parseConciergeEmailsList } from './concierge-emails.js'
+import { parseConciergeEmailsList, parseConciergeSubstituteEntries } from './concierge-emails.js'
 
 type PickStaffEmails = Pick<
   Community,
@@ -11,6 +11,7 @@ type PickStaffEmails = Pick<
   | 'conciergeEmail2'
   | 'conciergeSubstituteEmail'
   | 'conciergeEmailsJson'
+  | 'conciergeSubstitutesJson'
   | 'poolStaffEmail'
 >
 
@@ -68,14 +69,22 @@ function collectStaffRemovalCandidates(
     out.push({ emailNorm: o, role: 'concierge' })
   }
 
-  const beforeSub = normEmail(before.conciergeSubstituteEmail)
-  const afterSub = normEmail(after.conciergeSubstituteEmail)
-  if (beforeSub && beforeSub !== afterSub && !afterMain.has(beforeSub) && beforeSub !== afterSub) {
-    const k = `${beforeSub}::concierge`
-    if (!seen.has(k)) {
-      seen.add(k)
-      out.push({ emailNorm: beforeSub, role: 'concierge' })
-    }
+  const beforeSubs = new Set(
+    parseConciergeSubstituteEntries(before)
+      .map((e) => normEmail(e.email))
+      .filter((x): x is string => Boolean(x)),
+  )
+  const afterSubs = new Set(
+    parseConciergeSubstituteEntries(after)
+      .map((e) => normEmail(e.email))
+      .filter((x): x is string => Boolean(x)),
+  )
+  for (const o of beforeSubs) {
+    if (!o || afterSubs.has(o) || afterMain.has(o)) continue
+    const k = `${o}::concierge`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push({ emailNorm: o, role: 'concierge' })
   }
 
   return out
@@ -93,6 +102,7 @@ async function emailStillListedWithStaffRole(
       conciergeEmail2: true,
       conciergeSubstituteEmail: true,
       conciergeEmailsJson: true,
+      conciergeSubstitutesJson: true,
       poolStaffEmail: true,
     },
   })
@@ -102,7 +112,6 @@ async function emailStillListedWithStaffRole(
       return true
     if (role === 'concierge') {
       if (parseConciergeEmailsList(r).includes(emailNorm)) return true
-      if (normEmail(r.conciergeSubstituteEmail) === emailNorm) return true
     }
     if (role === 'pool_staff' && normEmail(r.poolStaffEmail) === emailNorm) return true
   }

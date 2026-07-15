@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, canAccessAdminPanel } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { buildCommunityLoginUrl } from '../utils/communityLoginUrl.js'
 import {
@@ -12,7 +12,8 @@ import {
 import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
 import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
 import { buildCompanyCommunityCreateBody } from '../utils/companyCommunityCreateBody.js'
-import { conciergeEmailsFromCommunity } from '../utils/conciergeEmailsForm.js'
+import { conciergeDisplayItems, emptyConciergeSlot } from '../utils/conciergeEmailsForm.js'
+import ConciergeStaffEditor from '../components/ConciergeStaffEditor.jsx'
 import { getSignInPath } from '../utils/signInWebPath.js'
 import { sanitizePadelHoursInput } from '../utils/padelHours.js'
 import './Admin.css'
@@ -49,21 +50,7 @@ function CompanyCommunityCard({ community: c, enterBusy, onEnter }) {
     enterDisabledTitle = 'Comunidad inactiva: no se puede abrir el panel de gestión.'
   }
 
-  const cf = conciergeEmailsFromCommunity(c)
-  const conciergeItems = cf.conciergeStaff
-    .map((s) => {
-      const em = (s.email || '').trim()
-      if (!em) return null
-      return { name: (s.name || '').trim(), email: em }
-    })
-    .filter(Boolean)
-  if (cf.conciergeSubstituteEmail) {
-    conciergeItems.push({
-      name: (cf.conciergeSubstituteName || '').trim() || 'Suplente',
-      email: cf.conciergeSubstituteEmail,
-      substitute: true,
-    })
-  }
+  const conciergeItems = conciergeDisplayItems(c)
 
   const copyLoginUrl = async () => {
     if (!loginUrl) return
@@ -165,10 +152,11 @@ function CompanyCommunityCard({ community: c, enterBusy, onEnter }) {
           <h4 className="ca-info-panel__title">Conserjería ({conciergeItems.length})</h4>
           <ul className="ca-concierge-list">
             {conciergeItems.map((item) => (
-              <li key={`${item.email}-${item.substitute ? 'sub' : 'main'}`}>
+              <li key={`${item.email}-${item.kind}`}>
                 <span className="ca-concierge-list__name">
                   {item.name}
-                  {item.substitute ? ' (suplente)' : ''}
+                  {item.kind === 'suplente' ? ' (suplente)' : ''}
+                  {!item.active ? ' (inactivo)' : ''}
                 </span>
                 <span className="ca-concierge-list__email">{item.email}</span>
               </li>
@@ -240,7 +228,14 @@ function CompanyCommunityCard({ community: c, enterBusy, onEnter }) {
 
 export default function CompanyAdminDashboard() {
   const navigate = useNavigate()
-  const { accessToken, user, logout } = useAuth()
+  const { accessToken, user, userRole, logout } = useAuth()
+
+  useEffect(() => {
+    if (canAccessAdminPanel(userRole, user)) {
+      navigate('/admin', { replace: true })
+    }
+  }, [userRole, user, navigate])
+
   const [communities, setCommunities] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -262,10 +257,8 @@ export default function CompanyAdminDashboard() {
     boardVicePiso: '',
     communityAdminEmail: '',
     communityAdminName: '',
-    conciergeCount: 1,
-    conciergeStaff: Array.from({ length: 5 }, () => ({ email: '', name: '' })),
-    conciergeSubstituteEmail: '',
-    conciergeSubstituteName: '',
+    conciergeStaff: [emptyConciergeSlot()],
+    conciergeSubstitutes: [],
     poolStaffEmail: '',
     portalCount: '1',
     planExpiresOn: '',
@@ -615,104 +608,24 @@ export default function CompanyAdminDashboard() {
                       La gestión de esta comunidad la realizan los administradores de tu empresa (arriba en esta
                       pantalla), no hace falta un administrador adicional en la ficha.
                     </p>
-                    <div className="admin-modal-field">
-                      <label className="admin-label" htmlFor="ca-concierge-count">
-                        Número de conserjes
-                      </label>
-                      <select
-                        id="ca-concierge-count"
-                        className="admin-input auth-select"
-                        value={String(form.conciergeCount)}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            conciergeCount: Math.min(5, Math.max(1, Number(e.target.value) || 1)),
-                          }))
-                        }
-                      >
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <option key={n} value={String(n)}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {Array.from({ length: form.conciergeCount }, (_, i) => i + 1).map((n) => (
-                      <div key={n} className="admin-modal-field admin-concierge-slot">
-                        <p className="admin-label admin-concierge-slot-title">Conserje {n}</p>
-                        <label className="admin-label" htmlFor={`ca-conc-name-${n}`}>
-                          Nombre (opcional)
-                        </label>
-                        <input
-                          id={`ca-conc-name-${n}`}
-                          type="text"
-                          className="admin-input"
-                          value={form.conciergeStaff?.[n - 1]?.name ?? ''}
-                          onChange={(e) =>
-                            setForm((f) => {
-                              const next = [
-                                ...(f.conciergeStaff ||
-                                  Array.from({ length: 5 }, () => ({ email: '', name: '' }))),
-                              ]
-                              next[n - 1] = { ...next[n - 1], name: e.target.value }
-                              return { ...f, conciergeStaff: next }
-                            })
-                          }
-                          autoComplete="name"
-                        />
-                        <label className="admin-label" htmlFor={`ca-conc-${n}`}>
-                          Email
-                        </label>
-                        <input
-                          id={`ca-conc-${n}`}
-                          type="email"
-                          className="admin-input"
-                          value={form.conciergeStaff?.[n - 1]?.email ?? ''}
-                          onChange={(e) =>
-                            setForm((f) => {
-                              const next = [
-                                ...(f.conciergeStaff ||
-                                  Array.from({ length: 5 }, () => ({ email: '', name: '' }))),
-                              ]
-                              next[n - 1] = { ...next[n - 1], email: e.target.value }
-                              return { ...f, conciergeStaff: next }
-                            })
-                          }
-                          autoComplete="email"
-                        />
-                      </div>
-                    ))}
-                    <div className="admin-modal-field admin-concierge-slot">
-                      <p className="admin-label admin-concierge-slot-title">
-                        Conserje suplente (opcional)
-                      </p>
-                      <label className="admin-label" htmlFor="ca-conc-sub-name">
-                        Nombre (opcional)
-                      </label>
-                      <input
-                        id="ca-conc-sub-name"
-                        type="text"
-                        className="admin-input"
-                        value={form.conciergeSubstituteName}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, conciergeSubstituteName: e.target.value }))
-                        }
-                        autoComplete="name"
-                      />
-                      <label className="admin-label" htmlFor="ca-conc-sub">
-                        Email
-                      </label>
-                      <input
-                        id="ca-conc-sub"
-                        type="email"
-                        className="admin-input"
-                        value={form.conciergeSubstituteEmail}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, conciergeSubstituteEmail: e.target.value }))
-                        }
-                        autoComplete="email"
-                      />
-                    </div>
+                    <ConciergeStaffEditor
+                      title="Conserjes titulares"
+                      list={form.conciergeStaff}
+                      onChange={(conciergeStaff) => setForm((f) => ({ ...f, conciergeStaff }))}
+                      idPrefix="ca-concierge"
+                      addLabel="+ Añadir conserje titular"
+                      rowLabel={(n) => `Conserje ${n}`}
+                    />
+                    <ConciergeStaffEditor
+                      title="Conserjes suplentes (opcional)"
+                      list={form.conciergeSubstitutes}
+                      onChange={(conciergeSubstitutes) =>
+                        setForm((f) => ({ ...f, conciergeSubstitutes }))
+                      }
+                      idPrefix="ca-concierge-sub"
+                      addLabel="+ Añadir conserje suplente"
+                      rowLabel={(n) => `Suplente ${n}`}
+                    />
                     <div className="admin-modal-field">
                       <label className="admin-label" htmlFor="ca-pool">
                         Email socorrista / piscina (opcional)

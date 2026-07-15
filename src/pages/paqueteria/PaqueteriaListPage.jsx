@@ -35,6 +35,11 @@ export default function PaqueteriaListPage() {
   const [error, setError] = useState('')
   const [filterPiso, setFilterPiso] = useState('')
   const [filterDwellingKey, setFilterDwellingKey] = useState('')
+  const [listTab, setListTab] = useState('pendientes')
+  const [archivedDateFrom, setArchivedDateFrom] = useState('')
+  const [archivedDateTo, setArchivedDateTo] = useState('')
+  const [archivedSearchApplied, setArchivedSearchApplied] = useState({ from: '', to: '' })
+  const archivedDateSearchActive = Boolean(archivedSearchApplied.from || archivedSearchApplied.to)
   const [packageUpdateBusyId, setPackageUpdateBusyId] = useState(null)
   const [packageUpdateError, setPackageUpdateError] = useState('')
 
@@ -57,6 +62,11 @@ export default function PaqueteriaListPage() {
     setLoading(true)
     try {
       const q = new URLSearchParams({ communityId: String(communityId) })
+      q.set('status', listTab === 'recogidos' ? 'picked_up' : 'awaiting_pickup')
+      if (listTab === 'recogidos') {
+        if (archivedSearchApplied.from) q.set('dateFrom', archivedSearchApplied.from)
+        if (archivedSearchApplied.to) q.set('dateTo', archivedSearchApplied.to)
+      }
       if (isStaff && communityAccessCode?.trim()) {
         q.set('accessCode', communityAccessCode.trim().toUpperCase())
       }
@@ -72,7 +82,7 @@ export default function PaqueteriaListPage() {
     } finally {
       setLoading(false)
     }
-  }, [accessToken, communityId, communityAccessCode, isStaff])
+  }, [accessToken, communityId, communityAccessCode, isStaff, listTab, archivedSearchApplied])
 
   useEffect(() => {
     void load()
@@ -194,6 +204,94 @@ export default function PaqueteriaListPage() {
           ) : null}
         </p>
       ) : null}
+      <div className="pq-list-head">
+        <h2 className="section-label pq-list-head__title">Paquetes de la comunidad</h2>
+        <div className="pq-list-tabs" role="tablist" aria-label="Filtrar paquetes">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={listTab === 'pendientes'}
+            className={`pq-list-tab${listTab === 'pendientes' ? ' pq-list-tab--active' : ''}`}
+            onClick={() => setListTab('pendientes')}
+          >
+            Pendientes
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={listTab === 'recogidos'}
+            className={`pq-list-tab${listTab === 'recogidos' ? ' pq-list-tab--active' : ''}`}
+            onClick={() => {
+              setListTab('recogidos')
+              setArchivedSearchApplied({ from: '', to: '' })
+              setArchivedDateFrom('')
+              setArchivedDateTo('')
+            }}
+          >
+            Recogidos
+          </button>
+        </div>
+      </div>
+      {listTab === 'recogidos' ? (
+        <form
+          className="pq-archive-filters card"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setArchivedSearchApplied({
+              from: archivedDateFrom.trim(),
+              to: archivedDateTo.trim(),
+            })
+          }}
+        >
+          <p className="pq-archive-filters__hint">
+            {archivedDateSearchActive
+              ? 'Resultados filtrados por fecha de recogida. Usa «Limpiar fechas» para volver a los 5 más recientes.'
+              : 'Por defecto se muestran solo los 5 paquetes recogidos más recientes. Indica fechas y pulsa Buscar para ver más.'}
+          </p>
+          <div className="pq-archive-filters__row">
+            <div className="form-field pq-archive-filters__field">
+              <label className="form-label" htmlFor="pq-arch-from">
+                Desde
+              </label>
+              <input
+                id="pq-arch-from"
+                type="date"
+                className="form-input"
+                value={archivedDateFrom}
+                onChange={(e) => setArchivedDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="form-field pq-archive-filters__field">
+              <label className="form-label" htmlFor="pq-arch-to">
+                Hasta
+              </label>
+              <input
+                id="pq-arch-to"
+                type="date"
+                className="form-input"
+                value={archivedDateTo}
+                onChange={(e) => setArchivedDateTo(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn btn--secondary pq-archive-filters__btn">
+              Buscar
+            </button>
+            {archivedDateFrom || archivedDateTo || archivedDateSearchActive ? (
+              <button
+                type="button"
+                className="btn btn--ghost pq-archive-filters__btn"
+                onClick={() => {
+                  setArchivedDateFrom('')
+                  setArchivedDateTo('')
+                  setArchivedSearchApplied({ from: '', to: '' })
+                }}
+              >
+                Limpiar fechas
+              </button>
+            ) : null}
+          </div>
+        </form>
+      ) : null}
       <div className="pq-list-shell">
         {isStaff && !loading && !error && parcels.length > 0 ? (
           <div className="pq-list-filters card">
@@ -279,9 +377,17 @@ export default function PaqueteriaListPage() {
         ) : null}
         {!loading && !error && parcels.length === 0 ? (
           <div className="pq-list-empty card">
-            <p className="pq-list-empty-title">No hay paquetes</p>
+            <p className="pq-list-empty-title">
+              {listTab === 'recogidos' ? 'Sin paquetes recogidos' : 'No hay paquetes pendientes'}
+            </p>
             <p className="pq-list-muted">
-              Cuando la conserjería registre un envío para tu vivienda, aparecerá aquí.
+              {listTab === 'recogidos'
+                ? archivedDateSearchActive
+                  ? 'No hay paquetes recogidos en ese intervalo de fechas.'
+                  : 'No hay paquetes recogidos recientes. Usa Buscar con fechas para consultar el historial.'
+                : isNeighbor
+                  ? 'Cuando la conserjería registre un envío para tu vivienda, aparecerá aquí.'
+                  : 'Cuando se registre un paquete pendiente de recogida, aparecerá en esta lista.'}
             </p>
           </div>
         ) : null}

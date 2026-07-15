@@ -20,6 +20,7 @@ import { communityServicesRouter } from './routes/community-services.js'
 import { notificationsRouter } from './routes/notifications.js'
 import { pushRouter } from './routes/push.js'
 import { requireSuperAdmin } from './middleware/require-super-admin.js'
+import { requireAdminCommunitiesAccess } from './middleware/require-admin-communities-access.js'
 import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
 import { poolAccessRouter } from './routes/pool-access.js'
@@ -62,7 +63,7 @@ app.use('/api/community', communityParcelsRouter)
 app.use('/api/community', communityKeyLoansRouter)
 app.use('/api/community', communityDiarioRouter)
 app.use('/api/public', publicCommunitiesRouter)
-app.use('/api/admin/communities', ...requireSuperAdmin, adminCommunitiesRouter)
+app.use('/api/admin/communities', ...requireAdminCommunitiesAccess, adminCommunitiesRouter)
 app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)
 app.use('/api/admin/quote-requests', ...requireSuperAdmin, adminQuoteRequestsRouter)
 app.use('/api/company/communities', ...requireCompanyAdmin, companyCommunitiesRouter)

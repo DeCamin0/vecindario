@@ -1,17 +1,14 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../../config/api.js'
 import { useCommunityPortalOptions } from '../../hooks/useCommunityPortalOptions.js'
 import { pisoPuertaChoicesForPortal, normDwellPart } from '../../utils/dwellingPortalChoices.js'
-import { resizeImageFileForUpload } from '../../utils/resizeImageFileForUpload.js'
 import PaqueteriaBackLink from './PaqueteriaBackLink.jsx'
 import { canRegisterPaquete } from './paqueteriaRoles.js'
 import { PARCEL_KIND_SPECIAL } from './parcelDeliveryKind.js'
 import './paqueteria.css'
 import '../Admin.css'
-
-const MAX_FILES = 5
 
 export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
   const isSpecial = deliveryKind === PARCEL_KIND_SPECIAL
@@ -23,14 +20,10 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
   const [portal, setPortal] = useState('')
   const [piso, setPiso] = useState('')
   const [puerta, setPuerta] = useState('')
-  const [photos, setPhotos] = useState([])
-  const [photoError, setPhotoError] = useState('')
   const [packageCount, setPackageCount] = useState(1)
   const [itemDescription, setItemDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const galleryInputRef = useRef(null)
-  const cameraInputRef = useRef(null)
 
   const code = communityAccessCode?.trim().toUpperCase() || ''
   const { loading: portalLoading, portals: portalChoicesRaw, dwellingByPortalIndex } =
@@ -64,32 +57,6 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
       setPuerta('')
     }
   }, [pisoSelectOptions, piso])
-
-  const onFiles = useCallback(
-    async (e) => {
-      const files = Array.from(e.target.files || []).slice(0, MAX_FILES - photos.length)
-      e.target.value = ''
-      if (files.length === 0) return
-      setPhotoError('')
-      const out = []
-      for (const f of files) {
-        try {
-          const dataUrl = await resizeImageFileForUpload(f)
-          out.push(dataUrl)
-        } catch (err) {
-          setPhotoError(err.message || 'No se pudo añadir la foto.')
-        }
-      }
-      if (out.length) {
-        setPhotos((prev) => [...prev, ...out].slice(0, MAX_FILES))
-      }
-    },
-    [photos.length],
-  )
-
-  const removePhoto = (idx) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== idx))
-  }
 
   if (!canRegister) {
     return <Navigate to="/paqueteria" replace />
@@ -141,7 +108,6 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
         puerta: puerta.trim(),
         packageCount: nBultos,
         deliveryKind: isSpecial ? PARCEL_KIND_SPECIAL : 'courier',
-        photos,
       }
       if (isSpecial) {
         body.itemDescription = desc.slice(0, 255)
@@ -358,73 +324,6 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
         </fieldset>
         )}
 
-        <label className="admin-label" htmlFor="pq-photos" style={{ marginTop: '0.75rem' }}>
-          Fotos (opcional, máx. {MAX_FILES})
-        </label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.35rem' }}>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={photos.length >= MAX_FILES}
-            onClick={() => galleryInputRef.current?.click()}
-          >
-            Elegir de galería
-          </button>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={photos.length >= MAX_FILES}
-            onClick={() => cameraInputRef.current?.click()}
-          >
-            Hacer foto
-          </button>
-        </div>
-        <input
-          ref={galleryInputRef}
-          id="pq-photos"
-          type="file"
-          accept="image/*"
-          multiple
-          className="pq-file-input"
-          onChange={(e) => void onFiles(e)}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="pq-file-input"
-          onChange={(e) => void onFiles(e)}
-        />
-        <p className="admin-field-hint" style={{ marginTop: '0.5rem' }}>
-          {photos.length} foto(s) lista(s). En móvil la cámara comprime la imagen para poder guardarla.
-        </p>
-        {photoError ? (
-          <p className="auth-error" role="alert" style={{ marginTop: '0.5rem' }}>
-            {photoError}
-          </p>
-        ) : null}
-        {photos.length > 0 ? (
-          <div className="pq-photo-preview-row" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
-            {photos.map((src, i) => (
-              <div key={`${i}-${src.slice(0, 32)}`} style={{ position: 'relative' }}>
-                <img
-                  src={src}
-                  alt={`Foto paquete ${i + 1}`}
-                  style={{ width: 88, height: 88, objectFit: 'cover', borderRadius: 8 }}
-                />
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ fontSize: '0.75rem', padding: '0.15rem 0.35rem', marginTop: '0.25rem' }}
-                  onClick={() => removePhoto(i)}
-                >
-                  Quitar
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
         <p className="admin-field-hint" style={{ marginTop: '1rem' }}>
           Debe existir un vecino con rol residente o presidente con esa vivienda exacta en la comunidad.
         </p>

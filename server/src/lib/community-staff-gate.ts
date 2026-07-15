@@ -1,6 +1,6 @@
 import { prisma } from './prisma.js'
 import { companyAdminOwnsCommunity, normEmail } from './community-user-access.js'
-import { conciergeEmailMatches, conciergeEmailPrismaSelect } from './concierge-emails.js'
+import { conciergeEmailMatches, conciergeEmailListedInactive, conciergeEmailPrismaSelect } from './concierge-emails.js'
 import { residentMatchesPresidentUnit } from './president-by-unit.js'
 import { communityOperationalWhere } from './community-status.js'
 
@@ -79,7 +79,14 @@ export async function assertStaffOwnsCommunity(
     }
   } else if (staff.role === 'concierge') {
     if (!conciergeEmailMatches(comm, e)) {
-      return { ok: false, status: 403, message: 'No eres conserje de esta comunidad.' }
+      const inactive = conciergeEmailListedInactive(comm, e)
+      return {
+        ok: false,
+        status: 403,
+        message: inactive
+          ? 'Tu acceso de conserje está desactivado en la ficha de esta comunidad.'
+          : 'No eres conserje de esta comunidad.',
+      }
     }
   } else if (staff.role === 'pool_staff') {
     if (normEmail(comm.poolStaffEmail) !== e) {

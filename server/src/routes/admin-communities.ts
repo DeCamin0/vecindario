@@ -29,8 +29,13 @@ import {
 import {
   normalizeConciergeEmailsForDb,
   parseConciergeEmailsFromBody,
-  parseConciergeEmailsList,
   parseConciergeEntries,
+  parseConciergeSubstituteEntries,
+  conciergeFichaActiveForEmail,
+  setConciergeFichaActiveForEmail,
+  isConciergeEntryActive,
+  conciergeFichaSignature,
+  conciergeEmailPrismaSelect,
   parseOptionalStaffLabel,
 } from '../lib/concierge-emails.js'
 import { parseLoginSlugField } from '../lib/login-slug.js'
@@ -66,13 +71,33 @@ import {
   parseSalonBookingMode,
 } from '../lib/community-create-parsers.js'
 import { parseServiceRequestCategoryModesBody } from '../lib/service-request-category-modes.js'
+import {
+  communityListWhereForAccess,
+  isFullSuperAdminAccess,
+  loadCommunityForAdminAccess,
+  parseOptionalCompanyLinkId,
+  validateCompanyKindForLink,
+} from '../lib/admin-community-access.js'
 
 const ALLOWED_STATUS = new Set(['active', 'inactive', 'demo', 'pending_approval'])
+
+async function findCommunityForAdminRequest(
+  req: import('express').Request,
+  id: number,
+) {
+  const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+  return loadCommunityForAdminAccess(access, id)
+}
 
 export const adminCommunitiesRouter = Router()
 
 adminCommunitiesRouter.get('/', async (req, res) => {
-  const items = await prisma.community.findMany({ orderBy: { createdAt: 'desc' } })
+  const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+  const scopeWhere = communityListWhereForAccess(access)
+  const items = await prisma.community.findMany({
+    where: scopeWhere,
+    orderBy: { createdAt: 'desc' },
+  })
   const raw = typeof req.query.includeStats === 'string' ? req.query.includeStats.trim() : ''
   const includeStats = raw === '1' || raw.toLowerCase() === 'true'
   if (!includeStats) {
@@ -119,10 +144,43 @@ adminCommunitiesRouter.get('/suggest-access-code', async (_req, res) => {
   }
 })
 
+/** Empresas para selectores de ficha (administración / servicios). */
+adminCommunitiesRouter.get('/company-options', async (req, res) => {
+  const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+  const all = await prisma.company.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, kind: true },
+  })
+  if (isFullSuperAdminAccess(access)) {
+    res.json({
+      administration: all.filter((c) => c.kind === 'administracion'),
+      service: all.filter((c) => c.kind === 'prestacion_servicios'),
+    })
+    return
+  }
+  res.json({
+    administration: all.filter((c) => c.kind === 'administracion'),
+    service:
+      access.mode === 'service_provider'
+        ? all.filter((c) => c.id === access.companyId)
+        : all.filter((c) => c.kind === 'prestacion_servicios'),
+  })
+})
+
 /** KPIs globales solo en comunidades operativas (active + demo). */
-adminCommunitiesRouter.get('/stats-aggregate', async (_req, res) => {
+adminCommunitiesRouter.get('/stats-aggregate', async (req, res) => {
   try {
-    const aggregates = await getAdminOperationalAggregates()
+    const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+    const scopeWhere = communityListWhereForAccess(access)
+    let communityIds: number[] | undefined
+    if (scopeWhere) {
+      const scoped = await prisma.community.findMany({
+        where: scopeWhere,
+        select: { id: true },
+      })
+      communityIds = scoped.map((c) => c.id)
+    }
+    const aggregates = await getAdminOperationalAggregates(communityIds)
     res.json(aggregates)
   } catch (e) {
     console.error('[stats-aggregate]', e)
@@ -190,15 +248,17 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   const conciergeBody = parseConciergeEmailsFromBody({
     ...(Array.isArray(req.body?.conciergeStaff)
       ? { conciergeStaff: req.body.conciergeStaff }
-      : {
-          conciergeEmails: Array.isArray(req.body?.conciergeEmails)
-            ? req.body.conciergeEmails
-            : [],
-        }),
-    conciergeSubstituteEmail:
-      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteEmail')
-        ? req.body.conciergeSubstituteEmail
-        : '',
+      : Array.isArray(req.body?.conciergeEmails)
+        ? { conciergeEmails: req.body.conciergeEmails }
+        : typeof req.body?.conciergeEmail === 'string' && req.body.conciergeEmail.trim()
+          ? { conciergeEmails: [req.body.conciergeEmail] }
+          : { conciergeEmails: [] }),
+    ...(Array.isArray(req.body?.conciergeSubstitutes)
+      ? { conciergeSubstitutes: req.body.conciergeSubstitutes }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteEmail')
+      ? { conciergeSubstituteEmail: req.body.conciergeSubstituteEmail }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'conciergeSubstituteName')
       ? { conciergeSubstituteName: req.body.conciergeSubstituteName }
       : {}),
@@ -209,8 +269,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   }
   const conciergeNorm = normalizeConciergeEmailsForDb(
     conciergeBody.staff,
-    conciergeBody.substitute ?? '',
-    conciergeBody.substituteName,
+    conciergeBody.substitutes,
   )
   const presidentEmail = pres.value
   let communityAdminEmail = adm.value
@@ -248,22 +307,55 @@ adminCommunitiesRouter.post('/', async (req, res) => {
 
   let companyId: number | null = null
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'companyId')) {
-    const raw = (req.body as Record<string, unknown>).companyId
-    if (raw === null || raw === '') {
-      companyId = null
-    } else {
-      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
-      if (!Number.isInteger(n) || n < 1) {
-        res.status(400).json({ error: 'companyId inválido' })
-        return
-      }
-      const co = await prisma.company.findUnique({ where: { id: n }, select: { id: true } })
-      if (!co) {
-        res.status(400).json({ error: 'Empresa no encontrada' })
-        return
-      }
-      companyId = n
+    const parsed = await parseOptionalCompanyLinkId((req.body as Record<string, unknown>).companyId)
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error })
+      return
     }
+    companyId = parsed.value
+    if (companyId != null) {
+      const kindOk = await validateCompanyKindForLink(companyId, 'administracion')
+      if (!kindOk.ok) {
+        res.status(400).json({ error: kindOk.error })
+        return
+      }
+    }
+  }
+
+  const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+  let serviceProviderCompanyId: number | null = null
+  if (access.mode === 'service_provider') {
+    serviceProviderCompanyId = access.companyId
+  } else if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'serviceProviderCompanyId')) {
+    const parsed = await parseOptionalCompanyLinkId(
+      (req.body as Record<string, unknown>).serviceProviderCompanyId,
+    )
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error })
+      return
+    }
+    serviceProviderCompanyId = parsed.value
+    if (serviceProviderCompanyId != null) {
+      const kindOk = await validateCompanyKindForLink(
+        serviceProviderCompanyId,
+        'prestacion_servicios',
+      )
+      if (!kindOk.ok) {
+        res.status(400).json({ error: kindOk.error })
+        return
+      }
+    }
+  }
+
+  if (
+    companyId != null &&
+    serviceProviderCompanyId != null &&
+    companyId === serviceProviderCompanyId
+  ) {
+    res.status(400).json({
+      error: 'La empresa de administración y la de servicios deben ser distintas.',
+    })
+    return
   }
 
   if (companyId != null) {
@@ -383,6 +475,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       conciergeEmail: conciergeNorm.conciergeEmail,
       conciergeEmail2: conciergeNorm.conciergeEmail2,
       conciergeEmailsJson: conciergeNorm.conciergeEmailsJson,
+      conciergeSubstitutesJson: conciergeNorm.conciergeSubstitutesJson,
       conciergeSubstituteEmail: conciergeNorm.conciergeSubstituteEmail,
       conciergeSubstituteName: conciergeNorm.conciergeSubstituteName,
       poolStaffEmail,
@@ -417,6 +510,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       salonBookingMode,
       customLocations,
       companyId,
+      serviceProviderCompanyId,
     },
   })
 
@@ -467,7 +561,7 @@ adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id } })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -508,19 +602,25 @@ adminCommunitiesRouter.get('/:id/alta-vecinos-context', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findFirst({
-    where: { id, ...communityOperationalWhere() },
-    select: { id: true, name: true, accessCode: true },
-  })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
   }
 
+  const operational = await prisma.community.findFirst({
+    where: { id, ...communityOperationalWhere() },
+    select: { id: true, name: true, accessCode: true },
+  })
+  if (!operational) {
+    res.status(404).json({ error: 'Comunidad no encontrada o no operativa' })
+    return
+  }
+
   res.json({
-    id: community.id,
-    name: community.name,
-    accessCode: (community.accessCode ?? '').trim(),
+    id: operational.id,
+    name: operational.name,
+    accessCode: (operational.accessCode ?? '').trim(),
   })
 })
 
@@ -532,7 +632,7 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id } })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -563,19 +663,24 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
 
   const merged = new Map<
     string,
-    { labels: string[]; slots: StaffSlot[]; email: string }
+    { labels: string[]; slots: StaffSlot[]; email: string; conciergeActive?: boolean }
   >()
 
   const addStaffEmail = (
     raw: string | null | undefined,
     label: string,
     slot: StaffSlot,
+    conciergeEntryActive = true,
   ) => {
     const n = normEmail(raw)
     if (!n) return
     const cur = merged.get(n) ?? { labels: [], slots: [], email: n }
     cur.labels.push(label)
     cur.slots.push(slot)
+    if (slot === 'concierge') {
+      if (conciergeEntryActive === false) cur.conciergeActive = false
+      else if (cur.conciergeActive === undefined) cur.conciergeActive = true
+    }
     merged.set(n, cur)
   }
 
@@ -587,19 +692,20 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
     const label = entry.name?.trim()
       ? `Conserje — ${entry.name.trim()}`
       : 'Conserje'
-    addStaffEmail(entry.email, label, 'concierge')
+    addStaffEmail(entry.email, label, 'concierge', isConciergeEntryActive(entry))
   }
-  const subName = community.conciergeSubstituteName?.trim()
-  addStaffEmail(
-    community.conciergeSubstituteEmail,
-    subName ? `Conserje suplente — ${subName}` : 'Conserje suplente',
-    'concierge',
-  )
+  for (const entry of parseConciergeSubstituteEntries(community)) {
+    const label = entry.name?.trim()
+      ? `Conserje suplente — ${entry.name.trim()}`
+      : 'Conserje suplente'
+    addStaffEmail(entry.email, label, 'concierge', isConciergeEntryActive(entry))
+  }
 
   const staffRows: {
     labels: string[]
     slots: StaffSlot[]
     email: string
+    conciergeFichaActive: boolean | null
     user: {
       id: number
       email: string | null
@@ -653,6 +759,9 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
       labels: row.labels,
       slots: row.slots,
       email: row.email,
+      conciergeFichaActive: row.slots.includes('concierge')
+        ? row.conciergeActive !== false
+        : null,
       user: user
         ? {
             id: user.id,
@@ -792,6 +901,64 @@ adminCommunitiesRouter.get('/:id/users', async (req, res) => {
   })
 })
 
+/** Super admin: activar / desactivar conserje en ficha (sin quitar el correo). */
+adminCommunitiesRouter.patch('/:id/concierge-ficha-active', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: 'Invalid community id' })
+    return
+  }
+
+  const emailRaw = req.body?.email
+  const activeRaw = req.body?.active
+  if (typeof emailRaw !== 'string' || !emailRaw.trim()) {
+    res.status(400).json({ error: 'Indica el email del conserje.' })
+    return
+  }
+  if (typeof activeRaw !== 'boolean') {
+    res.status(400).json({ error: 'Indica active: true o false.' })
+    return
+  }
+
+  const community = await findCommunityForAdminRequest(req, id)
+  if (!community) {
+    res.status(404).json({ error: 'Comunidad no encontrada' })
+    return
+  }
+
+  const updated = setConciergeFichaActiveForEmail(community, emailRaw, activeRaw)
+  if (!updated) {
+    res.status(404).json({
+      error: 'No figura como conserje',
+      message: 'Ese correo no está en la ficha como conserje titular o suplente.',
+    })
+    return
+  }
+
+  const norm = normalizeConciergeEmailsForDb(updated.staff, updated.substitutes)
+  const row = await prisma.community.update({
+    where: { id },
+    data: {
+      conciergeEmailsJson: norm.conciergeEmailsJson,
+      conciergeEmail: norm.conciergeEmail,
+      conciergeEmail2: norm.conciergeEmail2,
+      conciergeSubstitutesJson: norm.conciergeSubstitutesJson,
+      conciergeSubstituteEmail: norm.conciergeSubstituteEmail,
+      conciergeSubstituteName: norm.conciergeSubstituteName,
+    },
+    select: { id: true, name: true, ...conciergeEmailPrismaSelect },
+  })
+
+  res.json({
+    ok: true,
+    email: emailRaw.trim(),
+    active: conciergeFichaActiveForEmail(row, emailRaw),
+    message: activeRaw
+      ? 'Conserje activado en la ficha: puede volver a entrar con VEC + correo.'
+      : 'Conserje desactivado: no podrá entrar hasta reactivarlo (el correo sigue en la ficha).',
+  })
+})
+
 /** Super admin: contraseña vigente en claro (alta, reset o último login correcto). */
 adminCommunitiesRouter.get('/:id/users/:userId/password-snapshot', async (req, res) => {
   const communityId = Number(req.params.id)
@@ -805,7 +972,7 @@ adminCommunitiesRouter.get('/:id/users/:userId/password-snapshot', async (req, r
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id: communityId } })
+  const community = await findCommunityForAdminRequest(req, communityId)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -877,7 +1044,7 @@ adminCommunitiesRouter.post('/:id/users/:userId/password-snapshot/capture', asyn
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id: communityId } })
+  const community = await findCommunityForAdminRequest(req, communityId)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -940,7 +1107,7 @@ adminCommunitiesRouter.post('/:id/residents/bulk-delete', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id } })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -993,7 +1160,7 @@ adminCommunitiesRouter.delete('/:id/users/:userId', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id: communityId } })
+  const community = await findCommunityForAdminRequest(req, communityId)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -1032,7 +1199,7 @@ adminCommunitiesRouter.post('/:id/impersonate', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id } })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -1096,7 +1263,7 @@ adminCommunitiesRouter.post('/:id/temporary-password', async (req, res) => {
     return
   }
 
-  const community = await prisma.community.findUnique({ where: { id } })
+  const community = await findCommunityForAdminRequest(req, id)
   if (!community) {
     res.status(404).json({ error: 'Comunidad no encontrada' })
     return
@@ -1145,6 +1312,14 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     return
   }
 
+  const accessCommunity = await findCommunityForAdminRequest(req, id)
+  if (!accessCommunity) {
+    res.status(404).json({ error: 'Not found' })
+    return
+  }
+
+  const access = req.adminCommunityAccess ?? { mode: 'full' as const }
+
   const bodyObj =
     req.body && typeof req.body === 'object' && !Array.isArray(req.body)
       ? (req.body as Record<string, unknown>)
@@ -1169,6 +1344,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     conciergeEmailsJson?: Prisma.InputJsonValue
     conciergeSubstituteEmail?: string | null
     conciergeSubstituteName?: string | null
+    conciergeSubstitutesJson?: Prisma.InputJsonValue
     poolStaffEmail?: string | null
     status?: string
     portalCount?: number
@@ -1201,6 +1377,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     portalLabels?: string[]
     portalDwellingConfig?: ReturnType<typeof parsePortalDwellingConfig>
     companyId?: number | null
+    serviceProviderCompanyId?: number | null
   } = {}
 
   if (typeof req.body?.name === 'string') {
@@ -1316,11 +1493,11 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
   const hasConciergeStaffBody =
     bodyHas('conciergeStaff') || bodyHas('conciergeEmails') || bodyHas('conciergeEmail')
-  if (
-    hasConciergeStaffBody ||
+  const hasConciergeSubstitutesBody =
+    bodyHas('conciergeSubstitutes') ||
     bodyHas('conciergeSubstituteEmail') ||
     bodyHas('conciergeSubstituteName')
-  ) {
+  if (hasConciergeStaffBody || hasConciergeSubstitutesBody) {
     const parsed = parseConciergeEmailsFromBody({
       ...(bodyHas('conciergeStaff')
         ? { conciergeStaff: bodyObj!.conciergeStaff }
@@ -1329,6 +1506,9 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
           : bodyHas('conciergeEmail')
             ? { conciergeEmails: [bodyObj!.conciergeEmail] }
             : {}),
+      ...(bodyHas('conciergeSubstitutes')
+        ? { conciergeSubstitutes: bodyObj!.conciergeSubstitutes }
+        : {}),
       ...(bodyHas('conciergeSubstituteEmail')
         ? { conciergeSubstituteEmail: bodyObj!.conciergeSubstituteEmail }
         : {}),
@@ -1348,6 +1528,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         conciergeEmailsJson: true,
         conciergeSubstituteEmail: true,
         conciergeSubstituteName: true,
+        conciergeSubstitutesJson: true,
       },
     })
     const staffForNorm = hasConciergeStaffBody
@@ -1355,31 +1536,18 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       : snapConcierge
         ? parseConciergeEntries(snapConcierge)
         : []
-    const substituteForNorm = bodyHas('conciergeSubstituteEmail')
-      ? (parsed.substitute ?? null)
-      : (snapConcierge?.conciergeSubstituteEmail ?? null)
-    let substituteNameForNorm = bodyHas('conciergeSubstituteName')
-      ? (parsed.substituteName ?? null)
-      : (snapConcierge?.conciergeSubstituteName ?? null)
-    if (bodyHas('conciergeSubstituteEmail') && !substituteForNorm) {
-      substituteNameForNorm = null
-    }
-    const norm = normalizeConciergeEmailsForDb(
-      staffForNorm,
-      substituteForNorm ?? '',
-      substituteNameForNorm,
-    )
+    const substitutesForNorm = parsed.hasSubstitutesPayload
+      ? parsed.substitutes
+      : snapConcierge
+        ? parseConciergeSubstituteEntries(snapConcierge)
+        : []
+    const norm = normalizeConciergeEmailsForDb(staffForNorm, substitutesForNorm)
     data.conciergeEmailsJson = norm.conciergeEmailsJson
     data.conciergeEmail = norm.conciergeEmail
     data.conciergeEmail2 = norm.conciergeEmail2
-    if (
-      bodyHas('conciergeSubstituteEmail') ||
-      hasConciergeStaffBody ||
-      bodyHas('conciergeSubstituteName')
-    ) {
-      data.conciergeSubstituteEmail = norm.conciergeSubstituteEmail
-      data.conciergeSubstituteName = norm.conciergeSubstituteName
-    }
+    data.conciergeSubstitutesJson = norm.conciergeSubstitutesJson
+    data.conciergeSubstituteEmail = norm.conciergeSubstituteEmail
+    data.conciergeSubstituteName = norm.conciergeSubstituteName
   }
   if (bodyHas('poolStaffEmail')) {
     const r = parseOptionalInstructionEmail(bodyObj!.poolStaffEmail)
@@ -1432,22 +1600,61 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     data.status = req.body.status
   }
   if (bodyHas('companyId')) {
-    const raw = bodyObj!.companyId
-    if (raw === null || raw === '') {
-      data.companyId = null
-    } else {
-      const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
-      if (!Number.isInteger(n) || n < 1) {
-        res.status(400).json({ error: 'companyId inválido' })
-        return
-      }
-      const co = await prisma.company.findUnique({ where: { id: n }, select: { id: true } })
-      if (!co) {
-        res.status(400).json({ error: 'Empresa no encontrada' })
-        return
-      }
-      data.companyId = n
+    const parsed = await parseOptionalCompanyLinkId(bodyObj!.companyId)
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error })
+      return
     }
+    if (parsed.value != null) {
+      const kindOk = await validateCompanyKindForLink(parsed.value, 'administracion')
+      if (!kindOk.ok) {
+        res.status(400).json({ error: kindOk.error })
+        return
+      }
+    }
+    data.companyId = parsed.value
+  }
+  if (bodyHas('serviceProviderCompanyId')) {
+    if (access.mode === 'service_provider') {
+      if (bodyObj!.serviceProviderCompanyId != null && bodyObj!.serviceProviderCompanyId !== '') {
+        const n =
+          typeof bodyObj!.serviceProviderCompanyId === 'number'
+            ? bodyObj!.serviceProviderCompanyId
+            : Number.parseInt(String(bodyObj!.serviceProviderCompanyId), 10)
+        if (n !== access.companyId) {
+          res.status(403).json({
+            error: 'No puedes asignar otra empresa de servicios distinta de la tuya.',
+          })
+          return
+        }
+      }
+      data.serviceProviderCompanyId = access.companyId
+    } else {
+      const parsed = await parseOptionalCompanyLinkId(bodyObj!.serviceProviderCompanyId)
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error })
+        return
+      }
+      if (parsed.value != null) {
+        const kindOk = await validateCompanyKindForLink(parsed.value, 'prestacion_servicios')
+        if (!kindOk.ok) {
+          res.status(400).json({ error: kindOk.error })
+          return
+        }
+      }
+      data.serviceProviderCompanyId = parsed.value
+    }
+  }
+  const nextAdminCo =
+    bodyHas('companyId') ? (data.companyId ?? null) : accessCommunity.companyId
+  const nextServiceCo = bodyHas('serviceProviderCompanyId')
+    ? (data.serviceProviderCompanyId ?? null)
+    : accessCommunity.serviceProviderCompanyId
+  if (nextAdminCo != null && nextServiceCo != null && nextAdminCo === nextServiceCo) {
+    res.status(400).json({
+      error: 'La empresa de administración y la de servicios deben ser distintas.',
+    })
+    return
   }
   if (bodyHas('planExpiresOn')) {
     const p = parsePlanExpiresOn(bodyObj!.planExpiresOn)
@@ -1735,8 +1942,10 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   const mayTouchStaffEmails =
     bodyHas('presidentEmail') ||
     bodyHas('communityAdminEmail') ||
+    bodyHas('conciergeStaff') ||
     bodyHas('conciergeEmails') ||
     bodyHas('conciergeEmail') ||
+    bodyHas('conciergeSubstitutes') ||
     bodyHas('conciergeSubstituteEmail') ||
     bodyHas('poolStaffEmail')
 
@@ -1747,6 +1956,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     conciergeEmail2: string | null
     conciergeSubstituteEmail: string | null
     conciergeEmailsJson: Prisma.JsonValue
+    conciergeSubstitutesJson: Prisma.JsonValue
     poolStaffEmail: string | null
   } | null = null
 
@@ -1760,6 +1970,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         conciergeEmail2: true,
         conciergeSubstituteEmail: true,
         conciergeEmailsJson: true,
+        conciergeSubstitutesJson: true,
         poolStaffEmail: true,
       },
     })
@@ -1777,10 +1988,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         normEmail(beforeStaffEmails.presidentEmail) === normEmail(row.presidentEmail) &&
         normEmail(beforeStaffEmails.communityAdminEmail) ===
           normEmail(row.communityAdminEmail) &&
-        JSON.stringify(parseConciergeEmailsList(beforeStaffEmails)) ===
-          JSON.stringify(parseConciergeEmailsList(row)) &&
-        normEmail(beforeStaffEmails.conciergeSubstituteEmail) ===
-          normEmail(row.conciergeSubstituteEmail) &&
+        conciergeFichaSignature(beforeStaffEmails) === conciergeFichaSignature(row) &&
         normEmail(beforeStaffEmails.poolStaffEmail) === normEmail(row.poolStaffEmail)
 
       if (!staffUnchanged) {
@@ -1823,8 +2031,13 @@ adminCommunitiesRouter.delete('/:id', async (req, res) => {
     res.status(400).json({ error: 'Invalid id' })
     return
   }
+  const community = await findCommunityForAdminRequest(req, id)
+  if (!community) {
+    res.status(404).json({ error: 'Not found' })
+    return
+  }
   try {
-    await prisma.community.delete({ where: { id } })
+    await prisma.community.delete({ where: { id: community.id } })
     res.status(204).end()
   } catch {
     res.status(404).json({ error: 'Not found' })

@@ -124,8 +124,17 @@ export function canViewCommunityResidents(role) {
  * Crear cuentas de vecino (formulario manual o masivo según portales/plantas en Super Admin).
  * Solo super administrador; el presidente y el resto del personal no dan de alta.
  */
-export function canManageResidentsAlta(role) {
-  return role === 'super_admin'
+export function canManageResidentsAlta(role, user) {
+  if (role === 'super_admin') return true
+  return canAccessAdminPanel(role, user)
+}
+
+/** Super administrador global o prestador de servicios (super admin acotado a sus comunidades). */
+export function canAccessAdminPanel(userRole, user) {
+  if (userRole === 'super_admin') return true
+  if (userRole !== 'company_admin') return false
+  if (user?.company?.scopedSuperAdmin === true) return true
+  return user?.company?.kind === 'prestacion_servicios'
 }
 
 /** Junta y cupos de piscina en ficha (conserje, administrador y presidente). */
@@ -538,6 +547,12 @@ export function AuthProvider({ children }) {
                     typeof data.company.name === 'string' && data.company.name.trim()
                       ? data.company.name.trim()
                       : `Empresa ${data.company.id}`,
+                  ...(typeof data.company.kind === 'string' ? { kind: data.company.kind } : {}),
+                  ...(data.company.scopedSuperAdmin === true
+                    ? { scopedSuperAdmin: true }
+                    : data.company.kind === 'prestacion_servicios'
+                      ? { scopedSuperAdmin: true }
+                      : {}),
                 }
               : null
           setUser({
@@ -831,6 +846,11 @@ export function AuthProvider({ children }) {
                 typeof opts.company.name === 'string' && opts.company.name.trim()
                   ? opts.company.name.trim()
                   : `Empresa ${opts.company.id}`,
+              ...(typeof opts.company.kind === 'string' ? { kind: opts.company.kind } : {}),
+              ...(opts.company.scopedSuperAdmin === true ||
+              opts.company.kind === 'prestacion_servicios'
+                ? { scopedSuperAdmin: true }
+                : {}),
             },
           }
         : {}),
