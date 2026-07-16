@@ -312,6 +312,8 @@ async function processOneInviteTask(
   const mailConfigured = isMailConfigured()
 
   const existing = await prisma.vecindarioUser.findUnique({ where: { email } })
+  /** Rol efectivo tras alta/promoción (para reset de contraseña al enviar correo). */
+  let roleAfterProcess: string | null = existing?.role ?? null
 
   if (!existing) {
     passwordPlain = generateTempPassword()
@@ -330,15 +332,34 @@ async function processOneInviteTask(
       },
     })
     userCreated = true
+    roleAfterProcess = role
   } else if (existing.role === 'super_admin') {
     existingAccount = true
     note = attemptSendEmail
       ? 'Email ya es super admin; no se creó cuenta nueva. Se envió solo código de comunidad.'
       : 'Email ya es super admin; no se creó cuenta nueva.'
   } else if (existing.role === 'resident') {
+    /**
+     * Si el correo ya era vecino (alta previa, import, etc.) y ahora figura en ficha
+     * como conserje/presidente/admin/socorrista, hay que promover el rol.
+     * Antes se dejaba en resident → el 2.º suplente (u otro staff) quedaba como vecino.
+     */
+    await prisma.vecindarioUser.update({
+      where: { id: existing.id },
+      data: {
+        role,
+        ...(displayName?.trim() ? { name: displayName.trim() } : {}),
+        ...(role === 'pool_staff'
+          ? { communityId: community.id }
+          : { communityId: null }),
+        ...(role === 'company_admin' && companyAdminCompanyId != null
+          ? { companyAdminCompanyId }
+          : {}),
+      },
+    })
     existingAccount = true
-    note =
-      'Email ya registrado como vecino; no se cambió la contraseña. Revisa rol con soporte si debe ser presidente/admin/conserje.'
+    roleAfterProcess = role
+    note = `Cuenta era vecino; rol actualizado a ${roleEsLine(task)}.`
   } else if (existing.role === 'concierge' && role === 'concierge') {
     existingAccount = true
     note = 'Cuenta ya existente (conserje).'
@@ -373,7 +394,8 @@ async function processOneInviteTask(
   if (
     attemptSendEmail &&
     existing &&
-    STAFF_ROLES_FOR_PASSWORD_RESET.has(existing.role)
+    roleAfterProcess != null &&
+    STAFF_ROLES_FOR_PASSWORD_RESET.has(roleAfterProcess)
   ) {
     passwordPlain = await assignTemporaryPassword(existing.id)
     existingAccount = false

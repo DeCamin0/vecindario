@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { requireAuth } from '../middleware/require-auth.js'
 import { communityOperationalWhere } from '../lib/community-status.js'
 import { staffDisplayName } from '../lib/staff-display-name.js'
+import { conciergeEmailPrismaSelect } from '../lib/concierge-emails.js'
 import {
   cuadernoDiarioAccessForUser,
   type CuadernoDiarioAccess,
@@ -87,10 +88,7 @@ async function loadCommunityForDiario(communityId: number, accessCode: string | 
       presidentEmail: true,
       communityAdminEmail: true,
       companyId: true,
-      conciergeEmail: true,
-      conciergeEmail2: true,
-      conciergeSubstituteEmail: true,
-      conciergeEmailsJson: true,
+      ...conciergeEmailPrismaSelect,
     },
   })
 }
