@@ -74,6 +74,7 @@ function mapServerBookingRow(row) {
     ...(row.residentName ? { residentName: row.residentName.trim() } : {}),
     ...(row.actorPiso ? { piso: row.actorPiso } : {}),
     ...(row.actorPortal ? { portal: row.actorPortal } : {}),
+    ...(row.actorPuerta ? { puerta: row.actorPuerta } : {}),
     ...(row.bookedByName?.trim() ? { bookedByName: row.bookedByName.trim() } : {}),
     ...(row.vecindarioUserId != null ? { vecindarioUserId: row.vecindarioUserId } : {}),
     usageFeePaid: row.usageFeePaid === true,
@@ -546,17 +547,34 @@ function formatOccupantShort(b) {
   return bits.length ? bits.join(' · ') : 'Reservado'
 }
 
-/** Misma vivienda: piso + portal si el usuario tiene portal; reservas antiguas sin portal → fallback por email. */
+/** Misma vivienda para tope de pádel: usuario (id) > portal+piso+puerta > portal+piso > email. */
 function sameApartmentForPadelCap(b, user) {
+  const uid = user?.id != null ? Number(user.id) : NaN
+  const bid = b?.vecindarioUserId != null ? Number(b.vecindarioUserId) : NaN
+  if (Number.isInteger(uid) && uid >= 1 && Number.isInteger(bid) && bid >= 1) {
+    return uid === bid
+  }
+
   const up = user?.piso?.trim()
   const uport = user?.portal?.trim()
-  const bp = b.piso?.trim()
-  const bport = b.portal?.trim()
+  const upuerta = user?.puerta?.trim()
+  const bp = b?.piso?.trim()
+  const bport = b?.portal?.trim()
+  const bpuerta = b?.puerta?.trim()
+
   if (up && bp === up) {
     if (uport) {
-      if (bport && bport === uport) return true
-      if (!bport && user?.email && emailsMatchForAccount(b.userEmail, user.email)) return true
-      return false
+      if (!bport || bport !== uport) {
+        if (!bport && user?.email && emailsMatchForAccount(b.userEmail, user.email)) return true
+        return false
+      }
+      // Mismo portal+piso: si hay puerta en ambos, deben coincidir (12·6·A ≠ 12·6·B).
+      if (upuerta && bpuerta) return upuerta === bpuerta
+      if (upuerta && !bpuerta) {
+        // Reserva antigua sin puerta: no mezclar viviendas del mismo piso; fallback email.
+        return Boolean(user?.email && emailsMatchForAccount(b.userEmail, user.email))
+      }
+      return true
     }
     return true
   }
@@ -1117,9 +1135,11 @@ export default function Bookings() {
       const n = staffNeighbors.find((x) => String(x.id) === String(staffOnBehalfUserId))
       if (n) {
         return {
+          id: n.id,
           email: n.email,
           piso: n.piso,
           portal: n.portal,
+          puerta: n.puerta,
           name: n.name,
         }
       }
