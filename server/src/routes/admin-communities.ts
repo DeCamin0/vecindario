@@ -15,6 +15,11 @@ import {
   resizePortalDwellingConfig,
 } from '../lib/portal-dwelling-config.js'
 import {
+  dwellingTripletKey,
+  enumerateStructuredDwellings,
+  resolveAutoResidentSlots,
+} from '../lib/enumerate-structured-dwellings.js'
+import {
   parseInstructionEmail,
   parseOptionalInstructionEmail,
 } from '../lib/instruction-email.js'
@@ -1716,19 +1721,39 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   /**
    * Cupo automático solo al guardar «Editar portales» (plantas/puertas o alias), no al editar la ficha general:
    * si el super admin pone Nº vecinos / Nº portales a mano, no se sobrescribe con la estimación.
+   * Cupo = max(estimación ficha, vecinos actuales + unidades ficha sin cuenta) para no bloquear altas.
    */
   if (bodyHas('portalDwellingConfig') || bodyHas('portalLabels')) {
     const cur = await prisma.community.findUnique({
       where: { id },
-      select: { portalCount: true, portalDwellingConfig: true },
+      select: { portalCount: true, portalDwellingConfig: true, portalLabels: true },
     })
     if (cur) {
       const nextCount = data.portalCount ?? cur.portalCount
       const nextDwelling =
         data.portalDwellingConfig !== undefined ? data.portalDwellingConfig : cur.portalDwellingConfig
+      const nextLabels = data.portalLabels !== undefined ? data.portalLabels : cur.portalLabels
       const est = estimateDwellingUnitsFromPortalConfig(nextDwelling, nextCount)
       if (est != null) {
-        data.residentSlots = est
+        const [currentResidentCount, residents] = await Promise.all([
+          prisma.vecindarioUser.count({ where: { communityId: id, role: 'resident' } }),
+          prisma.vecindarioUser.findMany({
+            where: { communityId: id, role: 'resident' },
+            select: { portal: true, piso: true, puerta: true },
+          }),
+        ])
+        const existingKeys = new Set(
+          residents
+            .filter((r) => r.portal && r.piso && r.puerta)
+            .map((r) => dwellingTripletKey(r.portal!, r.piso!, r.puerta!)),
+        )
+        const structured = enumerateStructuredDwellings(nextCount, nextLabels, nextDwelling)
+        data.residentSlots = resolveAutoResidentSlots({
+          estimate: est,
+          currentResidentCount,
+          structured,
+          existingDwellingKeys: existingKeys,
+        })
       }
     }
   }

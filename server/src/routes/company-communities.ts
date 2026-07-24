@@ -25,6 +25,11 @@ import {
   parsePortalDwellingConfig,
   resizePortalDwellingConfig,
 } from '../lib/portal-dwelling-config.js'
+import {
+  dwellingTripletKey,
+  enumerateStructuredDwellings,
+  resolveAutoResidentSlots,
+} from '../lib/enumerate-structured-dwellings.js'
 import { getCommunityDashboardStatsMap } from '../lib/community-dashboard-stats.js'
 import { parseCustomLocations } from '../lib/custom-locations.js'
 import { parseBoardVocals } from '../lib/community-board-junta.js'
@@ -492,9 +497,29 @@ companyCommunitiesRouter.patch('/:id', async (req, res) => {
       data.portalDwellingConfig !== undefined
         ? data.portalDwellingConfig
         : existing.portalDwellingConfig
+    const nextLabels =
+      data.portalLabels !== undefined ? data.portalLabels : existing.portalLabels
     const est = estimateDwellingUnitsFromPortalConfig(nextDwelling, nextCount)
     if (est != null) {
-      data.residentSlots = est
+      const [currentResidentCount, residents] = await Promise.all([
+        prisma.vecindarioUser.count({ where: { communityId: id, role: 'resident' } }),
+        prisma.vecindarioUser.findMany({
+          where: { communityId: id, role: 'resident' },
+          select: { portal: true, piso: true, puerta: true },
+        }),
+      ])
+      const existingKeys = new Set(
+        residents
+          .filter((r) => r.portal && r.piso && r.puerta)
+          .map((r) => dwellingTripletKey(r.portal!, r.piso!, r.puerta!)),
+      )
+      const structured = enumerateStructuredDwellings(nextCount, nextLabels, nextDwelling)
+      data.residentSlots = resolveAutoResidentSlots({
+        estimate: est,
+        currentResidentCount,
+        structured,
+        existingDwellingKeys: existingKeys,
+      })
     }
   }
 

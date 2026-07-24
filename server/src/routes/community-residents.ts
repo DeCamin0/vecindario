@@ -485,25 +485,22 @@ communityResidentsRouter.post('/residents/create-missing-dwellings', requireAuth
     where: { id: communityId },
     select: { residentSlots: true },
   })
-  let toCreate = missing
-  let skippedDueToCap = 0
+  const currentCount = await prisma.vecindarioUser.count({
+    where: { communityId, role: 'resident' },
+  })
+  /** Asegura sitio para las unidades de ficha sin cuenta (no bloquear por cupo = estimación teórica). */
   if (meta?.residentSlots != null && meta.residentSlots > 0) {
-    const currentCount = await prisma.vecindarioUser.count({
-      where: { communityId, role: 'resident' },
-    })
-    const room = meta.residentSlots - currentCount
-    if (room <= 0) {
-      res.status(403).json({
-        error: 'Cupo de vecinos alcanzado',
-        message: `Esta comunidad tiene un máximo de ${meta.residentSlots} cuentas de vecino.`,
+    const needed = currentCount + missing.length
+    if (needed > meta.residentSlots) {
+      await prisma.community.update({
+        where: { id: communityId },
+        data: { residentSlots: needed },
       })
-      return
-    }
-    if (toCreate.length > room) {
-      skippedDueToCap = toCreate.length - room
-      toCreate = toCreate.slice(0, room)
     }
   }
+
+  const toCreate = missing
+  const skippedDueToCap = 0
 
   const passwordHash = await bcrypt.hash(password, 12)
   const created: { id: number; portal: string; piso: string; puerta: string }[] = []

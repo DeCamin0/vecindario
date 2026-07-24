@@ -48,3 +48,26 @@ export function enumerateStructuredDwellings(
 export function dwellingTripletKey(portal: string, piso: string, puerta: string): string {
   return `${portal.trim()}\t${piso.trim()}\t${puerta.trim()}`
 }
+
+/**
+ * Cupo al guardar portales: nunca por debajo de (cuentas actuales + unidades de ficha sin cuenta).
+ * Así, si ya hay 133 vecinos y faltan 8 de un portal, al guardar estructura el cupo pasa a 141
+ * (no se queda en la estimación teórica 133 y bloquea el alta).
+ */
+export function resolveAutoResidentSlots(opts: {
+  estimate: number
+  currentResidentCount: number
+  structured: StructuredDwellingUnit[]
+  existingDwellingKeys: Iterable<string>
+}): number {
+  const est = Math.max(0, Math.trunc(opts.estimate))
+  const current = Math.max(0, Math.trunc(opts.currentResidentCount))
+  const keys = opts.existingDwellingKeys instanceof Set
+    ? opts.existingDwellingKeys
+    : new Set(opts.existingDwellingKeys)
+  let missing = 0
+  for (const u of opts.structured) {
+    if (!keys.has(dwellingTripletKey(u.portal, u.piso, u.puerta))) missing += 1
+  }
+  return Math.max(est, current + missing)
+}
