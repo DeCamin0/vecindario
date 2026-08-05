@@ -98,7 +98,7 @@ export async function getCommunityDashboardStatsMap(
     if (!s) continue
     const c = row._count._all
     s.totalIncidents += c
-    if (row.status === 'pendiente') s.pendingIncidents += c
+    if (row.status === 'pendiente' || row.status === 'en_gestion') s.pendingIncidents += c
     if (row.status === 'resuelta') s.resolvedIncidents += c
   }
 

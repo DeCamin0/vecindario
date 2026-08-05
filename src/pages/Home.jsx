@@ -80,6 +80,7 @@ const STATUS_LABELS_ES = {
   Reported: 'Reportado',
   Resolved: 'Resuelta',
   pendiente: 'Pendiente',
+  en_gestion: 'En gestión',
   resuelta: 'Resuelta',
 }
 
@@ -382,7 +383,7 @@ export default function Home() {
             Resumen de tu comunidad
           </h2>
           <p className="home-management-overview-hint">
-            Total incidencias suma pendientes y resueltas; acciones pendientes solo las que siguen sin resolver.
+            Total incidencias suma pendientes (incl. en gestión) y resueltas; acciones pendientes las que siguen sin resolver.
             Reservas de hoy y contador de resueltas aparte. Comunidad activa.
           </p>
           <ManagementStatsTiles

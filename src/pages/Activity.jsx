@@ -14,6 +14,7 @@ const STATUS_LABELS = {
   Reported: 'Reportado',
   Resolved: 'Resuelta',
   pendiente: 'Pendiente',
+  en_gestion: 'En gestión',
   resuelta: 'Resuelta',
 }
 

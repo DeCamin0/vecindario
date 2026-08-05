@@ -448,7 +448,7 @@ model CommunityBooking {
   @@map("community_bookings")
 }
 
-/// Incidencias en zonas comunes: alta como pendiente; personal de gestión / conserje marca resuelta.
+/// Incidencias en zonas comunes: alta como pendiente; gestión puede marcar en_gestion o resuelta.
 model CommunityIncident {
   id               Int             @id @default(autoincrement())
   communityId      Int             @map("community_id")
@@ -461,7 +461,7 @@ model CommunityIncident {
   locationText     String          @map("location_text") @db.VarChar(512)
   portalLabel      String?         @map("portal_label") @db.VarChar(128)
   urgency          String          @default("medium") @db.VarChar(16)
-  /// pendiente | resuelta
+  /// pendiente | en_gestion | resuelta
   status           String          @default("pendiente") @db.VarChar(32)
   resolvedAt       DateTime?       @map("resolved_at")
   resolvedByUserId Int?            @map("resolved_by_user_id")

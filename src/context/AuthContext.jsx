@@ -150,7 +150,7 @@ export function canEditResidentFichaFields(role) {
   )
 }
 
-/** Incidencias: marcar pendiente / resuelta (incluye conserje y super admin). */
+/** Incidencias: marcar pendiente / en gestión / resuelta (incluye conserje y super admin). */
 export function canResolveIncidents(role) {
   return (
     role === 'community_admin' ||

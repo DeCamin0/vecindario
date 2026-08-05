@@ -26,8 +26,21 @@ const URGENCY_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: 'pendiente', label: 'Pendiente' },
+  { value: 'en_gestion', label: 'En gestión' },
   { value: 'resuelta', label: 'Resuelta' },
 ]
+
+function incidentStatusLabel(status) {
+  if (status === 'resuelta') return 'Resuelta'
+  if (status === 'en_gestion') return 'En gestión'
+  return 'Pendiente'
+}
+
+function incidentStatusPillClass(status) {
+  if (status === 'resuelta') return 'resuelta'
+  if (status === 'en_gestion') return 'en-gestion'
+  return 'pendiente'
+}
 
 const initialForm = {
   description: '',
@@ -230,7 +243,10 @@ export default function Incidents() {
         if (status === 'resuelta' && listTab === 'pendientes') {
           return prev.filter((row) => row.id !== id)
         }
-        if (status === 'pendiente' && listTab === 'archivados') {
+        if (
+          (status === 'pendiente' || status === 'en_gestion') &&
+          listTab === 'archivados'
+        ) {
           return prev.filter((row) => row.id !== id)
         }
         return prev.map((row) => (row.id === id ? { ...row, ...data } : row))
@@ -414,8 +430,9 @@ export default function Incidents() {
           <span className="incident-success-icon" aria-hidden="true">✓</span>
           <h2 className="incident-success-title">Reporte enviado</h2>
           <p className="incident-success-text">
-            La incidencia queda como <strong>pendiente</strong> hasta que administración, presidente o conserje la marque
-            como resuelta.
+            La incidencia queda como <strong>pendiente</strong>. Administración, presidente o conserje
+            pueden marcarla <strong>en gestión</strong> cuando la atiendan, y <strong>resuelta</strong>{' '}
+            al cerrarla.
           </p>
           <div className="incident-success-actions">
             <Link to="/" className="btn btn--primary btn--block">
@@ -436,9 +453,9 @@ export default function Incidents() {
         <h1 className="page-title">{showIncidentManagement ? 'Incidencias' : 'Reportar incidencia'}</h1>
         <p className="page-subtitle">
           {showIncidentManagement && showReportForm
-            ? 'Reporta como vecino. Las incidencias nuevas quedan pendientes; puedes marcarlas resueltas cuando estén atendidas. Todos los vecinos ven la lista y pueden comentar.'
+            ? 'Reporta como vecino. Las nuevas quedan pendientes; puedes pasarlas a En gestión o Resuelta. Todos los vecinos ven la lista y pueden comentar.'
             : showIncidentManagement
-              ? 'Revisa y actualiza el estado de las incidencias de la comunidad. Los vecinos ven todas y comentan; solo tú cambias el estado.'
+              ? 'Revisa y actualiza el estado (Pendiente, En gestión, Resuelta). Los vecinos ven todas y comentan; solo tú cambias el estado.'
               : 'Indica el tipo de problema, la ubicación y los detalles. Se guarda como pendiente. Abajo ves las incidencias de toda la comunidad: puedes comentar; solo quien abrió el reporte puede editarlo mientras siga pendiente y sin comentarios.'}
         </p>
       </header>
@@ -816,9 +833,9 @@ export default function Incidents() {
                             {item.categoryLabel || item.categoryId}
                           </span>
                           <span
-                            className={`incident-pill incident-pill--${item.status === 'resuelta' ? 'resuelta' : 'pendiente'}`}
+                            className={`incident-pill incident-pill--${incidentStatusPillClass(item.status)}`}
                           >
-                            {item.status === 'resuelta' ? 'Resuelta' : 'Pendiente'}
+                            {incidentStatusLabel(item.status)}
                           </span>
                           {myReport ? (
                             <span className="incident-your-report-pill" title="Eres quien abrió este reporte">
@@ -905,7 +922,13 @@ export default function Incidents() {
                       <select
                         id={`incident-status-${item.id}`}
                         className="form-input form-select incident-management-status-select"
-                        value={item.status === 'resuelta' ? 'resuelta' : 'pendiente'}
+                        value={
+                          item.status === 'resuelta'
+                            ? 'resuelta'
+                            : item.status === 'en_gestion'
+                              ? 'en_gestion'
+                              : 'pendiente'
+                        }
                         onChange={(e) => handleStatusChange(item.id, e.target.value)}
                         aria-label={`Cambiar estado incidencia ${item.id}`}
                       >

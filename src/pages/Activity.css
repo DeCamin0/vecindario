@@ -165,7 +165,8 @@ a.activity-item--link:hover {
 }
 
 .activity-item-status--in-progress,
-.activity-item-status--en-curso {
+.activity-item-status--en-curso,
+.activity-item-status--en_gestion {
   background: var(--color-primary-muted);
   color: var(--color-primary);
 }

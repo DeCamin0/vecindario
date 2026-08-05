@@ -484,6 +484,11 @@
   color: #b45309;
 }
 
+.incident-pill--en-gestion {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+
 .incident-pill--resuelta {
   background: rgba(5, 150, 105, 0.15);
   color: var(--color-success);

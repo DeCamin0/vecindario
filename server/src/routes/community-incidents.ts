@@ -35,6 +35,10 @@ const MAX_COMMENT_CHARS = 2000
 /** Archivadas sin filtro de fecha: solo las N más recientes. */
 const ARCHIVED_PREVIEW_LIMIT = 5
 
+const INCIDENT_STATUSES = new Set(['pendiente', 'en_gestion', 'resuelta'])
+/** Tab Pendientes: aún abiertas (sin archivar). */
+const OPEN_INCIDENT_STATUSES = ['pendiente', 'en_gestion'] as const
+
 type IncidentWithReporter = {
   id: number
   communityId: number
@@ -160,7 +164,7 @@ function parseDateQueryBound(raw: unknown, endOfDay: boolean): Date | null {
 communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
   const communityId = Number(req.query.communityId)
   const statusFilter =
-    typeof req.query.status === 'string' && (req.query.status === 'pendiente' || req.query.status === 'resuelta')
+    typeof req.query.status === 'string' && INCIDENT_STATUSES.has(req.query.status)
       ? req.query.status
       : undefined
   const dateFrom = parseDateQueryBound(req.query.dateFrom, false)
@@ -189,10 +193,14 @@ communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
 
   const where: {
     communityId: number
-    status?: string
+    status?: string | { in: string[] }
     resolvedAt?: { gte?: Date; lte?: Date }
   } = { communityId }
-  if (statusFilter) where.status = statusFilter
+  if (statusFilter === 'pendiente') {
+    where.status = { in: [...OPEN_INCIDENT_STATUSES] }
+  } else if (statusFilter) {
+    where.status = statusFilter
+  }
   if (statusFilter === 'resuelta' && (dateFrom || dateTo)) {
     where.resolvedAt = {}
     if (dateFrom) where.resolvedAt.gte = dateFrom
@@ -492,8 +500,10 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
     const staffData: Record<string, unknown> = {}
     if (wantsStatus) {
       const status = String(statusRaw).trim()
-      if (status !== 'pendiente' && status !== 'resuelta') {
-        res.status(400).json({ error: 'status debe ser pendiente o resuelta' })
+      if (!INCIDENT_STATUSES.has(status)) {
+        res.status(400).json({
+          error: 'status debe ser pendiente, en_gestion o resuelta',
+        })
         return
       }
       if (!userMayManageIncidents(user, rowPatch.community)) {
@@ -536,7 +546,12 @@ communityIncidentsRouter.patch('/:id', requireAuth, async (req, res) => {
     return
   }
   if (rowPatch.status !== 'pendiente') {
-    res.status(403).json({ error: 'No se puede editar una incidencia ya resuelta' })
+    res.status(403).json({
+      error:
+        rowPatch.status === 'en_gestion'
+          ? 'No se puede editar una incidencia ya en gestión'
+          : 'No se puede editar una incidencia ya resuelta',
+    })
     return
   }
   if ((rowPatch._count?.comments ?? 0) > 0) {
