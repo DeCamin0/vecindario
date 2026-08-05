@@ -1,7 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { apiUrl } from '../config/api.js'
-import { userFromMeResponse } from '../utils/userFromMeResponse.js'
+import {
+  notificationPrefsFromApi,
+  userFromMeResponse,
+} from '../utils/userFromMeResponse.js'
 import {
   LAST_LOGIN_SLUG_STORAGE_KEY,
   clearLastLoginSlug,
@@ -569,9 +572,7 @@ export function AuthProvider({ children }) {
             ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
             ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
             ...(companyMe ? { company: companyMe } : {}),
-            notifyWebPush: data.notifyWebPush !== false,
-            notifyMobilePush: data.notifyMobilePush !== false,
-            notifyEmail: data.notifyEmail !== false,
+            ...notificationPrefsFromApi(data),
           })
           setUserRoleState(data.role)
           saveUserRole(data.role)
@@ -854,9 +855,7 @@ export function AuthProvider({ children }) {
             },
           }
         : {}),
-      notifyWebPush: userPayload.notifyWebPush !== false,
-      notifyMobilePush: userPayload.notifyMobilePush !== false,
-      notifyEmail: userPayload.notifyEmail !== false,
+      ...notificationPrefsFromApi(userPayload),
     })
     setUserRoleState(userPayload.role)
     saveUserRole(userPayload.role)
@@ -920,21 +919,20 @@ export function AuthProvider({ children }) {
         [data.message, data.error].filter(Boolean).join(' ') || 'No se pudo guardar',
       )
     }
-    const nextUser = userFromMeResponse(data)
-    if (nextUser) {
-      setUser((prev) => {
-        const merged = prev ? { ...prev, ...nextUser } : nextUser
-        if (Object.prototype.hasOwnProperty.call(data, 'email')) {
-          const em =
-            data.email != null && String(data.email).trim()
-              ? String(data.email).trim()
-              : null
-          if (em) merged.email = em
-          else delete merged.email
-        }
-        return merged
-      })
-    }
+    setUser((prev) => {
+      const nextUser = userFromMeResponse(data, prev)
+      if (!nextUser) return prev
+      const merged = prev ? { ...prev, ...nextUser } : nextUser
+      if (Object.prototype.hasOwnProperty.call(data, 'email')) {
+        const em =
+          data.email != null && String(data.email).trim()
+            ? String(data.email).trim()
+            : null
+        if (em) merged.email = em
+        else delete merged.email
+      }
+      return merged
+    })
     return data
   }, [accessToken])
 

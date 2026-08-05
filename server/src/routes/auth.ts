@@ -122,6 +122,20 @@ function userJsonOut(u: {
   }
 }
 
+/** Perfil de sesión + preferencias de notificación (login, /me, etc.). */
+function userJsonWithPrefs(
+  u: Parameters<typeof userJsonOut>[0] & {
+    notifyWebPush?: boolean | null
+    notifyMobilePush?: boolean | null
+    notifyEmail?: boolean | null
+  },
+) {
+  return {
+    ...userJsonOut(u),
+    ...notificationPrefsFromRow(u),
+  }
+}
+
 /**
  * Login unificado (vecino/presidente/admin/conserje/super admin).
  * Vecinos sin correo: accessCode (VEC) + portal + piso + password.
@@ -225,7 +239,7 @@ authRouter.post('/login', async (req, res) => {
     debugLogin('200 resident_key', { userId: userOut.id, role: effRole, communityId: comm.id })
     res.json({
       accessToken,
-      user: userJsonOut(userOut),
+      user: userJsonWithPrefs({ ...userOut, ...notificationPrefsFromRow(user) }),
       community: communityClientFromRow(comm),
     })
     return
@@ -666,7 +680,7 @@ authRouter.post('/login', async (req, res) => {
 
   res.json({
     accessToken,
-    user: userJsonOut(userOut),
+    user: userJsonWithPrefs({ ...userOut, ...notificationPrefsFromRow(user) }),
     ...(communityForClient ? { community: communityForClient } : {}),
     ...(companyForClient ? { company: companyForClient } : {}),
   })
@@ -711,12 +725,22 @@ authRouter.post('/super-admin/login', async (req, res) => {
 
   res.json({
     accessToken,
-    user: {
+    user: userJsonWithPrefs({
       id: user.id,
-      email: em,
+      email: em || null,
       name: user.name,
       role: user.role,
-    },
+      piso: user.piso,
+      portal: user.portal,
+      puerta: user.puerta,
+      phone: user.phone,
+      habitaciones: user.habitaciones,
+      plazaGaraje: user.plazaGaraje,
+      poolAccessOwner: user.poolAccessOwner,
+      poolAccessGuest: user.poolAccessGuest,
+      profileImageUrl: user.profileImageUrl,
+      ...notificationPrefsFromRow(user),
+    }),
   })
 })
 
@@ -1266,6 +1290,9 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       poolAccessGuest: true,
       profileImageUrl: true,
       communityId: true,
+      notifyWebPush: true,
+      notifyMobilePush: true,
+      notifyEmail: true,
     },
   })
   let effRole = updated.role
@@ -1277,7 +1304,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     effRole = effectiveRoleForCommunity(updated, comm)
   }
   res.json(
-    userJsonOut({
+    userJsonWithPrefs({
       id: updated.id,
       email: updated.email?.trim() || null,
       name: updated.name,
@@ -1291,6 +1318,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       poolAccessOwner: updated.poolAccessOwner,
       poolAccessGuest: updated.poolAccessGuest,
       profileImageUrl: updated.profileImageUrl,
+      ...notificationPrefsFromRow(updated),
     }),
   )
 })
@@ -1401,6 +1429,9 @@ authRouter.post('/demo-explore', async (req, res) => {
       profileImageUrl: true,
       communityId: true,
       companyAdminCompanyId: true,
+      notifyWebPush: true,
+      notifyMobilePush: true,
+      notifyEmail: true,
     },
   })
   if (!user || user.role !== spec.role) {
@@ -1497,7 +1528,7 @@ authRouter.post('/demo-explore', async (req, res) => {
 
   res.json({
     accessToken,
-    user: userJsonOut(userOut),
+    user: userJsonWithPrefs({ ...userOut, ...notificationPrefsFromRow(user) }),
     ...(communityForClient ? { community: communityForClient } : {}),
     ...(companyForClient ? { company: companyForClient } : {}),
     demoExplore: true,

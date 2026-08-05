@@ -17,7 +17,8 @@
     "db:migrate:dev": "cd .. && prisma migrate dev",
     "seed": "tsx src/seed-super-admin.ts",
     "seed:demo": "tsx src/seed-demo-community.ts",
-    "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts"
+    "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts",
+    "prefs:disable-concierge-email": "tsx src/scripts/disable-concierge-notify-email.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

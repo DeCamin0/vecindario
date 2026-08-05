@@ -5,6 +5,7 @@ import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { tryRegisterWebPush } from '../lib/webPushRegister.js'
 import { tryUnregisterWebPush } from '../lib/webPushUnregister.js'
 import { DISTRIBUTOR_CONTACT_EMAIL, distributorMailtoUrl } from '../config/distributorContact.js'
+import { notificationPrefsFromApi } from '../utils/userFromMeResponse.js'
 import './AuthPages.css'
 import './ProfileNotifications.css'
 
@@ -58,11 +59,7 @@ export default function ProfileNotifications() {
       if (!res.ok) {
         throw new Error(data.error || data.message || `Error ${res.status}`)
       }
-      setUserNotificationPrefs({
-        notifyWebPush: data.notifyWebPush !== false,
-        notifyMobilePush: data.notifyMobilePush !== false,
-        notifyEmail: data.notifyEmail !== false,
-      })
+      setUserNotificationPrefs(notificationPrefsFromApi(data))
       return data
     },
     [accessToken, setUserNotificationPrefs],

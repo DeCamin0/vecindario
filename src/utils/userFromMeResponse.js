@@ -1,8 +1,22 @@
-export function notificationPrefsFromApi(data) {
+/**
+ * Preferencias de notificación desde API.
+ * Si el payload no trae el campo, conserva `prev` (evita forzar ON tras login/PATCH perfil).
+ * Sin prev ni campo: default ON (igual que BD).
+ */
+export function notificationPrefsFromApi(data, prev = null) {
+  const pick = (key) => {
+    if (data != null && Object.prototype.hasOwnProperty.call(data, key)) {
+      return data[key] !== false
+    }
+    if (prev != null && typeof prev[key] === 'boolean') {
+      return prev[key]
+    }
+    return true
+  }
   return {
-    notifyWebPush: data?.notifyWebPush !== false,
-    notifyMobilePush: data?.notifyMobilePush !== false,
-    notifyEmail: data?.notifyEmail !== false,
+    notifyWebPush: pick('notifyWebPush'),
+    notifyMobilePush: pick('notifyMobilePush'),
+    notifyEmail: pick('notifyEmail'),
   }
 }
 
@@ -70,7 +84,7 @@ export function userFromMeResponse(data, prev = null) {
     ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
     ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
     ...(companyMe ? { company: companyMe } : {}),
-    ...notificationPrefsFromApi(data),
+    ...notificationPrefsFromApi(data, prev),
   }
 }
 
