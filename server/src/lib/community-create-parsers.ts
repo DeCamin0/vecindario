@@ -31,6 +31,24 @@ export function parsePadelCourtCount(raw: unknown): number {
   return n
 }
 
+/**
+ * Nombre en la app para pistas tipo pádel.
+ * `undefined` = no tocar (PATCH); `null` / vacío = default "Pista de pádel" en cliente.
+ */
+export function parsePadelCourtLabel(raw: unknown): string | null | undefined {
+  if (raw === undefined) return undefined
+  if (raw === null) return null
+  const s = typeof raw === 'string' ? raw.trim() : String(raw).trim()
+  if (!s) return null
+  return s.slice(0, 128)
+}
+
+/** Label efectivo para UI (nunca vacío). */
+export function resolvePadelCourtLabel(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : ''
+  return s || 'Pista de pádel'
+}
+
 export function parseSalonBookingMode(raw: unknown, fallback: 'slots' | 'day'): 'slots' | 'day' {
   const s = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
   if (s === 'day' || s === 'full_day' || s === 'fullday') return 'day'

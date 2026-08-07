@@ -393,14 +393,30 @@ function getSlotConfigForFacility(facilityId, customLocations) {
   return SLOT_PRESETS.customSpace
 }
 
+const DEFAULT_PADEL_COURT_LABEL = 'Pista de pádel'
+
+function resolvePadelCourtLabel(cfg) {
+  const s =
+    cfg?.padelCourtLabel != null && String(cfg.padelCourtLabel).trim()
+      ? String(cfg.padelCourtLabel).trim()
+      : ''
+  return s || DEFAULT_PADEL_COURT_LABEL
+}
+
+function padelCourtDisplayName(baseLabel, index, total) {
+  const base = (baseLabel || DEFAULT_PADEL_COURT_LABEL).trim() || DEFAULT_PADEL_COURT_LABEL
+  return total > 1 ? `${base} ${index}` : base
+}
+
 /** Deriva la lista de la comunidad (Super Admin: pádel, gimnasio, espacios propios). */
 function buildFacilitiesFromApi(cfg) {
   const out = []
   const padelN = Math.min(50, Math.max(0, Number(cfg.padelCourtCount) || 0))
+  const padelLabel = resolvePadelCourtLabel(cfg)
   for (let i = 1; i <= padelN; i += 1) {
     out.push({
       id: `padel:${i}`,
-      name: padelN > 1 ? `Pista de pádel ${i}` : 'Pista de pádel',
+      name: padelCourtDisplayName(padelLabel, i, padelN),
       icon: '🎾',
     })
   }
@@ -498,9 +514,13 @@ function salonCalendarDayStatus(dateKey, facilityId, salonDayMode, allBookings, 
   return 'partial'
 }
 
-function isPadelBookingRecord(b) {
+function isPadelBookingRecord(b, facilities) {
   if (b.facilityId && isPadelFacilityId(b.facilityId)) return true
-  if (typeof b.facility === 'string' && b.facility.startsWith('Pista de pádel')) return true
+  if (typeof b.facility !== 'string' || !b.facility.trim()) return false
+  if (b.facility.startsWith('Pista de pádel')) return true
+  if (Array.isArray(facilities)) {
+    return facilities.some((f) => isPadelFacilityId(f.id) && f.name === b.facility)
+  }
   return false
 }
 
@@ -508,12 +528,13 @@ function isPadelBookingRecord(b) {
 function padelBookingMatchesFacility(b, selectedFacilityId, facilities) {
   if (!selectedFacilityId || !isPadelFacilityId(selectedFacilityId)) return false
   if (b.facilityId && isPadelFacilityId(b.facilityId)) return b.facilityId === selectedFacilityId
-  if (!isPadelBookingRecord(b)) return false
+  if (!isPadelBookingRecord(b, facilities)) return false
   const expectedName = facilities ? facilityLabel(facilities, selectedFacilityId) : null
   if (expectedName && b.facility === expectedName) return true
   const m = /^padel:(\d+)$/.exec(selectedFacilityId)
   if (m) {
     const n = m[1]
+    // Histórico con etiqueta por defecto
     if (n === '1' && (b.facility === 'Pista de pádel' || b.facility === 'Pista de pádel 1')) return true
     if (b.facility === `Pista de pádel ${n}`) return true
   }
@@ -1306,14 +1327,14 @@ export default function Bookings() {
       usedHours =
         allBookings.filter(
           (b) =>
-            isPadelBookingRecord(b) &&
+            isPadelBookingRecord(b, facilities) &&
             b.date === booking.date &&
             sameApartmentForPadelCap(b, padelCapUser),
         ).length * hBook
     }
     const maxSlots = padelMaxSlotsSelectable(hBook, hDaily, usedHours)
     return { hBook, hDaily, usedHours, maxSlots, multi: maxSlots > 1 }
-  }, [selectedFacility, communityBookingConfig, booking.date, padelCapUser, allBookings])
+  }, [selectedFacility, communityBookingConfig, booking.date, padelCapUser, allBookings, facilities])
 
   useEffect(() => {
     if (!isPadelFacilityId(selectedFacility) || !communityBookingConfig) return
@@ -1610,15 +1631,16 @@ export default function Bookings() {
       const usedHours = allBookings
         .filter(
           (b) =>
-            isPadelBookingRecord(b) &&
+            isPadelBookingRecord(b, facilities) &&
             b.date === booking.date &&
             sameApartmentForPadelCap(b, padelCapUser),
         )
         .length * hBook
       const newHours = (padelSlotIdsToBook.length || 1) * hBook
       if (usedHours + newHours > hDaily) {
+        const courtWord = resolvePadelCourtLabel(communityBookingConfig)
         setPadelCapError(
-          `Tope de pádel: máximo ${formatPadelHoursDisplay(hDaily)} h por vivienda y día. Esta reserva suma ${formatPadelHoursDisplay(newHours)} h; ya llevas ${formatPadelHoursDisplay(usedHours)} h ese día.`,
+          `Tope (${courtWord}): máximo ${formatPadelHoursDisplay(hDaily)} h por vivienda y día. Esta reserva suma ${formatPadelHoursDisplay(newHours)} h; ya llevas ${formatPadelHoursDisplay(usedHours)} h ese día.`,
         )
         return
       }
@@ -2027,7 +2049,8 @@ export default function Bookings() {
                     {' '}
                     · Plazo para elegir fecha: {padelHorizonDaysForCopy}{' '}
                     {padelHorizonDaysForCopy === 1 ? 'día natural' : 'días naturales'} desde hoy hacia adelante (en
-                    el día actual no se muestran tramos ya pasados). Horario pádel:{' '}
+                    el día actual no se muestran tramos ya pasados). Horario{' '}
+                    {resolvePadelCourtLabel(communityBookingConfig)}:{' '}
                     {padTimeStr(communityBookingConfig.padelOpenTime) || '08:00'} –{' '}
                     {padTimeStr(communityBookingConfig.padelCloseTime) || '22:00'}.
                     {isStaffBookingMode ? (

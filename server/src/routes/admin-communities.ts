@@ -66,6 +66,7 @@ import {
   parseCommunityAddress,
   parseNifCif,
   parsePadelCourtCount,
+  parsePadelCourtLabel,
   parsePadelHoursField,
   parsePadelMinAdvanceHours,
   parsePadelWallClock,
@@ -441,6 +442,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
     serviceRequestCategoryModesJson = pm.value
   }
   const padelCourtCount = parsePadelCourtCount(req.body?.padelCourtCount)
+  const padelCourtLabel = parsePadelCourtLabel(req.body?.padelCourtLabel) ?? null
   const customLocations = parseCustomLocations(req.body?.customLocations)
   const padelMaxHoursPerBooking = parsePadelHoursField(req.body?.padelMaxHoursPerBooking, 2)
   let padelMaxHoursPerApartmentPerDay = parsePadelHoursField(
@@ -507,6 +509,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       appNavCuadernoDiarioEnabled,
       serviceRequestCategoryModesJson,
       padelCourtCount,
+      padelCourtLabel,
       padelMaxHoursPerBooking,
       padelMaxHoursPerApartmentPerDay,
       padelMinAdvanceHours,
@@ -1371,6 +1374,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     appNavCuadernoDiarioEnabled?: boolean
     serviceRequestCategoryModesJson?: Prisma.InputJsonValue
     padelCourtCount?: number
+    padelCourtLabel?: string | null
     padelMaxHoursPerBooking?: Prisma.Decimal
     padelMaxHoursPerApartmentPerDay?: Prisma.Decimal
     padelMinAdvanceHours?: number
@@ -1881,6 +1885,10 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
   if ('padelCourtCount' in req.body) {
     data.padelCourtCount = parsePadelCourtCount(req.body.padelCourtCount)
+  }
+  if ('padelCourtLabel' in req.body) {
+    const lab = parsePadelCourtLabel(req.body.padelCourtLabel)
+    if (lab !== undefined) data.padelCourtLabel = lab
   }
   if ('padelMaxHoursPerBooking' in req.body || 'padelMaxHoursPerApartmentPerDay' in req.body) {
     const existing = await prisma.community.findUnique({

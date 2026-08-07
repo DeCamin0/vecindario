@@ -10,7 +10,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "postinstall": "node ../scripts/ensure-prisma-for-server.mjs",
-    "predev": "prisma generate --schema=../prisma/schema.prisma",
+    "predev": "node ../scripts/ensure-prisma-for-server.mjs",
     "db:generate": "prisma generate --schema=../prisma/schema.prisma",
     "db:sync": "node ../scripts/sync-prisma-to-server.mjs",
     "db:migrate": "cd .. && prisma migrate deploy",
@@ -18,9 +18,11 @@
     "seed": "tsx src/seed-super-admin.ts",
     "seed:demo": "tsx src/seed-demo-community.ts",
     "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts",
-    "prefs:disable-concierge-email": "tsx src/scripts/disable-concierge-notify-email.ts"
+    "prefs:disable-concierge-email": "tsx src/scripts/disable-concierge-notify-email.ts",
+    "storage:avatar-backfill": "tsx src/scripts/avatar-r2-backfill.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
     "@prisma/client": "^5.22.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",

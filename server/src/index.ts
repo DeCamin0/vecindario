@@ -25,7 +25,7 @@ import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
 import { poolAccessRouter } from './routes/pool-access.js'
 import { adminQuoteRequestsRouter } from './routes/quote-requests-admin.js'
-import { AVATARS_DIR } from './lib/profile-avatar.js'
+import { resolveAvatarFile } from './lib/profile-avatar.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
@@ -45,7 +45,23 @@ app.use(
 )
 app.use(express.json({ limit: '4mb' }))
 
-app.use('/api/uploads/avatars', express.static(AVATARS_DIR, { maxAge: '7d', immutable: false }))
+/** Avatar GET: R2 when profile_image_storage_key is set, else disk under uploads/avatars. */
+app.get('/api/uploads/avatars/:file', async (req, res) => {
+  const file = String(req.params.file || '')
+  try {
+    const resolved = await resolveAvatarFile(file)
+    if (!resolved) {
+      res.status(404).end()
+      return
+    }
+    res.setHeader('Content-Type', resolved.contentType)
+    res.setHeader('Cache-Control', 'public, max-age=604800')
+    res.send(resolved.buffer)
+  } catch (e) {
+    console.error('[avatar serve]', e)
+    res.status(500).end()
+  }
+})
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'vecindario-api' })

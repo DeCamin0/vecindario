@@ -40,6 +40,7 @@ import {
   parseCommunityAddress,
   parseNifCif,
   parsePadelCourtCount,
+  parsePadelCourtLabel,
   parsePadelHoursField,
   parsePadelMinAdvanceHours,
   parsePadelWallClock,
@@ -233,6 +234,7 @@ companyCommunitiesRouter.post('/', async (req, res) => {
     appNavPaqueteriaEnabled && parseBool(body?.paqueteriaKeyLoansEnabled, false)
   const appNavCuadernoDiarioEnabled = parseBool(body?.appNavCuadernoDiarioEnabled, false)
   const padelCourtCount = parsePadelCourtCount(body?.padelCourtCount)
+  const padelCourtLabel = parsePadelCourtLabel(body?.padelCourtLabel) ?? null
   const customLocations = parseCustomLocations(body?.customLocations)
   const padelMaxHoursPerBooking = parsePadelHoursField(body?.padelMaxHoursPerBooking, 2)
   let padelMaxHoursPerApartmentPerDay = parsePadelHoursField(body?.padelMaxHoursPerApartmentPerDay, 4)
@@ -296,6 +298,7 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       paqueteriaKeyLoansEnabled,
       appNavCuadernoDiarioEnabled,
       padelCourtCount,
+      padelCourtLabel,
       padelMaxHoursPerBooking,
       padelMaxHoursPerApartmentPerDay,
       padelMinAdvanceHours,

@@ -38,6 +38,8 @@ model VecindarioUser {
   name         String?        @db.VarChar(255)
   /// Ruta pública de foto de perfil (ej. /api/uploads/avatars/12.jpg).
   profileImageUrl String?     @map("profile_image_url") @db.VarChar(512)
+  /// Clave R2/S3 del avatar (null = solo disco o sin foto). Ver docs ARCHITECTURE_CLOUDFLARE_R2.
+  profileImageStorageKey String? @map("profile_image_storage_key") @db.VarChar(768)
   /// Teléfono de contacto (opcional).
   phone        String?        @map("phone") @db.VarChar(40)
   /// Piso / planta u otro identificador de vivienda (texto libre).
@@ -174,6 +176,8 @@ model Community {
   gymAccessEnabled Boolean @default(false) @map("gym_access_enabled")
   /// Cuántas pistas de pádel tiene la comunidad (0 = ninguna).
   padelCourtCount  Int     @default(0) @map("padel_court_count")
+  /// Nombre en la app (ej. "Pista de squash"). NULL / vacío = "Pista de pádel". IDs internos siguen siendo padel:N.
+  padelCourtLabel  String? @map("padel_court_label") @db.VarChar(128)
   /// Máximo de horas por una reserva de pádel (paso 0,5: 1 · 1,5 · 2 …; una franja cuenta como tal duración en la cuota diaria).
   padelMaxHoursPerBooking Decimal @default(2.0) @map("padel_max_hours_per_booking") @db.Decimal(4, 1)
   /// Máximo total de horas de pádel por vivienda (piso) y día natural; paso 0,5; mismo criterio por email si no hay piso.

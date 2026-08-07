@@ -1013,12 +1013,15 @@ authRouter.put('/me/avatar', requireAuth, async (req, res) => {
     return
   }
   try {
-    const profileImageUrl = await writeAvatarFile(req.userId!, parsed.buffer, parsed.ext)
+    const written = await writeAvatarFile(req.userId!, parsed.buffer, parsed.ext)
     await prisma.vecindarioUser.update({
       where: { id: req.userId! },
-      data: { profileImageUrl },
+      data: {
+        profileImageUrl: written.profileImageUrl,
+        profileImageStorageKey: written.profileImageStorageKey,
+      },
     })
-    res.json({ profileImageUrl })
+    res.json({ profileImageUrl: written.profileImageUrl })
   } catch (e) {
     console.error('[profile avatar upload]', e)
     res.status(500).json({ error: 'No se pudo guardar la foto.' })
@@ -1030,7 +1033,7 @@ authRouter.delete('/me/avatar', requireAuth, async (req, res) => {
     await deleteAvatarFilesForUser(req.userId!)
     await prisma.vecindarioUser.update({
       where: { id: req.userId! },
-      data: { profileImageUrl: null },
+      data: { profileImageUrl: null, profileImageStorageKey: null },
     })
     res.json({ profileImageUrl: null })
   } catch (e) {

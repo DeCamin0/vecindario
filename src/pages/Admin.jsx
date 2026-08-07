@@ -499,6 +499,7 @@ const emptyForm = {
   appNavCuadernoDiarioEnabled: false,
   serviceCategoryModes: defaultServiceCategoryModesRecord(),
   padelCourtCount: '0',
+  padelCourtLabel: '',
   padelMaxHoursPerBooking: '2',
   padelMaxHoursApartmentDay: '4',
   padelMinAdvanceHours: '24',
@@ -1109,6 +1110,10 @@ export default function Admin() {
         return base
       })(),
       padelCourtCount: String(c.padelCourtCount ?? 0),
+      padelCourtLabel:
+        c.padelCourtLabel != null && String(c.padelCourtLabel).trim()
+          ? String(c.padelCourtLabel).trim()
+          : '',
       padelMaxHoursPerBooking: formatPadelHoursInputValue(c.padelMaxHoursPerBooking, 2),
       padelMaxHoursApartmentDay: formatPadelHoursInputValue(c.padelMaxHoursPerApartmentPerDay, 4),
       padelMinAdvanceHours: String(c.padelMinAdvanceHours ?? 24),
@@ -1590,6 +1595,7 @@ export default function Admin() {
         appNavCuadernoDiarioEnabled: form.appNavCuadernoDiarioEnabled,
         serviceRequestCategoryModes: form.serviceCategoryModes,
         padelCourtCount,
+        padelCourtLabel: form.padelCourtLabel.trim().slice(0, 128) || null,
         padelMaxHoursPerBooking,
         padelMaxHoursPerApartmentPerDay,
         padelMinAdvanceHours,
@@ -4014,7 +4020,24 @@ export default function Admin() {
                     value={form.padelCourtCount}
                     onChange={(e) => setForm((f) => ({ ...f, padelCourtCount: e.target.value }))}
                   />
-                  <p className="admin-field-hint">0 si no hay pistas</p>
+                  <p className="admin-field-hint">0 si no hay pistas. Misma lógica de reservas (franjas/topes).</p>
+                </div>
+                <div className="admin-modal-field">
+                  <label className="admin-label" htmlFor="comm-padel-label">
+                    Nombre en la app (pistas)
+                  </label>
+                  <input
+                    id="comm-padel-label"
+                    type="text"
+                    className="admin-input"
+                    maxLength={128}
+                    value={form.padelCourtLabel}
+                    onChange={(e) => setForm((f) => ({ ...f, padelCourtLabel: e.target.value }))}
+                    placeholder="Pista de pádel"
+                  />
+                  <p className="admin-field-hint">
+                    Vacío = «Pista de pádel». Ej. «Pista de squash» → Squash 1, Squash 2 si hay varias.
+                  </p>
                 </div>
                 <div className="admin-modal-row">
                   <div className="admin-modal-field">

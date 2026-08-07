@@ -83,6 +83,7 @@ export async function deleteCommunityUserAccount(
       name: true,
       role: true,
       communityId: true,
+      profileImageStorageKey: true,
     },
   })
   if (!target) {
@@ -131,6 +132,7 @@ export async function deleteCommunityUserAccount(
 
   const emailNorm = normEmail(target.email)
   let clearedFicha = false
+  const avatarStorageKey = target.profileImageStorageKey
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -160,7 +162,7 @@ export async function deleteCommunityUserAccount(
       }
     })
     try {
-      await deleteAvatarFilesForUser(targetUserId)
+      await deleteAvatarFilesForUser(targetUserId, avatarStorageKey)
     } catch {
       /* optional */
     }

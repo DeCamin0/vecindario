@@ -353,7 +353,7 @@ adminCompaniesRouter.delete('/:companyId/admins/:userId', async (req, res) => {
       role: 'company_admin',
       companyAdminCompanyId: companyId,
     },
-    select: { id: true, email: true, name: true },
+    select: { id: true, email: true, name: true, profileImageStorageKey: true },
   })
   if (!target) {
     res.status(404).json({ error: 'Administrador de empresa no encontrado en esta empresa' })
@@ -392,6 +392,7 @@ adminCompaniesRouter.delete('/:companyId/admins/:userId', async (req, res) => {
 
   const emailNorm = normEmail(target.email)
   let clearedFicha = false
+  const avatarStorageKey = target.profileImageStorageKey
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -418,7 +419,7 @@ adminCompaniesRouter.delete('/:companyId/admins/:userId', async (req, res) => {
       await tx.vecindarioUser.delete({ where: { id: userId } })
     })
     try {
-      await deleteAvatarFilesForUser(userId)
+      await deleteAvatarFilesForUser(userId, avatarStorageKey)
     } catch {
       /* optional */
     }

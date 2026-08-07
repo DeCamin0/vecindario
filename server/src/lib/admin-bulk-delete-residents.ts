@@ -2,6 +2,7 @@ import type { Community } from '@prisma/client'
 import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { resolveStaffUserIdsForCommunity } from './admin-community-staff-ids.js'
+import { deleteAvatarFilesForUser } from './profile-avatar.js'
 
 /**
  * Vecinos (rol resident) a borrar en masa: `community_id` de esta comunidad y/o reservas aquí,
@@ -49,6 +50,11 @@ export async function bulkDeleteResidentAccountsForCommunity(
 
   const db = opts?.tx ?? prisma
 
+  const avatarRows = await db.vecindarioUser.findMany({
+    where: { id: { in: ids }, role: 'resident' },
+    select: { id: true, profileImageStorageKey: true },
+  })
+
   await db.communityIncident.deleteMany({
     where: { communityId: community.id, reporterUserId: { in: ids } },
   })
@@ -59,6 +65,14 @@ export async function bulkDeleteResidentAccountsForCommunity(
   const del = await db.vecindarioUser.deleteMany({
     where: { id: { in: ids }, role: 'resident' },
   })
+
+  for (const row of avatarRows) {
+    try {
+      await deleteAvatarFilesForUser(row.id, row.profileImageStorageKey)
+    } catch {
+      /* optional */
+    }
+  }
 
   return { deleted: del.count }
 }
