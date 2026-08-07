@@ -2751,8 +2751,8 @@ export default function Admin() {
                           {formatPadelHoursDisplay(community.padelMaxHoursPerBooking, 2)} h/reserva ·{' '}
                           {formatPadelHoursDisplay(community.padelMaxHoursPerApartmentPerDay, 4)} h/vivienda/día · antelación{' '}
                           {Number(community.padelMinAdvanceHours) === 0
-                            ? 'sin antelación (calendario completo)'
-                            : `plazo ${Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))} día(s)`}{' '}
+                            ? 'sin antelación (~90 días)'
+                            : `plazo ${Math.min(90, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))} día(s)`}{' '}
                           · {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
                           {community.padelOpenTime2 && community.padelCloseTime2
                             ? ` y ${community.padelOpenTime2}–${community.padelCloseTime2}`
@@ -4141,11 +4141,11 @@ export default function Admin() {
                         }))
                       }
                     />
-                    <span>Sin antelación (calendario completo)</span>
+                    <span>Sin antelación (calendario amplio)</span>
                   </label>
                   <p className="admin-field-hint">
-                    Marcado: los vecinos pueden reservar en todo el calendario (hoy y hasta ~14 días). Desmarcado:
-                    limita abajo cuántos días hacia adelante pueden elegir fecha.
+                    Marcado: los vecinos pueden reservar hoy y hasta ~90 días adelante. Desmarcado: limita abajo
+                    cuántos días hacia adelante pueden elegir fecha.
                   </p>
                 </div>
                 {String(form.padelMinAdvanceHours) !== '0' ? (

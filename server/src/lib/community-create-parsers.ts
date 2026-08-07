@@ -58,7 +58,7 @@ export function parseSalonBookingMode(raw: unknown, fallback: 'slots' | 'day'): 
 
 export { parsePadelHoursField, padelHoursForJson } from './padel-hours.js'
 
-/** 0 = sin antelación (calendario completo ~14 días); 24 = 1 día adelante, etc. */
+/** 0 = sin antelación (calendario amplio ~90 días); 24 = 1 día adelante, etc. */
 export function parsePadelMinAdvanceHours(raw: unknown, fallback: number): number {
   const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
   if (!Number.isFinite(n)) return fallback

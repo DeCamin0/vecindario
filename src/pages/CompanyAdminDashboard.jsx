@@ -908,7 +908,7 @@ export default function CompanyAdminDashboard() {
                             }))
                           }
                         />
-                        <span>Sin antelación (calendario completo)</span>
+                        <span>Sin antelación (calendario amplio ~90 días)</span>
                       </label>
                     </div>
                     {String(form.padelMinAdvanceHours) !== '0' ? (

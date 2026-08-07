@@ -286,15 +286,18 @@ function slotStartLocalDate(dateKey, startMin) {
   return new Date(y, mo - 1, d, h, mi, 0, 0)
 }
 
+/** Máx. días futuros en la tira (sin antelación / tope duro). */
+const PADEL_MAX_FUTURE_DAYS = 90
+
 /**
  * Ventana en días naturales hacia adelante (p. ej. 48 → 2).
- * 0 = sin antelación → calendario completo (14 días).
+ * 0 = sin antelación → calendario amplio (90 días).
  */
 function padelHorizonDaysFromConfigHours(hours) {
   const h = Number(hours)
   if (!Number.isFinite(h) || h < 0) return 7
-  if (h === 0) return 14
-  return Math.min(14, Math.max(1, Math.ceil(h / 24)))
+  if (h === 0) return PADEL_MAX_FUTURE_DAYS
+  return Math.min(PADEL_MAX_FUTURE_DAYS, Math.max(1, Math.ceil(h / 24)))
 }
 
 /** Ayer: sin tramos. Hoy: solo tramos que aún no han empezado. Futuro: todos según horario. */
@@ -325,7 +328,7 @@ function padelFixedPrefixKeys(todayStart, addDays) {
 
 function padelFutureKeysFromTomorrow(todayStart, addDays, nFuture) {
   const keys = []
-  const n = Math.max(0, Math.min(14, nFuture))
+  const n = Math.max(0, Math.min(PADEL_MAX_FUTURE_DAYS, nFuture))
   for (let i = 1; i <= n; i += 1) {
     keys.push(localDateKey(addDays(todayStart, i)))
   }
@@ -334,6 +337,7 @@ function padelFutureKeysFromTomorrow(todayStart, addDays, nFuture) {
 
 /**
  * Tira pádel: ayer + hoy + días futuros según ventana (horas en BD → días: 48 = 2 días adelante).
+ * 0 = sin antelación → hasta PADEL_MAX_FUTURE_DAYS.
  */
 function padelCalendarDayKeys(configHours, maxDaysInAdvanceRoll, now = new Date()) {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -348,8 +352,8 @@ function padelCalendarDayKeys(configHours, maxDaysInAdvanceRoll, now = new Date(
   const h = Number(configHours)
   let nFuture
   if (!Number.isFinite(h) || h < 0) nFuture = rollN
-  else if (h === 0) nFuture = 14 // sin antelación: calendario amplio (hoy + 14 días)
-  else nFuture = Math.min(14, Math.max(1, padelHorizonDaysFromConfigHours(h)))
+  else if (h === 0) nFuture = PADEL_MAX_FUTURE_DAYS
+  else nFuture = Math.min(PADEL_MAX_FUTURE_DAYS, Math.max(1, padelHorizonDaysFromConfigHours(h)))
 
   return [...prefix, ...padelFutureKeysFromTomorrow(todayStart, addDays, nFuture)]
 }
