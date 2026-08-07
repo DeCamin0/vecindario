@@ -1455,10 +1455,10 @@ export default function Admin() {
         padelMaxHoursPerApartmentPerDay = padelMaxHoursPerBooking
       }
 
-      const padelMinAdvanceHours = Math.min(
-        168,
-        Math.max(1, Number.parseInt(form.padelMinAdvanceHours, 10) || 24),
-      )
+      const rawAdv = Number.parseInt(form.padelMinAdvanceHours, 10)
+      const padelMinAdvanceHours = Number.isFinite(rawAdv)
+        ? Math.min(168, Math.max(0, rawAdv))
+        : 24
       const normalizeHHMM = (raw) => {
         const t = String(raw ?? '').trim()
         const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(t)
@@ -2750,9 +2750,10 @@ export default function Admin() {
                           {Number(community.padelCourtCount) || 0} pista(s) · máx.{' '}
                           {formatPadelHoursDisplay(community.padelMaxHoursPerBooking, 2)} h/reserva ·{' '}
                           {formatPadelHoursDisplay(community.padelMaxHoursPerApartmentPerDay, 4)} h/vivienda/día · antelación{' '}
-                          plazo {Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))}{' '}
-                          día(s) ·{' '}
-                          {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
+                          {Number(community.padelMinAdvanceHours) === 0
+                            ? 'sin antelación (solo hoy)'
+                            : `plazo ${Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))} día(s)`}{' '}
+                          · {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
                           {community.padelOpenTime2 && community.padelCloseTime2
                             ? ` y ${community.padelOpenTime2}–${community.padelCloseTime2}`
                             : ''}
@@ -4128,7 +4129,26 @@ export default function Admin() {
                     </p>
                   </div>
                 </div>
-                <div className="admin-modal-row">
+                <div className="admin-modal-field admin-modal-field--checkbox">
+                  <label className="admin-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={String(form.padelMinAdvanceHours) === '0'}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          padelMinAdvanceHours: e.target.checked ? '0' : '24',
+                        }))
+                      }
+                    />
+                    <span>Sin antelación (solo día de hoy)</span>
+                  </label>
+                  <p className="admin-field-hint">
+                    Si está marcado, los vecinos solo pueden reservar tramos de hoy. Si no, configura abajo cuántos
+                    días hacia adelante pueden elegir fecha.
+                  </p>
+                </div>
+                {String(form.padelMinAdvanceHours) !== '0' ? (
                   <div className="admin-modal-field">
                     <label className="admin-label" htmlFor="comm-padel-advance">
                       Pádel: plazo de reserva (valor en horas)
@@ -4140,13 +4160,20 @@ export default function Admin() {
                       max={168}
                       className="admin-input"
                       value={form.padelMinAdvanceHours}
-                      onChange={(e) => setForm((f) => ({ ...f, padelMinAdvanceHours: e.target.value }))}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setForm((f) => ({
+                          ...f,
+                          padelMinAdvanceHours: v === '' || v === '0' ? '1' : v,
+                        }))
+                      }}
                     />
                     <p className="admin-field-hint">
-                      Se traduce a días naturales desde hoy para elegir fecha (24 → 1 día, 48 → 2). No exige reservar
-                      con X horas de antelación respecto al tramo.
+                      Se traduce a días naturales desde hoy (24 → 1 día, 48 → 2). No es «horas antes del tramo».
                     </p>
                   </div>
+                ) : null}
+                <div className="admin-modal-row">
                   <div className="admin-modal-field">
                     <label className="admin-label" htmlFor="comm-padel-open">Pádel: apertura</label>
                     <input

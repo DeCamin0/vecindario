@@ -58,10 +58,11 @@ export function parseSalonBookingMode(raw: unknown, fallback: 'slots' | 'day'): 
 
 export { parsePadelHoursField, padelHoursForJson } from './padel-hours.js'
 
+/** 0 = sin antelación (solo día de hoy); 24 = 1 día adelante, etc. */
 export function parsePadelMinAdvanceHours(raw: unknown, fallback: number): number {
   const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
   if (!Number.isFinite(n)) return fallback
-  if (n < 1) return 1
+  if (n < 0) return 0
   if (n > 168) return 168
   return n
 }

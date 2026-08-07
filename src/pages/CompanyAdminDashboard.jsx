@@ -896,24 +896,41 @@ export default function CompanyAdminDashboard() {
                         />
                       </div>
                     </div>
-                    <div className="admin-modal-field">
-                      <label className="admin-label" htmlFor="ca-padel-adv">
-                        Pádel: antelación mínima (horas, 1–168)
+                    <div className="admin-modal-field admin-modal-field--checkbox">
+                      <label className="admin-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={String(form.padelMinAdvanceHours) === '0'}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              padelMinAdvanceHours: e.target.checked ? '0' : '24',
+                            }))
+                          }
+                        />
+                        <span>Sin antelación (solo día de hoy)</span>
                       </label>
-                      <input
-                        id="ca-padel-adv"
-                        type="text"
-                        inputMode="numeric"
-                        className="admin-input"
-                        value={form.padelMinAdvanceHours}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            padelMinAdvanceHours: e.target.value.replace(/\D/g, '').slice(0, 3),
-                          }))
-                        }
-                      />
                     </div>
+                    {String(form.padelMinAdvanceHours) !== '0' ? (
+                      <div className="admin-modal-field">
+                        <label className="admin-label" htmlFor="ca-padel-adv">
+                          Pádel: plazo de reserva (horas → días; 24 = 1 día)
+                        </label>
+                        <input
+                          id="ca-padel-adv"
+                          type="text"
+                          inputMode="numeric"
+                          className="admin-input"
+                          value={form.padelMinAdvanceHours}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              padelMinAdvanceHours: e.target.value.replace(/\D/g, '').slice(0, 3) || '1',
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
                     <div className="admin-modal-row">
                       <div className="admin-modal-field">
                         <label className="admin-label" htmlFor="ca-padel-open">

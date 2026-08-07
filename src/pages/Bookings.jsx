@@ -286,10 +286,11 @@ function slotStartLocalDate(dateKey, startMin) {
   return new Date(y, mo - 1, d, h, mi, 0, 0)
 }
 
-/** Ventana en días naturales desde hoy hacia adelante (p. ej. 48 → 2). No es «horas hasta el inicio del tramo». */
+/** Ventana en días naturales desde hoy hacia adelante (p. ej. 48 → 2). 0 = sin antelación (solo hoy). */
 function padelHorizonDaysFromConfigHours(hours) {
   const h = Number(hours)
-  if (!Number.isFinite(h) || h <= 0) return 7
+  if (!Number.isFinite(h) || h < 0) return 7
+  if (h === 0) return 0
   return Math.min(14, Math.max(1, Math.ceil(h / 24)))
 }
 
@@ -342,10 +343,10 @@ function padelCalendarDayKeys(configHours, maxDaysInAdvanceRoll, now = new Date(
   const prefix = padelFixedPrefixKeys(todayStart, addDays)
   const rollN = Math.max(1, Math.min(14, (maxDaysInAdvanceRoll ?? 7) + 1))
   const h = Number(configHours)
-  const nFuture =
-    !Number.isFinite(h) || h <= 0
-      ? rollN
-      : Math.min(14, Math.max(1, padelHorizonDaysFromConfigHours(h)))
+  let nFuture
+  if (!Number.isFinite(h) || h < 0) nFuture = rollN
+  else if (h === 0) nFuture = 0
+  else nFuture = Math.min(14, Math.max(1, padelHorizonDaysFromConfigHours(h)))
 
   return [...prefix, ...padelFutureKeysFromTomorrow(todayStart, addDays, nFuture)]
 }
@@ -2089,10 +2090,17 @@ export default function Bookings() {
                 {isPadelFacilityId(selectedFacility) && communityBookingConfig ? (
                   <>
                     {' '}
-                    · Plazo para elegir fecha: {padelHorizonDaysForCopy}{' '}
-                    {padelHorizonDaysForCopy === 1 ? 'día natural' : 'días naturales'} desde hoy hacia adelante (en
-                    el día actual no se muestran tramos ya pasados). Horario{' '}
-                    {resolvePadelCourtLabel(communityBookingConfig)}:{' '}
+                    ·{' '}
+                    {padelHorizonDaysForCopy === 0 ? (
+                      <>Sin antelación: solo se puede reservar el día de hoy (tramos aún no empezados).</>
+                    ) : (
+                      <>
+                        Plazo para elegir fecha: {padelHorizonDaysForCopy}{' '}
+                        {padelHorizonDaysForCopy === 1 ? 'día natural' : 'días naturales'} desde hoy hacia
+                        adelante (en el día actual no se muestran tramos ya pasados).
+                      </>
+                    )}{' '}
+                    Horario {resolvePadelCourtLabel(communityBookingConfig)}:{' '}
                     {formatPadelScheduleLabel(
                       communityBookingConfig.padelOpenTime,
                       communityBookingConfig.padelCloseTime,

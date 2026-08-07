@@ -92,6 +92,7 @@ function userJsonOut(u: {
   phone?: string | null
   habitaciones?: string | null
   plazaGaraje?: string | null
+  trastero?: string | null
   poolAccessOwner?: string | null
   poolAccessGuest?: string | null
   profileImageUrl?: string | null
@@ -103,6 +104,7 @@ function userJsonOut(u: {
   const ph = u.phone?.trim()
   const hab = u.habitaciones?.trim()
   const pg = u.plazaGaraje?.trim()
+  const tr = u.trastero?.trim()
   const poolO = u.poolAccessOwner?.trim()
   const poolG = u.poolAccessGuest?.trim()
   return {
@@ -116,6 +118,7 @@ function userJsonOut(u: {
     ...(ph ? { phone: ph } : {}),
     ...(hab ? { habitaciones: hab } : {}),
     ...(pg ? { plazaGaraje: pg } : {}),
+    ...(tr ? { trastero: tr } : {}),
     ...(poolO ? { poolAccessOwner: poolO } : {}),
     ...(poolG ? { poolAccessGuest: poolG } : {}),
     ...(u.profileImageUrl?.trim() ? { profileImageUrl: u.profileImageUrl.trim() } : {}),
@@ -227,6 +230,7 @@ authRouter.post('/login', async (req, res) => {
       phone: user.phone?.trim() || null,
       habitaciones: user.habitaciones?.trim() || null,
       plazaGaraje: user.plazaGaraje?.trim() || null,
+      trastero: user.trastero?.trim() || null,
       poolAccessOwner: user.poolAccessOwner?.trim() || null,
       poolAccessGuest: user.poolAccessGuest?.trim() || null,
       profileImageUrl: user.profileImageUrl?.trim() || null,
@@ -524,6 +528,7 @@ authRouter.post('/login', async (req, res) => {
     phone: string | null
     habitaciones: string | null
     plazaGaraje: string | null
+    trastero: string | null
     poolAccessOwner: string | null
     poolAccessGuest: string | null
     profileImageUrl: string | null
@@ -540,6 +545,7 @@ authRouter.post('/login', async (req, res) => {
     phone: user.phone?.trim() || null,
     habitaciones: user.habitaciones?.trim() || null,
     plazaGaraje: user.plazaGaraje?.trim() || null,
+    trastero: user.trastero?.trim() || null,
     poolAccessOwner: user.poolAccessOwner?.trim() || null,
     poolAccessGuest: user.poolAccessGuest?.trim() || null,
     profileImageUrl: user.profileImageUrl?.trim() || null,
@@ -566,6 +572,7 @@ authRouter.post('/login', async (req, res) => {
           phone: true,
           habitaciones: true,
           plazaGaraje: true,
+          trastero: true,
           poolAccessOwner: true,
           poolAccessGuest: true,
           profileImageUrl: true,
@@ -582,6 +589,7 @@ authRouter.post('/login', async (req, res) => {
         phone: updated.phone?.trim() || null,
         habitaciones: updated.habitaciones?.trim() || null,
         plazaGaraje: updated.plazaGaraje?.trim() || null,
+        trastero: updated.trastero?.trim() || null,
         poolAccessOwner: updated.poolAccessOwner?.trim() || null,
         poolAccessGuest: updated.poolAccessGuest?.trim() || null,
         profileImageUrl: updated.profileImageUrl?.trim() || null,
@@ -736,6 +744,7 @@ authRouter.post('/super-admin/login', async (req, res) => {
       phone: user.phone,
       habitaciones: user.habitaciones,
       plazaGaraje: user.plazaGaraje,
+      trastero: user.trastero,
       poolAccessOwner: user.poolAccessOwner,
       poolAccessGuest: user.poolAccessGuest,
       profileImageUrl: user.profileImageUrl,
@@ -758,6 +767,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       phone: true,
       habitaciones: true,
       plazaGaraje: true,
+          trastero: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
       notifyWebPush: true,
@@ -794,6 +804,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     phone: user.phone,
     habitaciones: user.habitaciones,
     plazaGaraje: user.plazaGaraje,
+    trastero: user.trastero,
     poolAccessOwner: user.poolAccessOwner,
     poolAccessGuest: user.poolAccessGuest,
     profileImageUrl: user.profileImageUrl,
@@ -1112,6 +1123,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     !has('phone') &&
     !has('habitaciones') &&
     !has('plazaGaraje') &&
+    !has('trastero') &&
     !has('name') &&
     !has('email')
   ) {
@@ -1129,6 +1141,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     phone?: string | null
     habitaciones?: string | null
     plazaGaraje?: string | null
+    trastero?: string | null
     name?: string | null
     email?: string | null
   } = {}
@@ -1171,6 +1184,8 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
   if (hab !== undefined) data.habitaciones = hab
   const pg = parseOptionalBodyString(body!, 'plazaGaraje', 64)
   if (pg !== undefined) data.plazaGaraje = pg
+  const tr = parseOptionalBodyString(body!, 'trastero', 64)
+  if (tr !== undefined) data.trastero = tr
   const existing = await prisma.vecindarioUser.findUnique({
     where: { id: req.userId! },
     select: {
@@ -1289,6 +1304,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       phone: true,
       habitaciones: true,
       plazaGaraje: true,
+          trastero: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
       profileImageUrl: true,
@@ -1318,6 +1334,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
       phone: updated.phone,
       habitaciones: updated.habitaciones,
       plazaGaraje: updated.plazaGaraje,
+      trastero: updated.trastero,
       poolAccessOwner: updated.poolAccessOwner,
       poolAccessGuest: updated.poolAccessGuest,
       profileImageUrl: updated.profileImageUrl,
@@ -1427,6 +1444,7 @@ authRouter.post('/demo-explore', async (req, res) => {
       phone: true,
       habitaciones: true,
       plazaGaraje: true,
+          trastero: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
       profileImageUrl: true,
@@ -1461,6 +1479,7 @@ authRouter.post('/demo-explore', async (req, res) => {
     phone: string | null
     habitaciones: string | null
     plazaGaraje: string | null
+    trastero: string | null
     poolAccessOwner: string | null
     poolAccessGuest: string | null
     profileImageUrl: string | null
@@ -1477,6 +1496,7 @@ authRouter.post('/demo-explore', async (req, res) => {
     phone: user.phone?.trim() || null,
     habitaciones: user.habitaciones?.trim() || null,
     plazaGaraje: user.plazaGaraje?.trim() || null,
+    trastero: user.trastero?.trim() || null,
     poolAccessOwner: user.poolAccessOwner?.trim() || null,
     poolAccessGuest: user.poolAccessGuest?.trim() || null,
     profileImageUrl: user.profileImageUrl?.trim() || null,

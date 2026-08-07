@@ -61,6 +61,7 @@ const emptyCreateForm = () => ({
   puerta: '',
   habitaciones: '',
   plazaGaraje: '',
+  trastero: '',
   poolAccessOwner: '',
   poolAccessGuest: '',
   password: '',
@@ -387,6 +388,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
       puerta: r.puerta || '',
       habitaciones: r.habitaciones || '',
       plazaGaraje: r.plazaGaraje || '',
+      trastero: r.trastero || '',
       poolAccessOwner: r.poolAccessOwner || '',
       poolAccessGuest: r.poolAccessGuest || '',
     })
@@ -423,6 +425,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
           puerta: editForm.puerta.trim().slice(0, 64),
           habitaciones: editForm.habitaciones.trim().slice(0, 64) || null,
           plazaGaraje: editForm.plazaGaraje.trim().slice(0, 64) || null,
+          trastero: editForm.trastero.trim().slice(0, 64) || null,
           poolAccessOwner: editForm.poolAccessOwner.trim().slice(0, 64) || null,
           poolAccessGuest: editForm.poolAccessGuest.trim().slice(0, 64) || null,
         }),
@@ -471,6 +474,7 @@ export default function CommunityResidents({ superAdminScope = false }) {
         ...(form.phone.trim() ? { phone: form.phone.trim().slice(0, 40) } : {}),
         ...(form.habitaciones.trim() ? { habitaciones: form.habitaciones.trim().slice(0, 64) } : {}),
         ...(form.plazaGaraje.trim() ? { plazaGaraje: form.plazaGaraje.trim().slice(0, 64) } : {}),
+        ...(form.trastero.trim() ? { trastero: form.trastero.trim().slice(0, 64) } : {}),
         ...(form.poolAccessOwner.trim()
           ? { poolAccessOwner: form.poolAccessOwner.trim().slice(0, 64) }
           : {}),
@@ -1035,6 +1039,18 @@ export default function CommunityResidents({ superAdminScope = false }) {
                     />
                   </div>
                   <div className="auth-field">
+                    <label className="auth-label" htmlFor="cr-trastero">
+                      Trastero <span className="auth-optional">(opcional)</span>
+                    </label>
+                    <input
+                      id="cr-trastero"
+                      className="auth-input"
+                      value={form.trastero}
+                      onChange={(e) => setForm((f) => ({ ...f, trastero: e.target.value }))}
+                      placeholder="Texto libre"
+                    />
+                  </div>
+                  <div className="auth-field">
                     <label className="auth-label" htmlFor="cr-pool-o">
                       Accesos piscina titular <span className="auth-optional">(opcional, 1–10)</span>
                     </label>
@@ -1243,6 +1259,10 @@ export default function CommunityResidents({ superAdminScope = false }) {
                           <div>
                             <dt>Plaza garaje</dt>
                             <dd>{displayField(r.plazaGaraje)}</dd>
+                          </div>
+                          <div>
+                            <dt>Trastero</dt>
+                            <dd>{displayField(r.trastero)}</dd>
                           </div>
                           {showPoolFichaEdit ? (
                             <>
@@ -1664,6 +1684,17 @@ export default function CommunityResidents({ superAdminScope = false }) {
                       className="auth-input"
                       value={editForm.plazaGaraje}
                       onChange={(e) => setEditForm((f) => ({ ...f, plazaGaraje: e.target.value }))}
+                    />
+                  </div>
+                  <div className="auth-field">
+                    <label className="auth-label" htmlFor="ed-trastero">
+                      Trastero
+                    </label>
+                    <input
+                      id="ed-trastero"
+                      className="auth-input"
+                      value={editForm.trastero}
+                      onChange={(e) => setEditForm((f) => ({ ...f, trastero: e.target.value }))}
                     />
                   </div>
                   <div className="auth-field">

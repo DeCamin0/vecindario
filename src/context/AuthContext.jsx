@@ -522,6 +522,10 @@ export function AuthProvider({ children }) {
             data.plazaGaraje != null && String(data.plazaGaraje).trim()
               ? String(data.plazaGaraje).trim()
               : ''
+          const trMe =
+            data.trastero != null && String(data.trastero).trim()
+              ? String(data.trastero).trim()
+              : ''
           const poolOMe =
             data.poolAccessOwner != null && String(data.poolAccessOwner).trim()
               ? String(data.poolAccessOwner).trim()
@@ -569,6 +573,7 @@ export function AuthProvider({ children }) {
             ...(phoneMe ? { phone: phoneMe } : {}),
             ...(habMe ? { habitaciones: habMe } : {}),
             ...(pgMe ? { plazaGaraje: pgMe } : {}),
+            ...(trMe ? { trastero: trMe } : {}),
             ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
             ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
             ...(companyMe ? { company: companyMe } : {}),
@@ -807,6 +812,10 @@ export function AuthProvider({ children }) {
       userPayload.plazaGaraje != null && String(userPayload.plazaGaraje).trim()
         ? String(userPayload.plazaGaraje).trim()
         : ''
+    const tr =
+      userPayload.trastero != null && String(userPayload.trastero).trim()
+        ? String(userPayload.trastero).trim()
+        : ''
     const poolO =
       userPayload.poolAccessOwner != null && String(userPayload.poolAccessOwner).trim()
         ? String(userPayload.poolAccessOwner).trim()
@@ -837,6 +846,7 @@ export function AuthProvider({ children }) {
       ...(ph ? { phone: ph } : {}),
       ...(hab ? { habitaciones: hab } : {}),
       ...(pg ? { plazaGaraje: pg } : {}),
+      ...(tr ? { trastero: tr } : {}),
       ...(poolO ? { poolAccessOwner: poolO } : {}),
       ...(poolG ? { poolAccessGuest: poolG } : {}),
       ...(opts?.company?.id != null && Number.isFinite(Number(opts.company.id))
@@ -898,6 +908,10 @@ export function AuthProvider({ children }) {
     if (fields.plazaGaraje !== undefined) {
       const t = String(fields.plazaGaraje ?? '').trim().slice(0, 64)
       body.plazaGaraje = t || null
+    }
+    if (fields.trastero !== undefined) {
+      const t = String(fields.trastero ?? '').trim().slice(0, 64)
+      body.trastero = t || null
     }
     if (fields.email !== undefined) {
       body.email = typeof fields.email === 'string' ? fields.email.trim() : ''

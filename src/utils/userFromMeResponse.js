@@ -38,6 +38,8 @@ export function userFromMeResponse(data, prev = null) {
     data.plazaGaraje != null && String(data.plazaGaraje).trim()
       ? String(data.plazaGaraje).trim()
       : ''
+  const trMe =
+    data.trastero != null && String(data.trastero).trim() ? String(data.trastero).trim() : ''
   const poolOMe =
     data.poolAccessOwner != null && String(data.poolAccessOwner).trim()
       ? String(data.poolAccessOwner).trim()
@@ -81,6 +83,7 @@ export function userFromMeResponse(data, prev = null) {
     ...(phoneMe ? { phone: phoneMe } : {}),
     ...(habMe ? { habitaciones: habMe } : {}),
     ...(pgMe ? { plazaGaraje: pgMe } : {}),
+    ...(trMe ? { trastero: trMe } : {}),
     ...(poolOMe ? { poolAccessOwner: poolOMe } : {}),
     ...(poolGMe ? { poolAccessGuest: poolGMe } : {}),
     ...(companyMe ? { company: companyMe } : {}),

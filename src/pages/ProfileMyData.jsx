@@ -19,6 +19,7 @@ export default function ProfileMyData() {
   const [phone, setPhone] = useState('')
   const [habitaciones, setHabitaciones] = useState('')
   const [plazaGaraje, setPlazaGaraje] = useState('')
+  const [trastero, setTrastero] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -29,6 +30,7 @@ export default function ProfileMyData() {
     setPhone(user.phone?.trim() || '')
     setHabitaciones(user.habitaciones?.trim() || '')
     setPlazaGaraje(user.plazaGaraje?.trim() || '')
+    setTrastero(user.trastero?.trim() || '')
   }, [user])
 
   const roleLabel = PROFILE_ROLE_LABELS[userRole] || userRole
@@ -55,6 +57,7 @@ export default function ProfileMyData() {
         phone: phone.trim() || null,
         habitaciones: habitaciones.trim() || null,
         plazaGaraje: plazaGaraje.trim() || null,
+        trastero: trastero.trim() || null,
       })
       navigate('/profile')
     } catch (err) {
@@ -173,6 +176,19 @@ export default function ProfileMyData() {
                 className="auth-input"
                 value={plazaGaraje}
                 onChange={(e) => setPlazaGaraje(e.target.value)}
+              />
+            </div>
+
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="mydata-trastero">
+                Trastero
+              </label>
+              <input
+                id="mydata-trastero"
+                type="text"
+                className="auth-input"
+                value={trastero}
+                onChange={(e) => setTrastero(e.target.value)}
               />
             </div>
 

@@ -52,6 +52,8 @@ model VecindarioUser {
   habitaciones String?        @map("habitaciones") @db.VarChar(64)
   /// Plaza de garaje (opcional, texto libre).
   plazaGaraje  String?        @map("plaza_garaje") @db.VarChar(64)
+  /// Trastero (opcional, texto libre).
+  trastero     String?        @map("trastero") @db.VarChar(64)
   /// Accesos piscina titular (texto / número como dato).
   poolAccessOwner String?     @map("pool_access_owner") @db.VarChar(64)
   /// Accesos piscina invitado (texto / número como dato).
@@ -182,7 +184,7 @@ model Community {
   padelMaxHoursPerBooking Decimal @default(2.0) @map("padel_max_hours_per_booking") @db.Decimal(4, 1)
   /// Máximo total de horas de pádel por vivienda (piso) y día natural; paso 0,5; mismo criterio por email si no hay piso.
   padelMaxHoursPerApartmentPerDay Decimal @default(4.0) @map("padel_max_hours_apartment_day") @db.Decimal(4, 1)
-  /// Horas mínimas de antelación respecto al inicio del tramo (ej. 24 = 1 día, 48 = 2 días).
+  /// Ventana de fechas futuras (horas→días: 24=1). 0 = sin antelación (solo hoy).
   padelMinAdvanceHours Int @default(24) @map("padel_min_advance_hours")
   /// Inicio del horario reservable de pádel (HH:mm, hora local de la comunidad).
   padelOpenTime  String @default("08:00") @map("padel_open_time") @db.VarChar(5)

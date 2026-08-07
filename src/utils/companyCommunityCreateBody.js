@@ -104,7 +104,7 @@ export function buildCompanyCommunityCreateBody(form) {
   const pma = String(form.padelMinAdvanceHours ?? '').trim()
   if (pma) {
     const n = Number.parseInt(pma, 10)
-    if (Number.isFinite(n)) body.padelMinAdvanceHours = Math.min(168, Math.max(1, n))
+    if (Number.isFinite(n)) body.padelMinAdvanceHours = Math.min(168, Math.max(0, n))
   }
 
   const pot = String(form.padelOpenTime ?? '').trim()

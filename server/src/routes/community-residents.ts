@@ -244,6 +244,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
   const phone = trimDwellingField(body.phone, 40)
   const habitaciones = trimDwellingField(body.habitaciones, 64)
   const plazaGaraje = trimDwellingField(body.plazaGaraje, 64)
+  const trastero = trimDwellingField(body.trastero, 64)
   const poolAccessOwner = trimDwellingField(body.poolAccessOwner, 64)
   const poolAccessGuest = trimDwellingField(body.poolAccessGuest, 64)
 
@@ -261,6 +262,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
         puerta,
         habitaciones,
         plazaGaraje,
+        trastero,
         poolAccessOwner,
         poolAccessGuest,
         communityId,
@@ -276,6 +278,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
         puerta: true,
         habitaciones: true,
         plazaGaraje: true,
+        trastero: true,
         poolAccessOwner: true,
         poolAccessGuest: true,
       },
@@ -290,6 +293,7 @@ communityResidentsRouter.post('/residents', requireAuth, async (req, res) => {
       puerta: created.puerta,
       habitaciones: created.habitaciones,
       plazaGaraje: created.plazaGaraje,
+      trastero: created.trastero,
       poolAccessOwner: created.poolAccessOwner,
       poolAccessGuest: created.poolAccessGuest,
     })
@@ -329,6 +333,7 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
         puerta: true,
         habitaciones: true,
         plazaGaraje: true,
+        trastero: true,
         poolAccessOwner: true,
         poolAccessGuest: true,
         profileImageUrl: true,
@@ -378,6 +383,7 @@ communityResidentsRouter.get('/residents', requireAuth, async (req, res) => {
         puerta: r.puerta,
         habitaciones: r.habitaciones,
         plazaGaraje: r.plazaGaraje,
+        trastero: r.trastero,
         poolAccessOwner: r.poolAccessOwner,
         poolAccessGuest: r.poolAccessGuest,
         profileImageUrl: r.profileImageUrl?.trim() || null,
@@ -602,6 +608,7 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
       'puerta',
       'habitaciones',
       'plazaGaraje',
+      'trastero',
     ] as const
     for (const k of forbidden) {
       if (Object.prototype.hasOwnProperty.call(body, k)) {
@@ -637,6 +644,7 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
       puerta: true,
       habitaciones: true,
       plazaGaraje: true,
+      trastero: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
     },
@@ -655,6 +663,7 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
     puerta?: string | null
     habitaciones?: string | null
     plazaGaraje?: string | null
+    trastero?: string | null
     poolAccessOwner?: string | null
     poolAccessGuest?: string | null
   } = {}
@@ -691,6 +700,8 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
   if (habP !== undefined) data.habitaciones = habP
   const pgP = parseOptionalBodyString(body, 'plazaGaraje', 64)
   if (pgP !== undefined) data.plazaGaraje = pgP
+  const trP = parseOptionalBodyString(body, 'trastero', 64)
+  if (trP !== undefined) data.trastero = trP
   const poP = parseOptionalBodyString(body, 'poolAccessOwner', 64)
   if (poP !== undefined) data.poolAccessOwner = poP
   const pguestP = parseOptionalBodyString(body, 'poolAccessGuest', 64)
@@ -769,6 +780,7 @@ communityResidentsRouter.patch('/residents/:residentId', requireAuth, async (req
       puerta: true,
       habitaciones: true,
       plazaGaraje: true,
+      trastero: true,
       poolAccessOwner: true,
       poolAccessGuest: true,
     },
