@@ -201,6 +201,11 @@ export default function PaqueteriaDetailPage() {
           <p>
             <strong>Vivienda:</strong> {parcel.portal} / {parcel.piso} / {parcel.puerta}
           </p>
+          {parcel.recipientName?.trim() ? (
+            <p>
+              <strong>Destinatario:</strong> {parcel.recipientName.trim()}
+            </p>
+          ) : null}
           {isSpecialParcel(parcel) ? (
             <p>
               <strong>Entrega:</strong> {parcel.itemDescription?.trim() || 'Entrega especial'}

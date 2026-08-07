@@ -20,6 +20,7 @@ export async function sendParcelCreatedNotificationEmail(params: {
   parcelId: number
   deliveryKind?: 'courier' | 'special'
   itemDescription?: string | null
+  recipientName?: string | null
 }): Promise<void> {
   if (!isMailConfigured()) return
 
@@ -31,27 +32,42 @@ export async function sendParcelCreatedNotificationEmail(params: {
   const to = user.email?.trim()
   if (!to || user.notifyEmail === false) return
 
-  const { communityName, portal, piso, puerta, packageCount, parcelId, deliveryKind, itemDescription } =
-    params
+  const {
+    communityName,
+    portal,
+    piso,
+    puerta,
+    packageCount,
+    parcelId,
+    deliveryKind,
+    itemDescription,
+    recipientName,
+  } = params
   const isSpecial = deliveryKind === 'special'
   const countLabel = isSpecial
     ? itemDescription?.trim() || 'Entrega especial'
     : packageCount > 1
       ? `${packageCount} paquetes`
       : 'un paquete'
+  const destLabel = recipientName?.trim() || ''
   const detailUrl = `${appBaseUrl()}/paqueteria/${parcelId}`
   const greeting = user.name?.trim() ? `Hola, ${user.name.trim()},` : 'Hola,'
+
+  const destRowHtml = destLabel
+    ? `<tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;vertical-align:top;">Destinatario</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">${escapeHtml(destLabel)}</td></tr>`
+    : ''
 
   const detailRowsHtml = `
     <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;font-size:14px;color:#334155;margin:16px 0;border-collapse:collapse;">
       <tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;width:120px;vertical-align:top;">Comunidad</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtml(communityName)}</td></tr>
       <tr><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;color:#64748b;vertical-align:top;">Vivienda</td><td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">${escapeHtml(portal)} · piso ${escapeHtml(piso)} · puerta ${escapeHtml(puerta)}</td></tr>
+      ${destRowHtml}
       <tr><td style="padding:8px 0;color:#64748b;vertical-align:top;">${isSpecial ? 'Entrega' : 'Cantidad'}</td><td style="padding:8px 0;font-weight:600;">${escapeHtml(countLabel)}</td></tr>
     </table>`
 
   const textDetails = `Comunidad: ${communityName}
 Vivienda: ${portal}, piso ${piso}, puerta ${puerta}
-${isSpecial ? 'Entrega' : 'Cantidad'}: ${countLabel}
+${destLabel ? `Destinatario: ${destLabel}\n` : ''}${isSpecial ? 'Entrega' : 'Cantidad'}: ${countLabel}
 Ver en la app: ${detailUrl}`
 
   const subject = isSpecial

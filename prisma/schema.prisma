@@ -281,6 +281,8 @@ model CommunityConciergeParcel {
   puerta            String         @db.VarChar(64)
   recipientUserId   Int            @map("recipient_user_id")
   recipient         VecindarioUser @relation("ParcelRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  /// Nombre en el paquete / destinatario escrito a mano (opcional).
+  recipientName     String?        @map("recipient_name") @db.VarChar(255)
   createdByUserId   Int            @map("created_by_user_id")
   createdBy         VecindarioUser @relation("ParcelCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   /// Nombre del conserje/gestor al registrar el paquete (histórico).

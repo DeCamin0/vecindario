@@ -206,6 +206,7 @@ function serializeParcel(p: {
   piso: string
   puerta: string
   recipientUserId: number
+  recipientName?: string | null
   createdByUserId: number
   createdByName?: string | null
   photosJson: unknown
@@ -234,6 +235,7 @@ function serializeParcel(p: {
     piso: p.piso,
     puerta: p.puerta,
     recipientUserId: p.recipientUserId,
+    recipientName: p.recipientName?.trim() || null,
     createdByUserId: p.createdByUserId,
     createdByName: p.createdByName?.trim() || null,
     packageCount: pkg,
@@ -460,6 +462,9 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
   const recipient = { id: recipientFind.id }
 
   const packageCount = deliveryKind === 'special' ? 1 : parsePackageCount(req.body?.packageCount)
+  const recipientNameRaw =
+    typeof req.body?.recipientName === 'string' ? req.body.recipientName.trim().replace(/\s+/g, ' ') : ''
+  const recipientName = recipientNameRaw ? recipientNameRaw.slice(0, 255) : null
 
   const actor = await prisma.vecindarioUser.findUnique({
     where: { id: uid },
@@ -474,6 +479,7 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
       piso,
       puerta,
       recipientUserId: recipient.id,
+      recipientName,
       createdByUserId: uid,
       createdByName,
       photosJson: [],
@@ -489,11 +495,12 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
 
   const isSpecial = deliveryKind === 'special'
   const title = isSpecial ? 'Entrega en conserjería' : packageCount > 1 ? 'Paquetes en conserjería' : 'Paquete en conserjería'
+  const destHint = recipientName ? ` · ${recipientName}` : ''
   const body = isSpecial
-    ? `Tienes una entrega pendiente (${itemDescription}) · portal ${portal}, piso ${piso}, puerta ${puerta}.`
+    ? `Tienes una entrega pendiente (${itemDescription}) · portal ${portal}, piso ${piso}, puerta ${puerta}${destHint}.`
     : packageCount > 1
-      ? `Tienes ${packageCount} paquetes registrados · portal ${portal}, piso ${piso}, puerta ${puerta}.`
-      : `Tienes un paquete registrado · portal ${portal}, piso ${piso}, puerta ${puerta}.`
+      ? `Tienes ${packageCount} paquetes registrados · portal ${portal}, piso ${piso}, puerta ${puerta}${destHint}.`
+      : `Tienes un paquete registrado · portal ${portal}, piso ${piso}, puerta ${puerta}${destHint}.`
   await prisma.vecindarioNotification.create({
     data: {
       recipientUserId: recipient.id,
@@ -518,6 +525,7 @@ communityParcelsRouter.post('/parcels', requireAuth, async (req, res) => {
     parcelId: created.id,
     deliveryKind,
     itemDescription,
+    recipientName,
   }).catch((e) => console.error('[parcels email]', e))
 
   res.status(201).json({ parcel: serializeParcel(created) })

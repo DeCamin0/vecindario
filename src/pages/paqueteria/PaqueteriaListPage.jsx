@@ -435,6 +435,11 @@ export default function PaqueteriaListPage() {
                           </span>
                           <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.puerta}</span>
                         </div>
+                        {p.recipientName?.trim() ? (
+                          <span className="pq-parcel-desc" title={p.recipientName.trim()}>
+                            {p.recipientName.trim()}
+                          </span>
+                        ) : null}
                         {special && p.itemDescription ? (
                           <span className="pq-parcel-desc" title={p.itemDescription}>
                             {p.itemDescription}

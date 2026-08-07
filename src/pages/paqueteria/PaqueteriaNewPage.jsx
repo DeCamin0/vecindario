@@ -20,6 +20,7 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
   const [portal, setPortal] = useState('')
   const [piso, setPiso] = useState('')
   const [puerta, setPuerta] = useState('')
+  const [recipientName, setRecipientName] = useState('')
   const [packageCount, setPackageCount] = useState(1)
   const [itemDescription, setItemDescription] = useState('')
   const [busy, setBusy] = useState(false)
@@ -101,6 +102,7 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
     }
     setBusy(true)
     try {
+      const dest = recipientName.trim().replace(/\s+/g, ' ')
       const body = {
         communityId,
         portal: portal.trim(),
@@ -109,6 +111,7 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
         packageCount: nBultos,
         deliveryKind: isSpecial ? PARCEL_KIND_SPECIAL : 'courier',
       }
+      if (dest) body.recipientName = dest.slice(0, 255)
       if (isSpecial) {
         body.itemDescription = desc.slice(0, 255)
       }
@@ -261,6 +264,23 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
               placeholder="Letra o número de puerta"
             />
           )}
+        </fieldset>
+
+        <fieldset className="pq-fieldset">
+          <legend className="admin-label">
+            Nombre destinatario <span className="auth-optional">(opcional)</span>
+          </legend>
+          <p className="admin-field-hint admin-field-hint--block" style={{ marginBottom: '0.5rem' }}>
+            Si aparece un nombre en el paquete distinto al del vecino de la vivienda, indícalo aquí.
+          </p>
+          <input
+            id="pq-recipient-name"
+            className="admin-input"
+            value={recipientName}
+            onChange={(e) => setRecipientName(e.target.value.slice(0, 255))}
+            autoComplete="name"
+            placeholder="Ej. María López"
+          />
         </fieldset>
 
         {isSpecial ? (
