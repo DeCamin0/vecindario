@@ -505,6 +505,9 @@ const emptyForm = {
   padelMinAdvanceHours: '24',
   padelOpenTime: '08:00',
   padelCloseTime: '22:00',
+  padelSecondWindowEnabled: false,
+  padelOpenTime2: '',
+  padelCloseTime2: '',
   /** Salones (sala reuniones, salón social, espacios propios): slots = franjas; day = día completo */
   salonBookingMode: 'slots',
   customSpaces: [],
@@ -1119,6 +1122,12 @@ export default function Admin() {
       padelMinAdvanceHours: String(c.padelMinAdvanceHours ?? 24),
       padelOpenTime: padWallClockForInput(c.padelOpenTime, '08:00'),
       padelCloseTime: padWallClockForInput(c.padelCloseTime, '22:00'),
+      padelSecondWindowEnabled: Boolean(
+        (c.padelOpenTime2 && String(c.padelOpenTime2).trim()) ||
+          (c.padelCloseTime2 && String(c.padelCloseTime2).trim()),
+      ),
+      padelOpenTime2: padWallClockForInput(c.padelOpenTime2, ''),
+      padelCloseTime2: padWallClockForInput(c.padelCloseTime2, ''),
       salonBookingMode: c.salonBookingMode === 'day' ? 'day' : 'slots',
       customSpaces: normalizeCustomSpacesFromApi(c.customLocations),
       planExpiresOn: planExpiresOnForInput(c.planExpiresOn),
@@ -1468,6 +1477,33 @@ export default function Admin() {
         setSaving(false)
         return
       }
+      let padelOpenTime2 = null
+      let padelCloseTime2 = null
+      if (form.padelSecondWindowEnabled) {
+        const o2 = normalizeHHMM(form.padelOpenTime2)
+        const c2 = normalizeHHMM(form.padelCloseTime2)
+        if (!o2 || !c2) {
+          setError('La segunda franja de pádel debe tener apertura y cierre, o desactívala.')
+          setSaving(false)
+          return
+        }
+        const open2Min = Number(o2.slice(0, 2)) * 60 + Number(o2.slice(3, 5))
+        const close2Min = Number(c2.slice(0, 2)) * 60 + Number(c2.slice(3, 5))
+        if (open2Min >= close2Min) {
+          setError('En la segunda franja, la apertura debe ser anterior al cierre.')
+          setSaving(false)
+          return
+        }
+        if (open2Min < closeMin) {
+          setError(
+            'La segunda franja debe empezar a la misma hora o después del cierre de la primera (sin solaparse).',
+          )
+          setSaving(false)
+          return
+        }
+        padelOpenTime2 = o2
+        padelCloseTime2 = c2
+      }
 
       const poolCapRaw = form.poolMaxOccupancy.trim()
       let poolMaxOccupancy = null
@@ -1601,6 +1637,8 @@ export default function Admin() {
         padelMinAdvanceHours,
         padelOpenTime,
         padelCloseTime,
+        padelOpenTime2,
+        padelCloseTime2,
         salonBookingMode: form.salonBookingMode === 'day' ? 'day' : 'slots',
         customLocations,
         planExpiresOn: form.planExpiresOn.trim() || null,
@@ -2715,6 +2753,9 @@ export default function Admin() {
                           plazo {Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))}{' '}
                           día(s) ·{' '}
                           {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
+                          {community.padelOpenTime2 && community.padelCloseTime2
+                            ? ` y ${community.padelOpenTime2}–${community.padelCloseTime2}`
+                            : ''}
                         </span>
                       </div>
                       <p className="admin-community-spaces-preview" title={spacesPreview(community.customLocations)}>
@@ -4127,6 +4168,55 @@ export default function Admin() {
                     />
                   </div>
                 </div>
+                <div className="admin-modal-field admin-modal-field--checkbox">
+                  <label className="admin-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={form.padelSecondWindowEnabled}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          padelSecondWindowEnabled: e.target.checked,
+                          ...(e.target.checked
+                            ? {}
+                            : { padelOpenTime2: '', padelCloseTime2: '' }),
+                        }))
+                      }
+                    />
+                    <span>Segunda franja (opcional)</span>
+                  </label>
+                  <p className="admin-field-hint">
+                    Ej. 10:00–15:00 y 17:00–22:00. La pausa intermedia no genera tramos reservables.
+                  </p>
+                </div>
+                {form.padelSecondWindowEnabled ? (
+                  <div className="admin-modal-row">
+                    <div className="admin-modal-field">
+                      <label className="admin-label" htmlFor="comm-padel-open-2">
+                        2ª franja: apertura
+                      </label>
+                      <input
+                        id="comm-padel-open-2"
+                        type="time"
+                        className="admin-input"
+                        value={form.padelOpenTime2}
+                        onChange={(e) => setForm((f) => ({ ...f, padelOpenTime2: e.target.value }))}
+                      />
+                    </div>
+                    <div className="admin-modal-field">
+                      <label className="admin-label" htmlFor="comm-padel-close-2">
+                        2ª franja: cierre
+                      </label>
+                      <input
+                        id="comm-padel-close-2"
+                        type="time"
+                        className="admin-input"
+                        value={form.padelCloseTime2}
+                        onChange={(e) => setForm((f) => ({ ...f, padelCloseTime2: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <div className="admin-modal-field admin-modal-field--checkbox">
                   <label className="admin-checkbox-label">
                     <input

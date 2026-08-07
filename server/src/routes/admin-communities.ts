@@ -69,6 +69,7 @@ import {
   parsePadelCourtLabel,
   parsePadelHoursField,
   parsePadelMinAdvanceHours,
+  parsePadelSecondWindow,
   parsePadelWallClock,
   parsePlanExpiresOn,
   parsePortalCount,
@@ -465,6 +466,16 @@ adminCommunitiesRouter.post('/', async (req, res) => {
     })
     return
   }
+  const padelWindow2 = parsePadelSecondWindow(
+    req.body?.padelOpenTime2,
+    req.body?.padelCloseTime2,
+    padelOpenTime,
+    padelCloseTime,
+  )
+  if (!padelWindow2.ok) {
+    res.status(400).json({ error: padelWindow2.error })
+    return
+  }
 
   const row = await prisma.community.create({
     data: {
@@ -515,6 +526,8 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       padelMinAdvanceHours,
       padelOpenTime,
       padelCloseTime,
+      padelOpenTime2: padelWindow2.open2,
+      padelCloseTime2: padelWindow2.close2,
       salonBookingMode,
       customLocations,
       companyId,
@@ -1380,6 +1393,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     padelMinAdvanceHours?: number
     padelOpenTime?: string
     padelCloseTime?: string
+    padelOpenTime2?: string | null
+    padelCloseTime2?: string | null
     salonBookingMode?: string
     customLocations?: ReturnType<typeof parseCustomLocations>
     planExpiresOn?: Date | null
@@ -1914,7 +1929,9 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   if (
     'padelMinAdvanceHours' in req.body ||
     'padelOpenTime' in req.body ||
-    'padelCloseTime' in req.body
+    'padelCloseTime' in req.body ||
+    'padelOpenTime2' in req.body ||
+    'padelCloseTime2' in req.body
   ) {
     const existing = await prisma.community.findUnique({
       where: { id },
@@ -1922,6 +1939,8 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
         padelMinAdvanceHours: true,
         padelOpenTime: true,
         padelCloseTime: true,
+        padelOpenTime2: true,
+        padelCloseTime2: true,
       },
     })
     if (!existing) {
@@ -1948,9 +1967,20 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
       })
       return
     }
+    const open2Raw =
+      'padelOpenTime2' in req.body ? req.body.padelOpenTime2 : existing.padelOpenTime2
+    const close2Raw =
+      'padelCloseTime2' in req.body ? req.body.padelCloseTime2 : existing.padelCloseTime2
+    const padelWindow2 = parsePadelSecondWindow(open2Raw, close2Raw, nextOpen, nextClose)
+    if (!padelWindow2.ok) {
+      res.status(400).json({ error: padelWindow2.error })
+      return
+    }
     data.padelMinAdvanceHours = nextAdv
     data.padelOpenTime = nextOpen
     data.padelCloseTime = nextClose
+    data.padelOpenTime2 = padelWindow2.open2
+    data.padelCloseTime2 = padelWindow2.close2
   }
   if ('customLocations' in req.body) {
     data.customLocations = parseCustomLocations(req.body.customLocations)

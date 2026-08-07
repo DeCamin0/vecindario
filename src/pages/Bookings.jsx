@@ -213,21 +213,9 @@ function padelMaxBookingHoursFromConfig(cfg) {
 }
 
 /**
- * Tramos de pádel: desde hora apertura hasta cierre, en bloques de `maxHoursPerBooking` horas.
- * Si apertura/cierre no son válidos, se usa 08:00–22:00 como respaldo.
+ * Tramos de pádel en una franja [openM, closeM), bloques de `durationMin`.
  */
-function buildPadelSlotsFromOpenCloseAndDuration(openTime, closeTime, maxHoursPerBooking) {
-  let openM = parseTimeToMinutes(openTime)
-  let closeM = parseTimeToMinutes(closeTime)
-  if (openM == null || closeM == null || openM >= closeM) {
-    openM = 8 * 60
-    closeM = 22 * 60
-  }
-
-  const h = Number(maxHoursPerBooking)
-  const durationMin =
-    Math.min(24, Math.max(PADEL_HOURS_MIN, Number.isFinite(h) ? h : 2)) * 60
-
+function buildPadelSlotsInWindow(openM, closeM, durationMin) {
   const slots = []
   let cur = openM
   while (cur + durationMin <= closeM) {
@@ -243,6 +231,52 @@ function buildPadelSlotsFromOpenCloseAndDuration(openTime, closeTime, maxHoursPe
     cur += durationMin
   }
   return slots
+}
+
+/**
+ * Tramos de pádel: franja 1 (apertura–cierre) y, opcionalmente, franja 2.
+ * Si la 1ª no es válida, se usa 08:00–22:00. La 2ª se ignora si está incompleta o inválida.
+ */
+function buildPadelSlotsFromOpenCloseAndDuration(
+  openTime,
+  closeTime,
+  maxHoursPerBooking,
+  openTime2,
+  closeTime2,
+) {
+  let openM = parseTimeToMinutes(openTime)
+  let closeM = parseTimeToMinutes(closeTime)
+  if (openM == null || closeM == null || openM >= closeM) {
+    openM = 8 * 60
+    closeM = 22 * 60
+  }
+
+  const h = Number(maxHoursPerBooking)
+  const durationMin =
+    Math.min(24, Math.max(PADEL_HOURS_MIN, Number.isFinite(h) ? h : 2)) * 60
+
+  const slots = buildPadelSlotsInWindow(openM, closeM, durationMin)
+
+  const open2M = parseTimeToMinutes(openTime2)
+  const close2M = parseTimeToMinutes(closeTime2)
+  if (
+    open2M != null &&
+    close2M != null &&
+    open2M < close2M &&
+    open2M >= closeM
+  ) {
+    slots.push(...buildPadelSlotsInWindow(open2M, close2M, durationMin))
+  }
+  return slots
+}
+
+function formatPadelScheduleLabel(openTime, closeTime, openTime2, closeTime2) {
+  const o1 = padTimeStr(openTime) || '08:00'
+  const c1 = padTimeStr(closeTime) || '22:00'
+  const o2 = padTimeStr(openTime2)
+  const c2 = padTimeStr(closeTime2)
+  if (o2 && c2) return `${o1} – ${c1} y ${o2} – ${c2}`
+  return `${o1} – ${c1}`
 }
 
 function slotStartLocalDate(dateKey, startMin) {
@@ -1259,6 +1293,8 @@ export default function Bookings() {
         communityBookingConfig.padelOpenTime,
         communityBookingConfig.padelCloseTime,
         spaceConfig.maxDurationHours,
+        communityBookingConfig.padelOpenTime2,
+        communityBookingConfig.padelCloseTime2,
       )
       const timeOk = filterPadelSlotsForBookableDate(base, booking.date)
       return timeOk.filter(
@@ -1294,6 +1330,8 @@ export default function Bookings() {
       communityBookingConfig.padelOpenTime,
       communityBookingConfig.padelCloseTime,
       spaceConfig.maxDurationHours,
+      communityBookingConfig.padelOpenTime2,
+      communityBookingConfig.padelCloseTime2,
     )
     const todayK = localDateKey(new Date())
     const useFullDaySlots = isStaffBookingMode && booking.date < todayK
@@ -1567,6 +1605,8 @@ export default function Bookings() {
         communityBookingConfig.padelOpenTime,
         communityBookingConfig.padelCloseTime,
         padelMaxBookingHoursFromConfig(communityBookingConfig),
+        communityBookingConfig.padelOpenTime2,
+        communityBookingConfig.padelCloseTime2,
       )
       const allowedKeys = padelCalendarDayKeys(
         communityBookingConfig.padelMinAdvanceHours,
@@ -1680,6 +1720,8 @@ export default function Bookings() {
             communityBookingConfig.padelOpenTime,
             communityBookingConfig.padelCloseTime,
             padelMaxBookingHoursFromConfig(communityBookingConfig),
+            communityBookingConfig.padelOpenTime2,
+            communityBookingConfig.padelCloseTime2,
           )
           const okSlots = filterPadelSlotsForBookableDate(baseSlots, booking.date)
           for (const meta of padelSlotsSortedByTime(okSlots, padelSlotIdsToBook)) {
@@ -2051,8 +2093,13 @@ export default function Bookings() {
                     {padelHorizonDaysForCopy === 1 ? 'día natural' : 'días naturales'} desde hoy hacia adelante (en
                     el día actual no se muestran tramos ya pasados). Horario{' '}
                     {resolvePadelCourtLabel(communityBookingConfig)}:{' '}
-                    {padTimeStr(communityBookingConfig.padelOpenTime) || '08:00'} –{' '}
-                    {padTimeStr(communityBookingConfig.padelCloseTime) || '22:00'}.
+                    {formatPadelScheduleLabel(
+                      communityBookingConfig.padelOpenTime,
+                      communityBookingConfig.padelCloseTime,
+                      communityBookingConfig.padelOpenTime2,
+                      communityBookingConfig.padelCloseTime2,
+                    )}
+                    .
                     {isStaffBookingMode ? (
                       <>
                         {' '}

@@ -86,6 +86,78 @@ export function parsePadelWallClock(raw: unknown, fallback: string): string {
   return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
 }
 
+/** HH:mm o null si vacío / inválido (para 2ª franja opcional). */
+export function parseOptionalPadelWallClock(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null
+  const s = typeof raw === 'string' ? raw.trim() : String(raw).trim()
+  if (!s) return null
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (!m) return null
+  const h = Number.parseInt(m[1], 10)
+  const mi = Number.parseInt(m[2], 10)
+  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null
+  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
+}
+
+/**
+ * Segunda franja: ambas vacías OK; una sola llena → error; ambas → open2 < close2 y open2 >= close1.
+ */
+export function parsePadelSecondWindow(
+  open2Raw: unknown,
+  close2Raw: unknown,
+  open1: string,
+  close1: string,
+):
+  | { ok: true; open2: string | null; close2: string | null }
+  | { ok: false; error: string } {
+  const open2Empty =
+    open2Raw === undefined ||
+    open2Raw === null ||
+    (typeof open2Raw === 'string' && !open2Raw.trim())
+  const close2Empty =
+    close2Raw === undefined ||
+    close2Raw === null ||
+    (typeof close2Raw === 'string' && !close2Raw.trim())
+
+  if (open2Empty && close2Empty) {
+    return { ok: true, open2: null, close2: null }
+  }
+  if (open2Empty || close2Empty) {
+    return {
+      ok: false,
+      error: 'La segunda franja de pádel debe tener apertura y cierre, o dejar ambas vacías.',
+    }
+  }
+
+  const open2 = parseOptionalPadelWallClock(open2Raw)
+  const close2 = parseOptionalPadelWallClock(close2Raw)
+  if (!open2 || !close2) {
+    return { ok: false, error: 'La segunda franja de pádel no tiene un horario válido (HH:mm).' }
+  }
+
+  const o1 = padelHHMMToMinutes(open1)
+  const c1 = padelHHMMToMinutes(close1)
+  const o2 = padelHHMMToMinutes(open2)
+  const c2 = padelHHMMToMinutes(close2)
+  if (o1 == null || c1 == null || o2 == null || c2 == null) {
+    return { ok: false, error: 'Horario de pádel no válido.' }
+  }
+  if (o2 >= c2) {
+    return {
+      ok: false,
+      error: 'En la segunda franja, la apertura debe ser anterior al cierre.',
+    }
+  }
+  if (o2 < c1) {
+    return {
+      ok: false,
+      error:
+        'La segunda franja debe empezar a la misma hora o después del cierre de la primera (sin solaparse).',
+    }
+  }
+  return { ok: true, open2, close2 }
+}
+
 export function parsePlanExpiresOn(
   raw: unknown,
 ): { ok: true; value: Date | null } | { ok: false; error: string } {

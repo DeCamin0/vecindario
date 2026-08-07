@@ -188,6 +188,10 @@ model Community {
   padelOpenTime  String @default("08:00") @map("padel_open_time") @db.VarChar(5)
   /// Fin del horario reservable de pádel (HH:mm); debe ser posterior a padelOpenTime el mismo día.
   padelCloseTime String @default("22:00") @map("padel_close_time") @db.VarChar(5)
+  /// Segunda franja opcional (inicio). Ambas null = solo una franja.
+  padelOpenTime2  String? @map("padel_open_time_2") @db.VarChar(5)
+  /// Segunda franja opcional (fin); debe ser posterior a padelOpenTime2 y no solaparse con la primera.
+  padelCloseTime2 String? @map("padel_close_time_2") @db.VarChar(5)
   /// Salones (sala reuniones, salón social, espacios custom): `slots` = franjas mañana/tarde/noche; `day` = reserva por día completo.
   salonBookingMode String @default("slots") @map("salon_booking_mode") @db.VarChar(32)
   /// Salones / espacios con nombre propio: [{ "id", "name" }, …]

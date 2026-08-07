@@ -43,6 +43,7 @@ import {
   parsePadelCourtLabel,
   parsePadelHoursField,
   parsePadelMinAdvanceHours,
+  parsePadelSecondWindow,
   parsePadelWallClock,
   parsePlanExpiresOn,
   parsePortalCount,
@@ -253,6 +254,16 @@ companyCommunitiesRouter.post('/', async (req, res) => {
     })
     return
   }
+  const padelWindow2 = parsePadelSecondWindow(
+    body?.padelOpenTime2,
+    body?.padelCloseTime2,
+    padelOpenTime,
+    padelCloseTime,
+  )
+  if (!padelWindow2.ok) {
+    res.status(400).json({ error: padelWindow2.error })
+    return
+  }
 
   const boardVocalsJson = Object.prototype.hasOwnProperty.call(body ?? {}, 'boardVocalsJson')
     ? parseBoardVocals(body.boardVocalsJson)
@@ -304,6 +315,8 @@ companyCommunitiesRouter.post('/', async (req, res) => {
       padelMinAdvanceHours,
       padelOpenTime,
       padelCloseTime,
+      padelOpenTime2: padelWindow2.open2,
+      padelCloseTime2: padelWindow2.close2,
       salonBookingMode,
       customLocations,
     },
