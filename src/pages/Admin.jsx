@@ -2751,7 +2751,7 @@ export default function Admin() {
                           {formatPadelHoursDisplay(community.padelMaxHoursPerBooking, 2)} h/reserva ·{' '}
                           {formatPadelHoursDisplay(community.padelMaxHoursPerApartmentPerDay, 4)} h/vivienda/día · antelación{' '}
                           {Number(community.padelMinAdvanceHours) === 0
-                            ? 'sin antelación (solo hoy)'
+                            ? 'sin antelación (calendario completo)'
                             : `plazo ${Math.min(14, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))} día(s)`}{' '}
                           · {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
                           {community.padelOpenTime2 && community.padelCloseTime2
@@ -4141,11 +4141,11 @@ export default function Admin() {
                         }))
                       }
                     />
-                    <span>Sin antelación (solo día de hoy)</span>
+                    <span>Sin antelación (calendario completo)</span>
                   </label>
                   <p className="admin-field-hint">
-                    Si está marcado, los vecinos solo pueden reservar tramos de hoy. Si no, configura abajo cuántos
-                    días hacia adelante pueden elegir fecha.
+                    Marcado: los vecinos pueden reservar en todo el calendario (hoy y hasta ~14 días). Desmarcado:
+                    limita abajo cuántos días hacia adelante pueden elegir fecha.
                   </p>
                 </div>
                 {String(form.padelMinAdvanceHours) !== '0' ? (
@@ -4169,7 +4169,8 @@ export default function Admin() {
                       }}
                     />
                     <p className="admin-field-hint">
-                      Se traduce a días naturales desde hoy (24 → 1 día, 48 → 2). No es «horas antes del tramo».
+                      Cuántos días hacia adelante pueden reservar (24 → 1 día, 48 → 2). No es «horas antes del
+                      tramo».
                     </p>
                   </div>
                 ) : null}

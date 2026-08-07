@@ -286,11 +286,14 @@ function slotStartLocalDate(dateKey, startMin) {
   return new Date(y, mo - 1, d, h, mi, 0, 0)
 }
 
-/** Ventana en días naturales desde hoy hacia adelante (p. ej. 48 → 2). 0 = sin antelación (solo hoy). */
+/**
+ * Ventana en días naturales hacia adelante (p. ej. 48 → 2).
+ * 0 = sin antelación → calendario completo (14 días).
+ */
 function padelHorizonDaysFromConfigHours(hours) {
   const h = Number(hours)
   if (!Number.isFinite(h) || h < 0) return 7
-  if (h === 0) return 0
+  if (h === 0) return 14
   return Math.min(14, Math.max(1, Math.ceil(h / 24)))
 }
 
@@ -345,7 +348,7 @@ function padelCalendarDayKeys(configHours, maxDaysInAdvanceRoll, now = new Date(
   const h = Number(configHours)
   let nFuture
   if (!Number.isFinite(h) || h < 0) nFuture = rollN
-  else if (h === 0) nFuture = 0
+  else if (h === 0) nFuture = 14 // sin antelación: calendario amplio (hoy + 14 días)
   else nFuture = Math.min(14, Math.max(1, padelHorizonDaysFromConfigHours(h)))
 
   return [...prefix, ...padelFutureKeysFromTomorrow(todayStart, addDays, nFuture)]
@@ -2091,8 +2094,11 @@ export default function Bookings() {
                   <>
                     {' '}
                     ·{' '}
-                    {padelHorizonDaysForCopy === 0 ? (
-                      <>Sin antelación: solo se puede reservar el día de hoy (tramos aún no empezados).</>
+                    {Number(communityBookingConfig.padelMinAdvanceHours) === 0 ? (
+                      <>
+                        Sin antelación: puedes reservar en el calendario (hasta {padelHorizonDaysForCopy}{' '}
+                        días; en el día actual no se muestran tramos ya pasados).
+                      </>
                     ) : (
                       <>
                         Plazo para elegir fecha: {padelHorizonDaysForCopy}{' '}

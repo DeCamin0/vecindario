@@ -908,7 +908,7 @@ export default function CompanyAdminDashboard() {
                             }))
                           }
                         />
-                        <span>Sin antelación (solo día de hoy)</span>
+                        <span>Sin antelación (calendario completo)</span>
                       </label>
                     </div>
                     {String(form.padelMinAdvanceHours) !== '0' ? (
