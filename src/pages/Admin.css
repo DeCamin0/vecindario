@@ -1059,6 +1059,46 @@
   color: var(--text-muted);
 }
 
+.admin-onboarding-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border, #e2e8f0);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.admin-onboarding-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.admin-onboarding-group__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.admin-onboarding-group__actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.admin-onboarding-group__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+.admin-checkbox-label--nested {
+  align-items: flex-start;
+}
+
 .admin-spaces-head {
   display: flex;
   align-items: center;

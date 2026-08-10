@@ -10,6 +10,7 @@ import { buildCommunityLoginUrl } from '../utils/communityLoginUrl.js'
 import {
   conciergeEmailsFromCommunity,
   conciergeEmailsSummary,
+  conciergeDisplayItems,
   conciergePayloadFromForm,
   emptyConciergeSlot,
   hasAnyConciergeEmail,
@@ -54,14 +55,23 @@ function newUniqueSpaceId() {
 }
 
 /** Emails de administradores de empresa (cuando la comunidad tiene companyId y no admin en ficha). */
-function companyAdminEmailsForCommunity(community, companiesList) {
+function companyAdminRowsForCommunity(community, companiesList) {
   const coId = community?.companyId != null ? Number(community.companyId) : null
   if (!coId || !Array.isArray(companiesList)) return []
   const co = companiesList.find((x) => Number(x.id) === coId)
   if (!co || !Array.isArray(co.companyAdmins)) return []
   return co.companyAdmins
-    .map((a) => (typeof a.email === 'string' ? a.email.trim() : ''))
+    .map((a) => {
+      const email = typeof a.email === 'string' ? a.email.trim() : ''
+      if (!email) return null
+      const name = typeof a.name === 'string' ? a.name.trim() : ''
+      return { email, name, id: a.id }
+    })
     .filter(Boolean)
+}
+
+function companyAdminEmailsForCommunity(community, companiesList) {
+  return companyAdminRowsForCommunity(community, companiesList).map((a) => a.email)
 }
 
 function adminOnboardingMailSummary(community, companiesList, companyNameById) {
@@ -538,7 +548,8 @@ export default function Admin() {
   const [onboardingMailSel, setOnboardingMailSel] = useState({
     invitePresident: false,
     inviteAdmin: false,
-    inviteConcierge: false,
+    inviteAdminEmails: [],
+    inviteConciergeEmails: [],
     invitePoolStaff: false,
     contactSummary: false,
   })
@@ -1709,7 +1720,8 @@ export default function Admin() {
     setOnboardingMailSel({
       invitePresident: false,
       inviteAdmin: false,
-      inviteConcierge: false,
+      inviteAdminEmails: [],
+      inviteConciergeEmails: [],
       invitePoolStaff: false,
       contactSummary: false,
     })
@@ -1721,18 +1733,48 @@ export default function Admin() {
     setOnboardingMailCommunity(null)
   }
 
+  const toggleOnboardingEmail = (field, email, checked) => {
+    const key = String(email || '').trim().toLowerCase()
+    if (!key) return
+    setOnboardingMailSel((s) => {
+      const prev = Array.isArray(s[field]) ? s[field] : []
+      const set = new Set(prev.map((e) => String(e).trim().toLowerCase()).filter(Boolean))
+      if (checked) set.add(key)
+      else set.delete(key)
+      return { ...s, [field]: [...set] }
+    })
+  }
+
   const submitOnboardingMail = async (e) => {
     e.preventDefault()
     if (!accessToken || !onboardingMailCommunity) return
     setOnboardingMailSending(true)
     setError('')
     try {
+      const conserjeEmails = Array.isArray(onboardingMailSel.inviteConciergeEmails)
+        ? onboardingMailSel.inviteConciergeEmails
+        : []
+      const adminEmails = Array.isArray(onboardingMailSel.inviteAdminEmails)
+        ? onboardingMailSel.inviteAdminEmails
+        : []
+      const fichaAdmin = Boolean(onboardingMailCommunity.communityAdminEmail?.trim())
+      const body = {
+        invitePresident: onboardingMailSel.invitePresident,
+        inviteAdmin: fichaAdmin
+          ? onboardingMailSel.inviteAdmin
+          : adminEmails.length > 0,
+        inviteConcierge: conserjeEmails.length > 0,
+        invitePoolStaff: onboardingMailSel.invitePoolStaff,
+        contactSummary: onboardingMailSel.contactSummary,
+        ...(conserjeEmails.length ? { conciergeEmails: conserjeEmails } : {}),
+        ...(!fichaAdmin && adminEmails.length ? { adminEmails } : {}),
+      }
       const res = await fetch(
         apiUrl(`/api/admin/communities/${onboardingMailCommunity.id}/send-onboarding-mails`),
         {
           method: 'POST',
           headers: { ...jsonAuthHeaders(accessToken), 'Content-Type': 'application/json' },
-          body: JSON.stringify(onboardingMailSel),
+          body: JSON.stringify(body),
         },
       )
       const d = await res.json().catch(() => ({}))
@@ -3791,7 +3833,8 @@ export default function Admin() {
             </h2>
             <p className="admin-field-hint admin-field-hint--block">
               Elige a quién enviar el correo con código VEC y acceso (y contraseña provisional si la cuenta es
-              nueva). Configura SMTP en el servidor para que lleguen los mensajes.
+              nueva). Puedes marcar solo un conserje o suplente concreto. Configura SMTP en el servidor para que
+              lleguen los mensajes.
             </p>
             <form className="admin-modal-form" onSubmit={submitOnboardingMail}>
               <div className="admin-onboarding-checkboxes">
@@ -3811,49 +3854,147 @@ export default function Admin() {
                     </span>
                   </span>
                 </label>
-                <label className="admin-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={onboardingMailSel.inviteAdmin}
-                    onChange={(e) =>
-                      setOnboardingMailSel((s) => ({ ...s, inviteAdmin: e.target.checked }))
-                    }
-                    disabled={
-                      !hasAdminOnboardingMailTarget(onboardingMailCommunity, companiesList)
-                    }
-                  />
-                  <span>
-                    {onboardingMailCommunity.companyId != null &&
-                    !onboardingMailCommunity.communityAdminEmail?.trim()
-                      ? 'Administrador de empresa'
-                      : 'Administrador de comunidad'}{' '}
-                    <span className="admin-onboarding-mail-addr">
-                      (
-                      {adminOnboardingMailSummary(
-                        onboardingMailCommunity,
-                        companiesList,
-                        companyNameById,
-                      )}
-                      )
+
+                {onboardingMailCommunity.communityAdminEmail?.trim() ? (
+                  <label className="admin-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={onboardingMailSel.inviteAdmin}
+                      onChange={(e) =>
+                        setOnboardingMailSel((s) => ({ ...s, inviteAdmin: e.target.checked }))
+                      }
+                    />
+                    <span>
+                      Administrador de comunidad{' '}
+                      <span className="admin-onboarding-mail-addr">
+                        ({onboardingMailCommunity.communityAdminEmail.trim()})
+                      </span>
                     </span>
-                  </span>
-                </label>
-                <label className="admin-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={onboardingMailSel.inviteConcierge}
-                    onChange={(e) =>
-                      setOnboardingMailSel((s) => ({ ...s, inviteConcierge: e.target.checked }))
-                    }
-                    disabled={!hasAnyConciergeEmail(onboardingMailCommunity)}
-                  />
-                  <span>
-                    Conserje(s){' '}
-                    <span className="admin-onboarding-mail-addr">
-                      ({conciergeEmailsSummary(onboardingMailCommunity) || 'sin emails'})
+                  </label>
+                ) : companyAdminRowsForCommunity(onboardingMailCommunity, companiesList).length > 0 ? (
+                  <div className="admin-onboarding-group">
+                    <p className="admin-onboarding-group__title">
+                      Administrador de empresa{' '}
+                      <span className="admin-onboarding-mail-addr">
+                        (elige uno o varios)
+                      </span>
+                    </p>
+                    <div className="admin-onboarding-group__list">
+                      {companyAdminRowsForCommunity(onboardingMailCommunity, companiesList).map((a) => {
+                        const key = a.email.trim().toLowerCase()
+                        const checked = (onboardingMailSel.inviteAdminEmails || []).includes(key)
+                        return (
+                          <label key={key} className="admin-checkbox-label admin-checkbox-label--nested">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) =>
+                                toggleOnboardingEmail('inviteAdminEmails', a.email, e.target.checked)
+                              }
+                            />
+                            <span>
+                              {a.name ? `${a.name} ` : ''}
+                              <span className="admin-onboarding-mail-addr">({a.email})</span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <label className="admin-checkbox-label">
+                    <input type="checkbox" checked={false} disabled />
+                    <span>
+                      Administrador{' '}
+                      <span className="admin-onboarding-mail-addr">
+                        ({adminOnboardingMailSummary(
+                          onboardingMailCommunity,
+                          companiesList,
+                          companyNameById,
+                        )}
+                        )
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                )}
+
+                {hasAnyConciergeEmail(onboardingMailCommunity) ? (
+                  <div className="admin-onboarding-group">
+                    <div className="admin-onboarding-group__head">
+                      <p className="admin-onboarding-group__title">
+                        Conserje(s){' '}
+                        <span className="admin-onboarding-mail-addr">(elige uno o varios)</span>
+                      </p>
+                      <div className="admin-onboarding-group__actions">
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => {
+                            const all = conciergeDisplayItems(onboardingMailCommunity).map((x) =>
+                              x.email.trim().toLowerCase(),
+                            )
+                            setOnboardingMailSel((s) => ({ ...s, inviteConciergeEmails: all }))
+                          }}
+                        >
+                          Todos
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() =>
+                            setOnboardingMailSel((s) => ({ ...s, inviteConciergeEmails: [] }))
+                          }
+                        >
+                          Ninguno
+                        </button>
+                      </div>
+                    </div>
+                    <div className="admin-onboarding-group__list">
+                      {conciergeDisplayItems(onboardingMailCommunity).map((person) => {
+                        const key = person.email.trim().toLowerCase()
+                        const checked = (onboardingMailSel.inviteConciergeEmails || []).includes(key)
+                        const suffix =
+                          person.kind === 'suplente'
+                            ? ' [supl.]'
+                            : person.active === false
+                              ? ' (inactivo)'
+                              : ''
+                        return (
+                          <label
+                            key={`${person.kind}-${key}`}
+                            className="admin-checkbox-label admin-checkbox-label--nested"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) =>
+                                toggleOnboardingEmail(
+                                  'inviteConciergeEmails',
+                                  person.email,
+                                  e.target.checked,
+                                )
+                              }
+                            />
+                            <span>
+                              {person.name}
+                              {suffix}{' '}
+                              <span className="admin-onboarding-mail-addr">({person.email})</span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <label className="admin-checkbox-label">
+                    <input type="checkbox" checked={false} disabled />
+                    <span>
+                      Conserje(s){' '}
+                      <span className="admin-onboarding-mail-addr">(sin emails)</span>
+                    </span>
+                  </label>
+                )}
+
                 <label className="admin-checkbox-label">
                   <input
                     type="checkbox"
@@ -3899,7 +4040,8 @@ export default function Admin() {
                     !(
                       onboardingMailSel.invitePresident ||
                       onboardingMailSel.inviteAdmin ||
-                      onboardingMailSel.inviteConcierge ||
+                      (onboardingMailSel.inviteAdminEmails || []).length > 0 ||
+                      (onboardingMailSel.inviteConciergeEmails || []).length > 0 ||
                       onboardingMailSel.invitePoolStaff ||
                       onboardingMailSel.contactSummary
                     )

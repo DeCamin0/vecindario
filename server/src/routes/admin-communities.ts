@@ -568,10 +568,29 @@ adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
   const invitePoolStaff = parseBool(req.body?.invitePoolStaff, false)
   const contactSummary = parseBool(req.body?.contactSummary, false)
 
+  const parseEmailList = (raw: unknown): string[] => {
+    if (!Array.isArray(raw)) return []
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const item of raw) {
+      if (typeof item !== 'string') continue
+      const n = item.trim().toLowerCase()
+      if (!n || seen.has(n)) continue
+      seen.add(n)
+      out.push(n)
+    }
+    return out
+  }
+  const conciergeEmails = parseEmailList(req.body?.conciergeEmails)
+  const adminEmails = parseEmailList(req.body?.adminEmails)
+
+  const inviteConciergeEffective = inviteConcierge || conciergeEmails.length > 0
+  const inviteAdminEffective = inviteAdmin || adminEmails.length > 0
+
   if (
     !invitePresident &&
-    !inviteAdmin &&
-    !inviteConcierge &&
+    !inviteAdminEffective &&
+    !inviteConciergeEffective &&
     !invitePoolStaff &&
     !contactSummary
   ) {
@@ -591,10 +610,12 @@ adminCommunitiesRouter.post('/:id/send-onboarding-mails', async (req, res) => {
   try {
     const result = await sendCommunityOnboardingEmails(community, {
       invitePresident,
-      inviteAdmin,
-      inviteConcierge,
+      inviteAdmin: inviteAdminEffective,
+      inviteConcierge: inviteConciergeEffective,
       invitePoolStaff,
       contactSummary,
+      ...(conciergeEmails.length ? { conciergeEmails } : {}),
+      ...(adminEmails.length ? { adminEmails } : {}),
     })
     res.json(result)
   } catch (e) {

@@ -58,6 +58,16 @@ export type OnboardingMailSelection = {
   inviteConcierge: boolean
   invitePoolStaff: boolean
   contactSummary: boolean
+  /**
+   * Si hay emails, solo se invita a esos conserjes (entre los de la ficha).
+   * Vacío / omitido + inviteConcierge → todos los conserjes.
+   */
+  conciergeEmails?: string[]
+  /**
+   * Si hay emails, solo esos admin (community_admin / company_admin).
+   * Vacío / omitido + inviteAdmin → todos los admin del grupo.
+   */
+  adminEmails?: string[]
 }
 
 function normEmail(s: string | null | undefined): string | null {
@@ -205,12 +215,32 @@ async function buildAllInviteTasks(community: Community): Promise<InviteTask[]> 
   return appendCompanyAdminInviteTasks(community, base)
 }
 
+function emailFilterSet(raw: unknown): Set<string> | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const s = new Set<string>()
+  for (const item of raw) {
+    const n = normEmail(typeof item === 'string' ? item : null)
+    if (n) s.add(n)
+  }
+  return s.size ? s : null
+}
+
 function filterTasksBySelection(tasks: InviteTask[], sel: OnboardingMailSelection): InviteTask[] {
+  const conciergeOnly = emailFilterSet(sel.conciergeEmails)
+  const adminOnly = emailFilterSet(sel.adminEmails)
   return tasks.filter((t) => {
     if (t.dualCaption) return sel.invitePresident || sel.inviteAdmin
     if (t.role === 'president') return sel.invitePresident
-    if (t.role === 'community_admin' || t.role === 'company_admin') return sel.inviteAdmin
-    if (t.role === 'concierge') return sel.inviteConcierge
+    if (t.role === 'community_admin' || t.role === 'company_admin') {
+      if (!sel.inviteAdmin) return false
+      if (adminOnly) return adminOnly.has(t.email)
+      return true
+    }
+    if (t.role === 'concierge') {
+      if (!sel.inviteConcierge) return false
+      if (conciergeOnly) return conciergeOnly.has(t.email)
+      return true
+    }
     if (t.role === 'pool_staff') return sel.invitePoolStaff
     return false
   })
