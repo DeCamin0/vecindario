@@ -1,0 +1,229 @@
+/* Plan y facturación — resumen en cards (V7, tokens --sa-*). Sin rediseño V4 de la card. */
+
+.cbs {
+  margin-top: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+  border-radius: var(--sa-radius-sm, 8px);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 55%, #fff);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.cbs__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.cbs__title {
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--sa-text-quiet, #64748b);
+}
+
+.cbs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  border: 1px solid transparent;
+}
+
+.cbs-badge--unconfigured {
+  background: color-mix(in srgb, #64748b 14%, transparent);
+  border-color: color-mix(in srgb, #64748b 35%, transparent);
+  color: #475569;
+}
+
+.cbs-badge--billable {
+  background: color-mix(in srgb, #0f766e 14%, transparent);
+  border-color: color-mix(in srgb, #0f766e 40%, transparent);
+  color: #0f766e;
+}
+
+.cbs-badge--demo {
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  border-color: color-mix(in srgb, #2563eb 35%, transparent);
+  color: #1d4ed8;
+}
+
+.cbs-badge--courtesy {
+  background: color-mix(in srgb, #7c3aed 12%, transparent);
+  border-color: color-mix(in srgb, #7c3aed 35%, transparent);
+  color: #6d28d9;
+}
+
+.cbs-badge--promo {
+  background: color-mix(in srgb, #c2410c 12%, transparent);
+  border-color: color-mix(in srgb, #c2410c 35%, transparent);
+  color: #c2410c;
+}
+
+.cbs-badge--legacy {
+  background: color-mix(in srgb, #a16207 12%, transparent);
+  border-color: color-mix(in srgb, #a16207 40%, transparent);
+  color: #a16207;
+}
+
+.cbs-badge--non_billable {
+  background: color-mix(in srgb, #b91c1c 12%, transparent);
+  border-color: color-mix(in srgb, #b91c1c 35%, transparent);
+  color: #b91c1c;
+}
+
+.cbs__plan {
+  margin: 0 0 0.15rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--sa-text, #0a0f1a);
+}
+
+.cbs__meta,
+.cbs__modules,
+.cbs__hint,
+.cbs__muted,
+.cbs__ok,
+.cbs__warn,
+.cbs__total {
+  margin: 0.12rem 0 0;
+}
+
+.cbs__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--sa-text-muted, #475569);
+}
+
+.cbs-mode {
+  display: inline-flex;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: var(--sa-surface, #fff);
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--sa-text-muted, #475569);
+}
+
+.cbs__muted,
+.cbs__hint {
+  color: var(--sa-text-quiet, #64748b);
+  font-size: 0.78rem;
+}
+
+.cbs__total {
+  font-weight: 750;
+  margin-top: 0.3rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--sa-text, #0a0f1a);
+}
+
+.cbs__modules {
+  font-size: 0.76rem;
+  color: var(--sa-text-quiet, #64748b);
+}
+
+.cbs__warn {
+  color: #b45309;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.cbs__ok {
+  color: var(--sa-text-quiet, #64748b);
+  font-size: 0.76rem;
+}
+
+.cbs--error .cbs__muted {
+  color: #b91c1c;
+}
+
+.cbs__actions {
+  margin-top: 0.45rem;
+}
+
+.cbs-diff {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--sa-radius-sm, 8px);
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: var(--sa-surface, #fff);
+}
+
+.cbs-diff--ok {
+  background: color-mix(in srgb, #0f766e 7%, transparent);
+  border-color: color-mix(in srgb, #0f766e 22%, transparent);
+}
+
+.cbs-diff--warn {
+  background: color-mix(in srgb, #b45309 8%, transparent);
+  border-color: color-mix(in srgb, #b45309 26%, transparent);
+}
+
+.cbs-diff__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.cbs-diff__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #92400e;
+}
+
+.cbs-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.cbs-chip--ok {
+  background: color-mix(in srgb, #0f766e 14%, transparent);
+  color: #0f766e;
+}
+
+.cbs-chip--warn {
+  background: color-mix(in srgb, #b45309 14%, transparent);
+  color: #92400e;
+}
+
+.cbs-link {
+  display: inline-block;
+  margin-top: 0.3rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--sa-accent, #2563eb);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cbs-link:hover {
+  color: color-mix(in srgb, var(--sa-accent, #2563eb) 80%, #000);
+}
+
+.cbs-diff__panel {
+  margin-top: 0.4rem;
+  padding-top: 0.3rem;
+  border-top: 1px dashed var(--sa-border, #d8dee8);
+}

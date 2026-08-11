@@ -1,0 +1,82 @@
+/**
+ * V7 — Hub Plan y facturación (tokens --sa-*).
+ */
+
+.sa-billing-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sa-billing-hub__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 1rem;
+  padding: 0.15rem 0 0.35rem;
+  border-bottom: 1px solid var(--sa-border-subtle, #e6ebf2);
+}
+
+.sa-billing-hub__tabs {
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.2rem;
+  border-radius: var(--sa-radius-sm, 8px);
+  background: var(--sa-bg-muted, #e9eef4);
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+}
+
+.sa-billing-hub__tab {
+  margin: 0;
+  padding: 0.45rem 0.95rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--sa-radius-sm, 8px) - 2px);
+  background: transparent;
+  color: var(--sa-text-muted, #475569);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.sa-billing-hub__tab:hover {
+  color: var(--sa-text, #0a0f1a);
+  background: color-mix(in srgb, var(--sa-surface, #fff) 70%, transparent);
+}
+
+.sa-billing-hub__tab.is-active {
+  background: var(--sa-surface, #fff);
+  color: var(--sa-accent, #2563eb);
+  border-color: color-mix(in srgb, var(--sa-accent, #2563eb) 18%, transparent);
+  box-shadow: var(--sa-shadow, 0 1px 2px rgba(15, 23, 42, 0.04));
+}
+
+.sa-billing-hub__hint {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--sa-text-quiet, #64748b);
+  max-width: 36rem;
+}
+
+.sa-billing-hub__pane[hidden] {
+  display: none !important;
+}
+
+/* Embedded panels: less chrome, denser under hub */
+.sa-billing-hub .bcd.admin-section,
+.sa-billing-hub .bcp.admin-section {
+  margin-top: 0;
+}
+
+.sa-billing-hub .bcd.admin-section > .admin-section-head,
+.sa-billing-hub .bcp.admin-section > .admin-section-head {
+  margin-bottom: 0.55rem;
+}
+
+.sa-billing-hub .bcd.admin-section > .admin-section-head .admin-section-title,
+.sa-billing-hub .bcp.admin-section > .admin-section-head .admin-section-title {
+  font-size: 1rem;
+}

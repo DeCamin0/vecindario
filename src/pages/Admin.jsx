@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   useAuth,
   VEC_IMPERSONATE_CHILD_READY,
@@ -18,26 +18,37 @@ import {
 import ConciergeStaffEditor from '../components/ConciergeStaffEditor.jsx'
 import CommunityLoginQrModal from '../components/CommunityLoginQrModal.jsx'
 import { useDialog } from '../context/DialogContext.jsx'
-import CommunityDashboardStats from '../components/CommunityDashboardStats.jsx'
+import CommunityBillingEditor from '../components/CommunityBillingEditor.jsx'
+import SuperAdminShell from '../components/super-admin/SuperAdminShell.jsx'
+import SuperAdminHomeDashboard from '../components/super-admin/SuperAdminHomeDashboard.jsx'
+import SuperAdminBillingHub from '../components/super-admin/SuperAdminBillingHub.jsx'
+import SuperAdminCommunitiesView from '../components/super-admin/SuperAdminCommunitiesView.jsx'
+import SuperAdminCompaniesView from '../components/super-admin/SuperAdminCompaniesView.jsx'
+import SaFormSection from '../components/super-admin/SaFormSection.jsx'
+import {
+  SA_SECTION_BILLING,
+  SA_SECTION_COMUNIDADES,
+  SA_SECTION_EMPRESAS,
+  SA_SECTION_INICIO,
+  SA_SECTION_TITLES,
+  buildSaNavItems,
+  normalizeSaSection,
+} from '../components/super-admin/superAdminNav.js'
+import { useAdminBillingCommunitiesSummary } from '../hooks/useAdminBillingCommunitiesSummary.js'
+import { useAdminBillingSummary } from '../hooks/useAdminBillingSummary.js'
 import {
   SERVICE_CATEGORIES,
   defaultServiceCategoryModesRecord,
 } from '../constants/serviceRequests.js'
 import { openVecindarioImpersonationTab } from '../utils/openVecindarioImpersonationTab.js'
 import {
-  formatPadelHoursDisplay,
   formatPadelHoursInputValue,
   parsePadelHoursFormValue,
   sanitizePadelHoursInput,
 } from '../utils/padelHours.js'
 import './Admin.css'
-
-function statusLabel(status) {
-  if (status === 'demo') return 'Demo'
-  if (status === 'inactive') return 'Inactive'
-  if (status === 'pending_approval') return 'Pendiente'
-  return 'Active'
-}
+import '../components/super-admin/SuperAdminShell.css'
+import '../components/super-admin/SuperAdminModals.css'
 
 /** Mismo criterio que el servidor: slug estable derivado del nombre (solo para datos antiguos sin id). */
 function slugFromNameClient(name) {
@@ -90,13 +101,6 @@ function adminOnboardingMailSummary(community, companiesList, companyNameById) {
     return 'sin email en ficha ni administradores en la empresa'
   }
   return 'sin email'
-}
-
-function hasAdminOnboardingMailTarget(community, companiesList) {
-  return (
-    Boolean(community.communityAdminEmail?.trim()) ||
-    companyAdminEmailsForCommunity(community, companiesList).length > 0
-  )
 }
 
 /** Valor válido para input type="time" (HH:mm). */
@@ -177,36 +181,10 @@ function normalizeCustomSpacesFromApi(customLocations) {
   })
 }
 
-function spacesPreview(customLocations) {
-  if (!Array.isArray(customLocations) || customLocations.length === 0) return '—'
-  return customLocations
-    .map((x) => (typeof x?.name === 'string' ? x.name : ''))
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(', ')
-}
-
-/** Valor para input type="date" desde API (ISO / DATE). */
 function planExpiresOnForInput(raw) {
   if (raw == null || raw === '') return ''
   const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(raw))
   return m ? m[1] : ''
-}
-
-/** Etiqueta legible en tarjeta (calendario UTC = día guardado en BD). */
-function formatPlanExpiresForCard(iso) {
-  if (iso == null || iso === '') return null
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso))
-  if (!m) return null
-  const y = Number(m[1])
-  const mo = Number(m[2])
-  const da = Number(m[3])
-  return new Date(Date.UTC(y, mo - 1, da)).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
 }
 
 function normalizePortalLabelsFromApi(raw, portalCount) {
@@ -422,18 +400,6 @@ function estimatePortalDwellingUnitsFromDraft(d) {
   return total
 }
 
-/** Resumen en tarjeta: muestra alias o «Portal N». */
-function portalsAliasesPreview(portalCount, portalLabels) {
-  const n = Number(portalCount) || 1
-  const labels = normalizePortalLabelsFromApi(portalLabels, n)
-  const parts = labels.map((label, i) => {
-    const t = label && String(label).trim()
-    return t || `Portal ${i + 1}`
-  })
-  if (parts.length <= 5) return parts.join(' · ')
-  return `${parts.slice(0, 5).join(' · ')}…`
-}
-
 function formatPresidentOnCard(c) {
   const pp = (c.presidentPortal || '').trim()
   const ps = (c.presidentPiso || '').trim()
@@ -535,6 +501,35 @@ export default function Admin() {
     userRole === 'company_admin' &&
     (user?.company?.scopedSuperAdmin === true || user?.company?.kind === 'prestacion_servicios')
   const { confirm, prompt } = useDialog()
+  const billingSummaries = useAdminBillingCommunitiesSummary(
+    isFullSuperAdmin ? accessToken : null,
+  )
+  const billingCommercial = useAdminBillingSummary(isFullSuperAdmin ? accessToken : null)
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const saNavItems = useMemo(() => buildSaNavItems(isFullSuperAdmin), [isFullSuperAdmin])
+  const activeSection = useMemo(
+    () => normalizeSaSection(searchParams.get('section'), isFullSuperAdmin),
+    [searchParams, isFullSuperAdmin],
+  )
+  const setActiveSection = useCallback(
+    (sectionId) => {
+      const next = normalizeSaSection(sectionId, isFullSuperAdmin)
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev)
+          if (next === SA_SECTION_INICIO) p.delete('section')
+          else p.set('section', next)
+          return p
+        },
+        { replace: true },
+      )
+    },
+    [isFullSuperAdmin, setSearchParams],
+  )
+  const sectionMeta = SA_SECTION_TITLES[activeSection] || SA_SECTION_TITLES[SA_SECTION_INICIO]
+
+  const [billingEditorCommunity, setBillingEditorCommunity] = useState(null)
   const [communities, setCommunities] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -603,6 +598,8 @@ export default function Admin() {
   const [approvalBusyId, setApprovalBusyId] = useState(null)
   /** KPIs globales (solo comunidades operativas); se cargan con las comunidades. */
   const [operationalStats, setOperationalStats] = useState(null)
+  /** Tick para abrir modal «Nueva empresa» desde Inicio. */
+  const [companiesCreateTick, setCompaniesCreateTick] = useState(0)
 
   const pendingCommunities = useMemo(
     () => communities.filter((c) => c.status === 'pending_approval'),
@@ -615,6 +612,95 @@ export default function Admin() {
       communities.filter((c) => c.status === 'active' || c.status === 'demo').length,
     [communities],
   )
+
+  const companiesWithoutAdminsCount = useMemo(
+    () =>
+      isFullSuperAdmin
+        ? companiesList.filter((c) => (c.companyAdminCount ?? 0) < 1).length
+        : 0,
+    [companiesList, isFullSuperAdmin],
+  )
+
+  const homeContext = useMemo(() => {
+    const opsLoading = operationalStats == null
+    return {
+      communitiesCount: operationalCommunitiesCount,
+      communitiesHint:
+        communities.length > operationalCommunitiesCount
+          ? `${communities.length} fichas en total (activas + demo arriba)`
+          : null,
+      plannedSlots:
+        !opsLoading && operationalStats.plannedResidentSlots > 0
+          ? operationalStats.plannedResidentSlots
+          : '—',
+      plannedHint: opsLoading
+        ? 'Cargando…'
+        : operationalStats.plannedResidentSlots > 0
+          ? 'Suma de cupo en comunidades operativas'
+          : 'Sin cupo registrado en fichas operativas',
+      activeBookings: opsLoading ? '—' : operationalStats.activeBookings,
+      bookingsHint: opsLoading ? 'Cargando…' : 'Confirmadas desde hoy (Europe/Madrid)',
+      loading: opsLoading,
+    }
+  }, [communities.length, operationalCommunitiesCount, operationalStats])
+
+  const homeAttentionItems = useMemo(() => {
+    /** @type {Array<{ id: string, title: string, count: number, hint?: string, accent?: boolean, section?: string, to?: string }>} */
+    const items = []
+    if (pendingCommunities.length > 0) {
+      items.push({
+        id: 'pending-approval',
+        title: 'Pendientes de activación',
+        count: pendingCommunities.length,
+        hint: 'Ir a Comunidades para activar o revisar',
+        accent: true,
+        section: SA_SECTION_COMUNIDADES,
+      })
+    }
+    if (
+      operationalStats != null &&
+      Number(operationalStats.openIncidents) > 0
+    ) {
+      items.push({
+        id: 'open-incidents',
+        title: 'Incidencias abiertas',
+        count: Number(operationalStats.openIncidents),
+        hint: 'En comunidades operativas · abrir Comunidades',
+        accent: true,
+        section: SA_SECTION_COMUNIDADES,
+      })
+    }
+    const unconfigured =
+      billingCommercial.data?.communities?.unconfigured ??
+      billingCommercial.data?.unconfiguredCommunities
+    if (isFullSuperAdmin && unconfigured != null && Number(unconfigured) > 0) {
+      items.push({
+        id: 'billing-unconfigured',
+        title: 'Billing sin configurar',
+        count: Number(unconfigured),
+        hint: 'Ir a Plan y facturación',
+        accent: true,
+        section: SA_SECTION_BILLING,
+      })
+    }
+    if (isFullSuperAdmin && companiesWithoutAdminsCount > 0) {
+      items.push({
+        id: 'companies-no-admins',
+        title: 'Empresas sin administrador',
+        count: companiesWithoutAdminsCount,
+        hint: 'Ir a Empresas para crear acceso',
+        accent: true,
+        section: SA_SECTION_EMPRESAS,
+      })
+    }
+    return items
+  }, [
+    pendingCommunities.length,
+    operationalStats,
+    isFullSuperAdmin,
+    companiesWithoutAdminsCount,
+    billingCommercial.data,
+  ])
 
   const companyNameById = useMemo(() => {
     const m = new Map()
@@ -802,11 +888,11 @@ export default function Admin() {
 
   const createCompany = async (e) => {
     e.preventDefault()
-    if (!accessToken) return
+    if (!accessToken) return false
     const n = newCompanyName.trim()
     if (!n) {
       setError('Indica el nombre de la empresa.')
-      return
+      return false
     }
     setCreatingCompany(true)
     setError('')
@@ -823,8 +909,10 @@ export default function Admin() {
       setSuccessFlash(`Empresa creada: ${d.name || n}`)
       await loadCompaniesList()
       await loadCompanyOptions()
+      return true
     } catch (err) {
       setError(err.message || 'No se pudo crear la empresa')
+      return false
     } finally {
       setCreatingCompany(false)
     }
@@ -2163,102 +2251,57 @@ export default function Admin() {
     }
   }
 
-  const stats = [
+  const homeQuickActions = [
     {
-      key: 'communities',
-      value: operationalCommunitiesCount,
-      label: 'Comunidades operativas',
-      trend:
-        communities.length > operationalCommunitiesCount
-          ? `${communities.length} fichas en total (solo activas y demo cuentan arriba)`
-          : null,
-      icon: '🏘️',
+      id: 'add-community',
+      title: 'Añadir comunidad',
+      subtitle: 'Crear ficha nueva',
+      icon: '+',
+      onClick: () => openAdd(),
     },
-    {
-      key: 'residents',
-      value:
-        operationalStats == null
-          ? '—'
-          : operationalStats.plannedResidentSlots > 0
-            ? operationalStats.plannedResidentSlots
-            : '—',
-      label: 'Cupo vecinos (planificado)',
-      trend:
-        operationalStats == null
-          ? 'Cargando…'
-          : operationalStats.plannedResidentSlots > 0
-            ? 'Suma en comunidades activas y demo: Nº vecinos en ficha o, si falta, estimado por portales'
-            : 'Ninguna comunidad operativa tiene cupo (ni Nº vecinos ni portales completos para estimar)',
-      icon: '👤',
-    },
-    {
-      key: 'incidents',
-      value: operationalStats == null ? '—' : operationalStats.openIncidents,
-      label: 'Incidencias abiertas',
-      trend:
-        operationalStats == null
-          ? 'Cargando…'
-          : 'Pendientes en comunidades operativas',
-      icon: '⚠️',
-      accent: true,
-    },
-    {
-      key: 'bookings',
-      value: operationalStats == null ? '—' : operationalStats.activeBookings,
-      label: 'Reservas activas',
-      trend:
-        operationalStats == null
-          ? 'Cargando…'
-          : 'Confirmadas desde hoy (zona Europe/Madrid)',
-      icon: '📅',
-    },
+    ...(isFullSuperAdmin
+      ? [
+          {
+            id: 'add-company',
+            title: 'Nueva empresa',
+            subtitle: 'Alta en el directorio',
+            icon: '+',
+            onClick: () => {
+              setActiveSection(SA_SECTION_EMPRESAS)
+              setCompaniesCreateTick((n) => n + 1)
+            },
+          },
+        ]
+      : []),
   ]
 
   return (
-    <div className="admin-dashboard">
-      <header className="admin-dashboard-header">
-        <div className="admin-dashboard-header-inner">
-          <div className="admin-dashboard-brand">
-            <h1 className="admin-dashboard-title">
-              {isScopedServiceAdmin
-                ? `Panel ${user?.company?.name?.trim() || 'prestador de servicios'}`
-                : 'Panel super administrador'}
-            </h1>
-            <p className="admin-dashboard-subtitle">
-              {isScopedServiceAdmin
-                ? 'Gestión acotada de las comunidades donde prestáis servicios'
-                : 'Gestión de comunidades, ajustes, incidencias y reservas'}
-            </p>
-          </div>
-          <div className="admin-dashboard-header-actions">
-            <span
-              className={`admin-badge${isScopedServiceAdmin ? ' admin-badge--company' : ''}`}
-              aria-label={isScopedServiceAdmin ? 'Empresa prestadora' : 'Super administrador'}
-            >
-              {isScopedServiceAdmin
-                ? user?.company?.name?.trim() || 'Prestador de servicios'
-                : 'Super administrador'}
-            </span>
-            {isFullSuperAdmin ? (
-              <>
-                <Link to="/admin/solicitudes-oferta" className="btn btn--ghost">
-                  Solicitudes de oferta
-                </Link>
-                <Link to="/admin/services" className="btn btn--ghost">
-                  Solicitudes de servicio
-                </Link>
-              </>
-            ) : null}
-            <Link to="/" className="admin-dashboard-back btn btn--ghost">
-              Volver a la app vecinos
-            </Link>
-            <button type="button" className="admin-dashboard-add btn btn--primary" onClick={openAdd}>
-              + Añadir comunidad
-            </button>
-          </div>
-        </div>
-      </header>
-
+    <SuperAdminShell
+      title={
+        isScopedServiceAdmin && activeSection === SA_SECTION_INICIO
+          ? `Panel ${user?.company?.name?.trim() || 'prestador de servicios'}`
+          : sectionMeta.title
+      }
+      subtitle={
+        isScopedServiceAdmin && activeSection === SA_SECTION_INICIO
+          ? 'Gestión acotada de las comunidades donde prestáis servicios'
+          : sectionMeta.subtitle
+      }
+      badgeLabel={
+        isScopedServiceAdmin
+          ? user?.company?.name?.trim() || 'Prestador de servicios'
+          : 'Super administrador'
+      }
+      isCompanyScoped={isScopedServiceAdmin}
+      navItems={saNavItems}
+      activeNavId={activeSection}
+      onSectionSelect={setActiveSection}
+      headerActions={
+        <button type="button" className="admin-dashboard-add btn btn--primary" onClick={openAdd}>
+          + Añadir comunidad
+        </button>
+      }
+    >
       <main className="admin-dashboard-main">
         <div className="admin-dashboard-inner">
           {successFlash && (
@@ -2272,770 +2315,139 @@ export default function Admin() {
             </p>
           )}
 
-          <section className="admin-stats">
-            {stats.map((stat) => (
-              <div
-                key={stat.key}
-                className={`admin-stat-card card ${stat.accent ? 'admin-stat-card--accent' : ''}`}
-              >
-                <div className="admin-stat-top">
-                  <span className="admin-stat-icon" aria-hidden="true">{stat.icon}</span>
-                  <span className="admin-stat-label">{stat.label}</span>
-                </div>
-                <span className={`admin-stat-value ${stat.accent ? 'admin-stat-value--accent' : ''}`}>
-                  {stat.value}
-                </span>
-                {stat.trend && <span className="admin-stat-trend">{stat.trend}</span>}
-              </div>
-            ))}
-          </section>
+          <div
+            className="sa-view"
+            data-sa-section={SA_SECTION_INICIO}
+            hidden={activeSection !== SA_SECTION_INICIO}
+          >
+            <SuperAdminHomeDashboard
+              context={homeContext}
+              showCommercial={isFullSuperAdmin}
+              commercial={
+                isFullSuperAdmin
+                  ? {
+                      data: billingCommercial.data,
+                      loading: billingCommercial.loading,
+                      error: billingCommercial.error,
+                    }
+                  : null
+              }
+              attentionItems={homeAttentionItems}
+              quickActions={homeQuickActions}
+              onNavigateSection={setActiveSection}
+            />
+          </div>
 
-          {pendingCommunities.length > 0 ? (
-            <section className="admin-section">
-              <div className="admin-section-head">
-                <h2 className="admin-section-title">Comunidades pendientes de aprobación</h2>
-              </div>
-              <p className="admin-directory-intro">
-                Creadas por administradores de empresa. Actívalas cuando estén listas para uso (VEC, vecinos,
-                etc.).
-              </p>
-              <div className="admin-communities">
-                {pendingCommunities.map((c) => (
-                  <article key={c.id} className="admin-community-row card">
-                    <div className="admin-community-info">
-                      <div className="admin-community-head">
-                        <h3 className="admin-community-name">{c.name}</h3>
-                        <span className="admin-community-status admin-community-status--pending_approval">
-                          Pendiente
-                        </span>
-                      </div>
-                      <div className="admin-community-details">
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">ID</span>
-                          {c.id}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Administración</span>
-                          {c.companyId != null
-                            ? companyNameById.get(Number(c.companyId)) || `id ${c.companyId}`
-                            : '—'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Servicios</span>
-                          {c.serviceProviderCompanyId != null
-                            ? companyNameById.get(Number(c.serviceProviderCompanyId)) ||
-                              `id ${c.serviceProviderCompanyId}`
-                            : '—'}
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Contacto</span>
-                          {c.contactEmail || '—'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">NIF/CIF</span>
-                          {c.nifCif || '—'}
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Dirección</span>
-                          <span className="admin-address-preview">{c.address?.trim() || '—'}</span>
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">VEC</span>
-                          <code>{c.accessCode || '—'}</code>
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Portales</span>
-                          <span>
-                            {c.portalCount ?? 1} — {portalsAliasesPreview(c.portalCount, c.portalLabels)}
-                          </span>
-                        </span>
-                      </div>
-                      {c.dashboardStats ? (
-                        <CommunityDashboardStats
-                          stats={c.dashboardStats}
-                          residentSlots={c.residentSlots}
-                        />
-                      ) : null}
-                    </div>
-                    <div className="admin-community-row-actions">
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        disabled={approvalBusyId === c.id}
-                        onClick={() => void patchCommunityStatus(c.id, 'active')}
-                      >
-                        {approvalBusyId === c.id ? '…' : 'Activar comunidad'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary btn--sm"
-                        disabled={approvalBusyId === c.id}
-                        onClick={() => void patchCommunityStatus(c.id, 'inactive')}
-                      >
-                        Desactivar comunidad
-                      </button>
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(c)}>
-                        Editar ficha
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
+          <div
+            className="sa-view"
+            data-sa-section={SA_SECTION_COMUNIDADES}
+            hidden={activeSection !== SA_SECTION_COMUNIDADES}
+          >
+            <SuperAdminCommunitiesView
+              loading={loading}
+              communities={communities}
+              pendingCommunities={pendingCommunities}
+              administratorsDirectory={administratorsDirectory}
+              companyNameById={companyNameById}
+              companiesList={companiesList}
+              isFullSuperAdmin={isFullSuperAdmin}
+              accessToken={accessToken}
+              billingSummaries={billingSummaries}
+              navTabSavingId={navTabSavingId}
+              posterPdfBusyId={posterPdfBusyId}
+              approvalBusyId={approvalBusyId}
+              onAdd={openAdd}
+              onEdit={openEdit}
+              onBilling={(c) => setBillingEditorCommunity({ id: c.id, name: c.name || '' })}
+              onUsers={openCommunityUsers}
+              onOnboarding={openOnboardingMail}
+              onPortals={openPortalsModal}
+              onPoster={(c) => void downloadCommunityPoster(c)}
+              onCopyLoginUrl={(slug) => void copyCommunityLoginUrl(slug)}
+              onOpenQr={setQrModal}
+              onPatchNavTabs={patchCommunityNavTabs}
+              onDelete={removeCommunity}
+              onPatchStatus={patchCommunityStatus}
+            />
+          </div>
+
+          {isFullSuperAdmin ? (
+          <div
+            className="sa-view"
+            data-sa-section={SA_SECTION_EMPRESAS}
+            hidden={activeSection !== SA_SECTION_EMPRESAS}
+          >
+            <SuperAdminCompaniesView
+              loading={companiesLoading}
+              companiesList={companiesList}
+              communities={communities}
+              companyAdminFlash={companyAdminFlash}
+              companyPasswordFlash={companyPasswordFlash}
+              newCompanyName={newCompanyName}
+              newCompanyKind={newCompanyKind}
+              creatingCompany={creatingCompany}
+              companyKindBusyId={companyKindBusyId}
+              companyAdminLoginBusyId={companyAdminLoginBusyId}
+              companyAdminDeleteBusyId={companyAdminDeleteBusyId}
+              companyPasswordBusy={companyPasswordBusy}
+              setNewCompanyName={setNewCompanyName}
+              setNewCompanyKind={setNewCompanyKind}
+              onCreateCompany={createCompany}
+              onPatchKind={patchCompanyKind}
+              onAddAdmin={(co) =>
+                setCompanyAdminForm({
+                  open: true,
+                  companyId: co.id,
+                  email: '',
+                  name: '',
+                  password: '',
+                })
+              }
+              onImpersonate={impersonateCompanyAdmin}
+              onDeleteAdmin={deleteCompanyAdmin}
+              onPasswordShow={(co) => void onCompanyPasswordAction(co, false)}
+              onPasswordEmail={(co) => void onCompanyPasswordAction(co, true)}
+              createOpenTick={companiesCreateTick}
+            />
+          </div>
           ) : null}
 
           {isFullSuperAdmin ? (
-          <section className="admin-section">
-            <div className="admin-section-head">
-              <h2 className="admin-section-title">Empresas y administradores de empresa</h2>
-            </div>
-            <p className="admin-directory-intro">
-              Crea una empresa y luego añade uno o varios correos con rol{' '}
-              <strong>administrador de empresa</strong> (cada uno es un usuario distinto con acceso al panel
-              de la firma). Las comunidades que creen quedarán pendientes hasta que las actives aquí.
-            </p>
-            {companyAdminFlash && (
-              <p className="admin-banner-success" role="status">
-                {companyAdminFlash}
-              </p>
-            )}
-            {companyPasswordFlash && (
-              <p className="admin-banner-success" role="alert">
-                {companyPasswordFlash}
-              </p>
-            )}
-            <form className="card admin-new-company" onSubmit={createCompany}>
-              <div className="admin-new-company__body">
-                <div className="admin-new-company__intro">
-                  <h3 className="admin-new-company__title">Nueva empresa</h3>
-                  <p className="admin-new-company__subtitle">
-                    Añade el nombre comercial de la firma. Después podrás vincular comunidades y crear
-                    administradores de empresa.
-                  </p>
-                </div>
-                <div className="admin-new-company__field">
-                  <label className="admin-label" htmlFor="new-company-kind">
-                    Tipo de empresa
-                  </label>
-                  <select
-                    id="new-company-kind"
-                    className="admin-input admin-select"
-                    value={newCompanyKind}
-                    onChange={(e) => setNewCompanyKind(e.target.value)}
-                    disabled={companiesLoading}
-                  >
-                    <option value="administracion">Administración de fincas</option>
-                    <option value="prestacion_servicios">Prestación de servicios (super admin acotado)</option>
-                  </select>
-                </div>
-                <div className="admin-new-company__field">
-                  <label className="admin-label" htmlFor="new-company-name">
-                    Nombre comercial
-                  </label>
-                  <div className="admin-new-company__row">
-                    <input
-                      id="new-company-name"
-                      className="admin-input admin-new-company__input"
-                      value={newCompanyName}
-                      onChange={(e) => setNewCompanyName(e.target.value)}
-                      placeholder="Ej. Mi empresa de gestión S.L."
-                      disabled={companiesLoading}
-                      autoComplete="organization"
-                    />
-                    <button
-                      type="submit"
-                      className="btn btn--primary admin-new-company__submit"
-                      disabled={creatingCompany || companiesLoading}
-                    >
-                      {creatingCompany ? 'Creando…' : 'Crear empresa'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </form>
-            {companiesLoading ? (
-              <p className="admin-empty-hint">Cargando empresas…</p>
-            ) : companiesList.length === 0 ? (
-              <p className="admin-empty-hint">No hay empresas. Crea la primera arriba.</p>
-            ) : (
-              <div className="admin-directory-grid">
-                {companiesList.map((co) => (
-                  <article key={co.id} className="admin-directory-card card">
-                    <div className="admin-directory-card-head">
-                      <span className="admin-directory-email">{co.name}</span>
-                      <span className="admin-directory-count">
-                        {co.kind === 'prestacion_servicios' ? 'Servicios' : 'Administración'} ·{' '}
-                        {co.communityCount ?? 0} adm. · {co.serviceProviderCommunityCount ?? 0} serv. ·{' '}
-                        {co.companyAdminCount ?? 0} usu.
-                      </span>
-                    </div>
-                    <div className="admin-company-kind-row">
-                      <label className="admin-label" htmlFor={`company-kind-${co.id}`}>
-                        Tipo de empresa
-                      </label>
-                      <select
-                        id={`company-kind-${co.id}`}
-                        className="admin-input admin-select admin-company-kind-row__select"
-                        value={co.kind === 'prestacion_servicios' ? 'prestacion_servicios' : 'administracion'}
-                        disabled={companyKindBusyId === co.id || companiesLoading}
-                        onChange={(e) => void patchCompanyKind(co, e.target.value)}
-                      >
-                        <option value="administracion">Administración de fincas</option>
-                        <option value="prestacion_servicios">Prestación de servicios</option>
-                      </select>
-                      <p className="admin-field-hint admin-company-kind-row__hint">
-                        Administración → panel empresa. Servicios → super admin acotado a sus comunidades.
-                      </p>
-                    </div>
-                    <div className="admin-company-admins-block">
-                      <span className="admin-company-admins-block__label">Correos con acceso</span>
-                      {Array.isArray(co.companyAdmins) && co.companyAdmins.length > 0 ? (
-                        <ul className="admin-company-admins-block__list">
-                          {co.companyAdmins.map((a) => (
-                            <li key={a.id} className="admin-company-admins-block__item">
-                              <div className="admin-company-admins-block__item-main">
-                                <span className="admin-company-admins-block__email">
-                                  {a.email || `— (usuario id ${a.id})`}
-                                </span>
-                                {a.name ? (
-                                  <span className="admin-company-admins-block__name">{a.name}</span>
-                                ) : null}
-                              </div>
-                              <div className="admin-company-admins-block__actions">
-                                <button
-                                  type="button"
-                                  className="btn btn--ghost btn--sm"
-                                  disabled={
-                                    companyAdminLoginBusyId === a.id ||
-                                    companyAdminDeleteBusyId === a.id
-                                  }
-                                  title="Abrir el panel de administrador de empresa en una pestaña nueva (sesión aislada)"
-                                  onClick={() => void impersonateCompanyAdmin(co.id, a.id, co.name)}
-                                >
-                                  {companyAdminLoginBusyId === a.id ? '…' : 'Entrar como…'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--ghost btn--sm admin-row-btn admin-row-btn--danger"
-                                  disabled={
-                                    companyAdminDeleteBusyId === a.id ||
-                                    companyAdminLoginBusyId === a.id
-                                  }
-                                  title="Eliminar esta cuenta de administrador de empresa"
-                                  onClick={() => void deleteCompanyAdmin(co.id, a, co.name)}
-                                >
-                                  {companyAdminDeleteBusyId === a.id ? '…' : 'Eliminar'}
-                                </button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="admin-company-admins-block__empty">
-                          Ningún administrador todavía. Pulsa «Añadir administrador de empresa».
-                        </p>
-                      )}
-                    </div>
-                    <div className="admin-company-card-actions">
-                      <button
-                        type="button"
-                        className="btn btn--secondary btn--sm admin-company-card-actions__main"
-                        onClick={() =>
-                          setCompanyAdminForm({
-                            open: true,
-                            companyId: co.id,
-                            email: '',
-                            name: '',
-                            password: '',
-                          })
-                        }
-                      >
-                        Añadir administrador de empresa
-                      </button>
-                      <div className="admin-company-card-actions__password">
-                        <span className="admin-company-card-actions__password-label">Acceso administrador</span>
-                        <div className="admin-company-card-actions__password-btns">
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--sm"
-                            disabled={
-                              (co.companyAdminCount ?? 0) < 1 ||
-                              companyPasswordBusy === `${co.id}-show`
-                            }
-                            title="No se puede leer la contraseña antigua (está cifrada). Se genera una nueva y se muestra aquí una sola vez; la anterior deja de valer."
-                            onClick={() => void onCompanyPasswordAction(co, false)}
-                          >
-                            Ver contraseña
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--sm"
-                            disabled={
-                              (co.companyAdminCount ?? 0) < 1 ||
-                              companyPasswordBusy === `${co.id}-email`
-                            }
-                            title="Genera una nueva contraseña temporal y la envía por correo al administrador (requiere SMTP en el servidor)."
-                            onClick={() => void onCompanyPasswordAction(co, true)}
-                          >
-                            Enviar contraseña por correo
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          <div
+            className="sa-view"
+            data-sa-section={SA_SECTION_BILLING}
+            hidden={activeSection !== SA_SECTION_BILLING}
+          >
+            <SuperAdminBillingHub
+              accessToken={accessToken}
+              commercial={billingCommercial}
+            />
+          </div>
           ) : null}
 
-          {!loading && administratorsDirectory.length > 0 ? (
-            <section className="admin-section">
-              <div className="admin-section-head">
-                <h2 className="admin-section-title">Administradores (por correo en ficha)</h2>
-              </div>
-              <p className="admin-directory-intro">
-                Mismo criterio que la app: un correo puede administrar varias comunidades; aquí ves el
-                reparto.
-              </p>
-              <div className="admin-directory-grid">
-                {administratorsDirectory.map(({ email, communities: rows }) => (
-                  <article key={email} className="admin-directory-card card">
-                    <div className="admin-directory-card-head">
-                      <span className="admin-directory-email">{email}</span>
-                      <span className="admin-directory-count">
-                        {rows.length} comunidad{rows.length === 1 ? '' : 'es'}
-                      </span>
-                    </div>
-                    <ul className="admin-directory-list">
-                      {rows.map((row) => (
-                        <li key={row.id} className="admin-directory-list-item">
-                          <span className="admin-directory-comm-name">{row.name}</span>
-                          <span
-                            className={`admin-directory-status admin-directory-status--${row.status || 'active'}`}
-                          >
-                            {statusLabel(row.status)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="admin-section">
-            <div className="admin-section-head">
-              <h2 className="admin-section-title">Comunidades</h2>
-            </div>
-            {loading ? (
-              <p className="admin-empty-hint">Cargando…</p>
-            ) : communities.length === 0 ? (
-              <div className="admin-empty card">
-                <p className="admin-empty-title">No hay comunidades todavía</p>
-                <p className="admin-empty-hint">
-                  Pulsa «Añadir comunidad» para crear la primera en la base de datos.
-                </p>
-                <button type="button" className="btn btn--primary" onClick={openAdd}>
-                  + Añadir comunidad
-                </button>
-              </div>
-            ) : (
-              <div className="admin-communities">
-                {communities.map((community) => (
-                  <article key={community.id} className="admin-community-row card">
-                    <div className="admin-community-info">
-                      <div className="admin-community-head">
-                        <h3 className="admin-community-name">{community.name}</h3>
-                        <span
-                          className={`admin-community-status admin-community-status--${community.status || 'active'}`}
-                        >
-                          {statusLabel(community.status)}
-                        </span>
-                      </div>
-                      <div className="admin-community-details">
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">ID</span>
-                          {community.id}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Administración</span>
-                          {community.companyId != null
-                            ? companyNameById.get(Number(community.companyId)) || `id ${community.companyId}`
-                            : '—'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Servicios</span>
-                          {community.serviceProviderCompanyId != null
-                            ? companyNameById.get(Number(community.serviceProviderCompanyId)) ||
-                              `id ${community.serviceProviderCompanyId}`
-                            : '—'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">NIF/CIF</span>
-                          {community.nifCif || '—'}
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Dirección</span>
-                          <span className="admin-address-preview">{community.address?.trim() || '—'}</span>
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Code</span>
-                          <code>{community.accessCode || '—'}</code>
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Enlace acceso (vecinos)</span>
-                          {(community.loginSlug || '').trim() ? (
-                            <span className="admin-public-link-block">
-                              <code className="admin-code-break">{buildCommunityLoginUrl(community.loginSlug)}</code>
-                              <span className="admin-public-link-actions">
-                                <button
-                                  type="button"
-                                  className="btn btn--secondary btn--sm"
-                                  onClick={() => void copyCommunityLoginUrl(community.loginSlug)}
-                                >
-                                  Copiar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--secondary btn--sm"
-                                  onClick={() =>
-                                    setQrModal({
-                                      url: buildCommunityLoginUrl(community.loginSlug),
-                                      fileSafeName: community.loginSlug,
-                                    })
-                                  }
-                                >
-                                  QR
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--secondary btn--sm"
-                                  disabled={posterPdfBusyId === community.id}
-                                  onClick={() => void downloadCommunityPoster(community)}
-                                >
-                                  {posterPdfBusyId === community.id ? 'PDF…' : 'Cartel PDF'}
-                                </button>
-                              </span>
-                            </span>
-                          ) : (
-                            <div className="admin-link-missing-wrap">
-                              <p className="admin-field-hint admin-field-hint--block admin-link-missing">
-                                Sin slug corto todavía. Rellena{' '}
-                                <strong>«Slug enlace de acceso»</strong> en la ficha para ver el enlace, copiar y QR.
-                              </p>
-                              <button
-                                type="button"
-                                className="btn btn--secondary btn--sm"
-                                onClick={() => openEdit(community)}
-                              >
-                                Configurar slug
-                              </button>
-                            </div>
-                          )}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Plan hasta</span>
-                          {formatPlanExpiresForCard(community.planExpiresOn) || 'Sin fecha'}
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Emails</span>
-                          <span className="admin-email-lines">
-                            <span>Comunidad: {community.contactEmail || '—'}</span>
-                            <span>Presidente: {formatPresidentOnCard(community)}</span>
-                            <span>
-                              Admin:{' '}
-                              {community.communityAdminName?.trim()
-                                ? `${community.communityAdminName.trim()} · `
-                                : ''}
-                              {community.communityAdminEmail?.trim() ||
-                                (companyAdminEmailsForCommunity(community, companiesList).length
-                                  ? `empresa — ${companyAdminEmailsForCommunity(community, companiesList).join(', ')}`
-                                  : community.companyId != null
-                                    ? '— (gestión por empresa)'
-                                    : '—')}
-                            </span>
-                            <span>
-                              Conserje:{' '}
-                              {conciergeEmailsSummary(community) || '—'}
-                            </span>
-                            <span>Socorrista: {community.poolStaffEmail || '—'}</span>
-                          </span>
-                        </span>
-                        <span className="admin-community-detail admin-community-detail--block">
-                          <span className="admin-community-detail-label">Portales</span>
-                          <span>
-                            {community.portalCount ?? 1} —{' '}
-                            <span className="admin-portals-preview" title={portalsAliasesPreview(community.portalCount, community.portalLabels)}>
-                              {portalsAliasesPreview(community.portalCount, community.portalLabels)}
-                            </span>
-                          </span>
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Cupo vecinos</span>
-                          {community.residentSlots != null ? community.residentSlots : '—'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Gimnasio</span>
-                          {community.gymAccessEnabled ? 'Control activo' : 'No'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Piscina</span>
-                          {community.poolAccessSystemEnabled
-                            ? `Sí${community.poolSeasonActive ? ' · temporada activa' : ''}${
-                                community.poolMaxOccupancy != null
-                                  ? ` · aforo instalación ${community.poolMaxOccupancy}`
-                                  : ''
-                              }`
-                            : 'No'}
-                        </span>
-                        <span className="admin-community-detail">
-                          <span className="admin-community-detail-label">Pádel</span>
-                          {Number(community.padelCourtCount) || 0} pista(s) · máx.{' '}
-                          {formatPadelHoursDisplay(community.padelMaxHoursPerBooking, 2)} h/reserva ·{' '}
-                          {formatPadelHoursDisplay(community.padelMaxHoursPerApartmentPerDay, 4)} h/vivienda/día · antelación{' '}
-                          {Number(community.padelMinAdvanceHours) === 0
-                            ? 'sin antelación (~90 días)'
-                            : `plazo ${Math.min(90, Math.max(1, Math.ceil((community.padelMinAdvanceHours ?? 24) / 24)))} día(s)`}{' '}
-                          · {community.padelOpenTime || '08:00'}–{community.padelCloseTime || '22:00'}
-                          {community.padelOpenTime2 && community.padelCloseTime2
-                            ? ` y ${community.padelOpenTime2}–${community.padelCloseTime2}`
-                            : ''}
-                        </span>
-                      </div>
-                      <p className="admin-community-spaces-preview" title={spacesPreview(community.customLocations)}>
-                        <span className="admin-community-detail-label">Espacios</span>
-                        {spacesPreview(community.customLocations)}
-                      </p>
-                      <div className="admin-community-detail admin-community-detail--block admin-community-nav-tabs">
-                        <span className="admin-community-detail-label">Pestañas app vecinos</span>
-                        <div className="admin-nav-tab-checks" role="group" aria-label="Pestañas visibles para vecinos">
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavServicesEnabled !== false}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavServicesEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Servicios</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavIncidentsEnabled !== false}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavIncidentsEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Incidencias</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavBookingsEnabled !== false}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavBookingsEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Reservas</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavPoolAccessEnabled === true}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavPoolAccessEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Acceso piscina</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavPaqueteriaEnabled === true}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) => {
-                                const checked = e.target.checked
-                                patchCommunityNavTabs(community, {
-                                  appNavPaqueteriaEnabled: checked,
-                                  ...(checked ? {} : { paqueteriaSpecialDeliveryEnabled: false, paqueteriaKeyLoansEnabled: false }),
-                                })
-                              }}
-                            />
-                            <span>Paquetería</span>
-                          </label>
-                          <label className="admin-nav-tab-check admin-nav-tab-check--sub">
-                            <input
-                              type="checkbox"
-                              checked={community.paqueteriaSpecialDeliveryEnabled === true}
-                              disabled={
-                                navTabSavingId === community.id ||
-                                community.appNavPaqueteriaEnabled !== true
-                              }
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  paqueteriaSpecialDeliveryEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Entrega especial</span>
-                          </label>
-                          <label className="admin-nav-tab-check admin-nav-tab-check--sub">
-                            <input
-                              type="checkbox"
-                              checked={community.paqueteriaKeyLoansEnabled === true}
-                              disabled={
-                                navTabSavingId === community.id ||
-                                community.appNavPaqueteriaEnabled !== true
-                              }
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  paqueteriaKeyLoansEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Registro de llaves</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavCuadernoDiarioEnabled === true}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavCuadernoDiarioEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Cuaderno diario</span>
-                          </label>
-                          <label className="admin-nav-tab-check">
-                            <input
-                              type="checkbox"
-                              checked={community.appNavControlEntradaEnabled === true}
-                              disabled={navTabSavingId === community.id}
-                              onChange={(e) =>
-                                patchCommunityNavTabs(community, {
-                                  appNavControlEntradaEnabled: e.target.checked,
-                                })
-                              }
-                            />
-                            <span>Control de entrada</span>
-                          </label>
-                        </div>
-                        <p className="admin-field-hint admin-field-hint--block" style={{ marginTop: '0.35rem' }}>
-                          Solo se muestran en la app las pestañas marcadas; el acceso directo por URL también se
-                          bloquea.
-                        </p>
-                      </div>
-                      {community.dashboardStats ? (
-                        <CommunityDashboardStats
-                          stats={community.dashboardStats}
-                          residentSlots={community.residentSlots}
-                        />
-                      ) : null}
-                    </div>
-                    <div className="admin-community-row-actions">
-                      <button
-                        type="button"
-                        className="btn btn--secondary admin-row-btn"
-                        onClick={() => openCommunityUsers(community)}
-                      >
-                        Usuarios y acceso
-                      </button>
-                      <Link
-                        to={`/admin/communities/${community.id}/vecinos`}
-                        className="btn btn--primary admin-row-btn"
-                      >
-                        Alta de vecinos
-                      </Link>
-                      <button
-                        type="button"
-                        className="btn btn--secondary admin-row-btn"
-                        onClick={() => openOnboardingMail(community)}
-                      >
-                        Enviar correos de alta
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary admin-row-btn"
-                        disabled={
-                          !(community.loginSlug || '').trim() || posterPdfBusyId === community.id
-                        }
-                        title={
-                          (community.loginSlug || '').trim()
-                            ? 'Cartel A4 para imprimir en conserjería (QR, VEC y privacidad)'
-                            : 'Requiere slug de acceso en la ficha'
-                        }
-                        onClick={() => void downloadCommunityPoster(community)}
-                      >
-                        {posterPdfBusyId === community.id ? 'Generando PDF…' : 'Cartel PDF'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary admin-row-btn"
-                        onClick={() => openPortalsModal(community)}
-                      >
-                        Editar portales
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost admin-row-btn"
-                        onClick={() => openEdit(community)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost admin-row-btn admin-row-btn--danger"
-                        onClick={() => removeCommunity(community)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="admin-section">
-            <h2 className="admin-section-title">Acciones rápidas</h2>
-            <div className="admin-quick-actions-grid">
-              <button type="button" className="admin-quick-action-card card" onClick={openAdd}>
-                <span className="admin-quick-action-icon-wrap">+</span>
-                <span className="admin-quick-action-label">Añadir comunidad</span>
-              </button>
-            </div>
-          </section>
         </div>
       </main>
 
       {usersModalCommunity && (
-        <div className="admin-modal-overlay" role="presentation" onClick={closeCommunityUsers}>
+        <div className="admin-modal-overlay sa-modal-overlay" role="presentation" onClick={closeCommunityUsers}>
           <div
-            className="admin-modal card admin-modal--wide admin-modal--scroll"
+            className="admin-modal card admin-modal--wide admin-modal--scroll sa-modal sa-modal--wide"
             role="dialog"
             aria-labelledby="admin-users-modal-title"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <h2 id="admin-users-modal-title" className="admin-modal-title">
-              Usuarios — {usersModalCommunity.name}
-            </h2>
+            <header className="sa-modal__head">
+              <div>
+                <h2 id="admin-users-modal-title" className="sa-modal__title">
+                  Usuarios — {usersModalCommunity.name}
+                </h2>
+                <p className="sa-modal__sub">Cuentas vinculadas a la comunidad</p>
+              </div>
+              <button type="button" className="sa-modal__close" aria-label="Cerrar" onClick={closeCommunityUsers}>
+                ×
+              </button>
+            </header>
+            <div className="sa-modal__scroll-region">
             <p className="admin-field-hint admin-field-hint--block">
               {usersModalData?.note ||
                 'Carga la lista para ver cuentas vinculadas a esta comunidad (ficha, vecinos con community_id y vecinos con reservas).'}
@@ -3362,7 +2774,8 @@ export default function Admin() {
                 </div>
               </>
             ) : null}
-            <div className="admin-modal-actions admin-modal-actions--footer">
+            </div>
+            <div className="admin-modal-actions admin-modal-actions--footer sa-modal__foot">
               {usersModalCommunity ? (
                 <Link
                   to={`/admin/communities/${usersModalCommunity.id}/vecinos`}
@@ -3381,16 +2794,25 @@ export default function Admin() {
       )}
 
       {portalsModalCommunity && (
-        <div className="admin-modal-overlay" role="presentation" onClick={closePortalsModal}>
+        <div className="admin-modal-overlay sa-modal-overlay" role="presentation" onClick={closePortalsModal}>
           <div
-            className="admin-modal card admin-modal--wide admin-modal--scroll"
+            className="admin-modal card admin-modal--wide admin-modal--scroll sa-modal sa-modal--wide"
             role="dialog"
             aria-labelledby="admin-portals-modal-title"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <h2 id="admin-portals-modal-title" className="admin-modal-title">
-              Editar portales — {portalsModalCommunity.name}
-            </h2>
+            <header className="sa-modal__head">
+              <div>
+                <h2 id="admin-portals-modal-title" className="sa-modal__title">
+                  Editar portales — {portalsModalCommunity.name}
+                </h2>
+                <p className="sa-modal__sub">Alias, plantas y viviendas por portal</p>
+              </div>
+              <button type="button" className="sa-modal__close" aria-label="Cerrar" onClick={closePortalsModal}>
+                ×
+              </button>
+            </header>
+            <div className="sa-modal__scroll-region">
             <p className="admin-field-hint admin-field-hint--block">
               <strong>{portalsDraft.length}</strong> portal(es) según la ficha. Pon un alias por acceso (ej.{' '}
               <em>34</em>, <em>36</em> o <em>P1</em>, <em>P2</em>). Opcionalmente, bajo cada portal define cuántas
@@ -3819,7 +3241,8 @@ export default function Admin() {
                 )
               })}
             </div>
-            <div className="admin-modal-actions admin-modal-actions--footer">
+            </div>
+            <div className="admin-modal-actions admin-modal-actions--footer sa-modal__foot">
               <button type="button" className="btn btn--ghost" onClick={closePortalsModal}>
                 Cancelar
               </button>
@@ -3837,16 +3260,24 @@ export default function Admin() {
       )}
 
       {onboardingMailOpen && onboardingMailCommunity && (
-        <div className="admin-modal-overlay" role="presentation" onClick={closeOnboardingMail}>
+        <div className="admin-modal-overlay sa-modal-overlay" role="presentation" onClick={closeOnboardingMail}>
           <div
-            className="admin-modal card"
+            className="admin-modal card sa-modal"
             role="dialog"
             aria-labelledby="admin-onboarding-mail-title"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <h2 id="admin-onboarding-mail-title" className="admin-modal-title">
-              Correos de alta — {onboardingMailCommunity.name}
-            </h2>
+            <header className="sa-modal__head">
+              <div>
+                <h2 id="admin-onboarding-mail-title" className="sa-modal__title">
+                  Correos de alta — {onboardingMailCommunity.name}
+                </h2>
+                <p className="sa-modal__sub">Invitaciones con código VEC y acceso</p>
+              </div>
+              <button type="button" className="sa-modal__close" aria-label="Cerrar" onClick={closeOnboardingMail}>
+                ×
+              </button>
+            </header>
             <p className="admin-field-hint admin-field-hint--block">
               Elige a quién enviar el correo con código VEC y acceso (y contraseña provisional si la cuenta es
               nueva). Puedes marcar solo un conserje o suplente concreto. Configura SMTP en el servidor para que
@@ -4044,7 +3475,7 @@ export default function Admin() {
                   </span>
                 </label>
               </div>
-              <div className="admin-modal-actions">
+              <div className="admin-modal-actions sa-modal__foot">
                 <button type="button" className="btn btn--ghost" onClick={closeOnboardingMail}>
                   Cancelar
                 </button>
@@ -4072,17 +3503,34 @@ export default function Admin() {
       )}
 
       {modalOpen && (
-        <div className="admin-modal-overlay" role="presentation" onClick={closeModal}>
+        <div className="admin-modal-overlay sa-modal-overlay" role="presentation" onClick={closeModal}>
           <div
-            className="admin-modal card admin-modal--wide admin-modal--scroll"
+            className="admin-modal card admin-modal--wide sa-modal sa-modal--wide"
             role="dialog"
             aria-labelledby="admin-modal-title"
             onClick={(ev) => ev.stopPropagation()}
           >
-            <h2 id="admin-modal-title" className="admin-modal-title">
-              {editingId ? 'Editar comunidad' : 'Nueva comunidad'}
-            </h2>
-            <form className="admin-modal-form" onSubmit={submitForm}>
+            <header className="sa-modal__head">
+              <div>
+                <h2 id="admin-modal-title" className="sa-modal__title">
+                  {editingId ? 'Editar comunidad' : 'Nueva comunidad'}
+                </h2>
+                <p className="sa-modal__sub">
+                  {editingId
+                    ? 'Actualiza la ficha. Mismos campos y validaciones que al crear.'
+                    : 'Completa la ficha por bloques. El guardado no cambia.'}
+                </p>
+              </div>
+              <button type="button" className="sa-modal__close" aria-label="Cerrar" onClick={closeModal}>
+                ×
+              </button>
+            </header>
+            <form className="sa-modal__form" onSubmit={submitForm}>
+              <div className="sa-modal__body">
+              <SaFormSection
+                title="Datos básicos"
+                subtitle="Identidad, código VEC, slug y ubicación"
+              >
               <div className="admin-modal-row">
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-name">Nombre</label>
@@ -4176,7 +3624,13 @@ export default function Admin() {
                 </p>
               </div>
 
-              <div className="admin-modal-row admin-modal-row--stats">
+              </SaFormSection>
+
+              <SaFormSection
+                title="Capacidad / estructura"
+                subtitle="Portales y cupo de vecinos"
+              >
+              <div className="admin-modal-row">
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-portals">Número de portales</label>
                   <input
@@ -4209,6 +3663,14 @@ export default function Admin() {
                     puertas).
                   </p>
                 </div>
+              </div>
+              </SaFormSection>
+
+              <SaFormSection
+                title="Reservas y espacios"
+                subtitle="Pádel, gimnasio, piscina y horarios"
+              >
+                <div className="admin-modal-row">
                 <div className="admin-modal-field">
                   <label className="admin-label" htmlFor="comm-padel">Pistas de pádel</label>
                   <input
@@ -4238,6 +3700,7 @@ export default function Admin() {
                   <p className="admin-field-hint">
                     Vacío = «Pista de pádel». Ej. «Pista de squash» → Squash 1, Squash 2 si hay varias.
                   </p>
+                </div>
                 </div>
                 <div className="admin-modal-row">
                   <div className="admin-modal-field">
@@ -4500,6 +3963,12 @@ export default function Admin() {
                     </p>
                   </div>
                 </fieldset>
+              </SaFormSection>
+
+              <SaFormSection
+                title="Acceso / módulos app"
+                subtitle="Pestañas visibles, tipos de servicio y modo de salones"
+              >
                 <fieldset className="admin-modal-fieldset">
                   <legend className="admin-fieldset-legend">Pestañas en la app vecinos</legend>
                   <p className="admin-field-hint admin-field-hint--block">
@@ -4688,8 +4157,12 @@ export default function Admin() {
                     franjas aunque el modo global sea día completo.
                   </p>
                 </div>
-              </div>
+              </SaFormSection>
 
+              <SaFormSection
+                title="Espacios / salones"
+                subtitle="Salones reservables (ID estable + nombre visible)"
+              >
               <div className="admin-modal-field">
                 <div className="admin-spaces-head">
                   <span className="admin-label">Espacios / salones (ID estable + nombre visible)</span>
@@ -4940,6 +4413,12 @@ export default function Admin() {
                 )}
               </div>
 
+              </SaFormSection>
+
+              <SaFormSection
+                title="Configuración avanzada"
+                subtitle="Emails de alta, empresas y resto de opciones"
+              >
               <fieldset className="admin-modal-fieldset">
                 <legend className="admin-fieldset-legend">Emails para instrucciones de alta</legend>
                 <p className="admin-field-hint admin-field-hint--block">
@@ -5146,22 +4625,24 @@ export default function Admin() {
                   {isScopedServiceAdmin ? ' Tu empresa se asigna automáticamente.' : ''}
                 </p>
               </div>
-              <div className="admin-modal-actions">
+              </SaFormSection>
+              </div>
+              <footer className="sa-modal__foot">
                 <button type="button" className="btn btn--ghost" onClick={closeModal}>
                   Cancelar
                 </button>
                 <button type="submit" className="btn btn--primary" disabled={saving}>
-                  {saving ? 'Guardando…' : 'Guardar'}
+                  {saving ? 'Guardando…' : editingId ? 'Guardar' : 'Crear comunidad'}
                 </button>
-              </div>
+              </footer>
             </form>
           </div>
         </div>
       )}
 
       {companyAdminForm.open && companyAdminForm.companyId != null ? (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ca-admin-title">
-          <div className="admin-modal card">
+        <div className="admin-modal-overlay sa-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ca-admin-title">
+          <div className="admin-modal card sa-modal">
             <div className="admin-modal-head">
               <h2 id="ca-admin-title" className="admin-modal-title">
                 Nuevo administrador de empresa
@@ -5227,7 +4708,7 @@ export default function Admin() {
                   autoComplete="new-password"
                 />
               </div>
-              <div className="admin-modal-actions">
+              <div className="admin-modal-actions sa-modal__foot">
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -5253,8 +4734,8 @@ export default function Admin() {
       ) : null}
 
       {passwordPickModal.open && passwordPickModal.companyId != null ? (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pw-pick-title">
-          <div className="admin-modal card">
+        <div className="admin-modal-overlay sa-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pw-pick-title">
+          <div className="admin-modal card sa-modal">
             <div className="admin-modal-head">
               <h2 id="pw-pick-title" className="admin-modal-title">
                 {passwordPickModal.sendEmail
@@ -5324,6 +4805,18 @@ export default function Admin() {
         </div>
       ) : null}
 
+      {isFullSuperAdmin && billingEditorCommunity && accessToken ? (
+        <CommunityBillingEditor
+          communityId={Number(billingEditorCommunity.id)}
+          communityName={billingEditorCommunity.name || ''}
+          accessToken={accessToken}
+          onClose={() => setBillingEditorCommunity(null)}
+          onSaved={async () => {
+            await billingSummaries.reload()
+          }}
+        />
+      ) : null}
+
       {qrModal?.url ? (
         <CommunityLoginQrModal
           url={qrModal.url}
@@ -5331,6 +4824,6 @@ export default function Admin() {
           onClose={() => setQrModal(null)}
         />
       ) : null}
-    </div>
+    </SuperAdminShell>
   )
 }

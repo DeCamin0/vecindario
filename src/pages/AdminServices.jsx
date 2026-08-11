@@ -1,52 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
-import {
-  SERVICE_CATEGORIES,
-  SERVICE_STATUS_LABELS,
-  SERVICE_MESSAGE_THREAD_STATUSES,
-  SERVICE_MESSAGE_COMPOSE_STATUSES,
-  formatServicePriceDisplay,
-  serviceSubtypeChipLabelEs,
-} from '../constants/serviceRequests.js'
-import ServiceRequestPhotoGallery from '../components/ServiceRequestPhotoGallery.jsx'
-import {
-  buildServiceProgressSteps,
-  categoryMeta,
-  serviceRequestStatusBadgeClass,
-} from './services/serviceRequestUiShared.js'
+import { SERVICE_CATEGORIES, SERVICE_STATUS_LABELS } from '../constants/serviceRequests.js'
 import NotificationsBell from '../components/NotificationsBell'
+import SuperAdminShell from '../components/super-admin/SuperAdminShell.jsx'
+import SuperAdminServiceRow from '../components/super-admin/SuperAdminServiceRow.jsx'
+import SuperAdminServiceDetail from '../components/super-admin/SuperAdminServiceDetail.jsx'
+import { buildSaNavItems } from '../components/super-admin/superAdminNav.js'
 import './Admin.css'
+import '../components/super-admin/SuperAdminShell.css'
+import '../components/super-admin/SuperAdminServices.css'
 import './services/serviceRequestsPages.css'
-
-function adminMessageSubtitle(status) {
-  if (status === 'pending_review')
-    return 'Aclara dudas o pide datos antes de enviar el presupuesto.'
-  if (status === 'price_sent')
-    return 'Responde dudas sobre el presupuesto antes de que acepte o rechace.'
-  if (status === 'accepted') return 'Informa al vecino mientras asignas proveedor.'
-  if (status === 'in_progress') return 'Coordina dudas con el vecino hasta cerrar el servicio.'
-  if (status === 'completed') return 'Historial de la conversación (solo lectura).'
-  if (status === 'rejected') return 'Historial de mensajes sobre esta solicitud.'
-  return ''
-}
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todos los estados' },
   ...Object.keys(SERVICE_STATUS_LABELS).map((k) => ({ value: k, label: SERVICE_STATUS_LABELS[k] })),
 ]
 
-function categoryLabel(id) {
-  return SERVICE_CATEGORIES.find((c) => c.id === id)?.name ?? id
-}
-
 export default function AdminServices() {
-  const { accessToken } = useAuth()
+  const { accessToken, userRole, user } = useAuth()
+  const isFullSuperAdmin = userRole === 'super_admin'
+  const isScopedServiceAdmin =
+    userRole === 'company_admin' &&
+    (user?.company?.scopedSuperAdmin === true || user?.company?.kind === 'prestacion_servicios')
+  const saNavItems = useMemo(() => buildSaNavItems(isFullSuperAdmin), [isFullSuperAdmin])
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(null)
   const [detailRow, setDetailRow] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -118,16 +100,6 @@ export default function AdminServices() {
 
   const displayRow = detailRow && detailRow.id === selected ? detailRow : selectedRow
 
-  const adminProgressSteps = useMemo(
-    () => (displayRow ? buildServiceProgressSteps(displayRow.status) : []),
-    [displayRow],
-  )
-
-  const adminCat = useMemo(
-    () => (displayRow ? categoryMeta(displayRow.categoryId) : { name: '', icon: '📌' }),
-    [displayRow],
-  )
-
   useEffect(() => {
     if (!displayRow) {
       setPriceAmount('')
@@ -163,6 +135,68 @@ export default function AdminServices() {
     setQuoteMsgErr('')
     void loadQuoteMessages()
   }, [loadQuoteMessages])
+
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return items
+    return items.filter((row) => {
+      const cat = SERVICE_CATEGORIES.find((c) => c.id === row.categoryId)?.name || ''
+      const hay = [
+        cat,
+        row.communityName,
+        String(row.communityId),
+        row.requesterEmail,
+        row.requesterName,
+        row.description,
+        row.serviceSubtypeLabel,
+        row.providerName,
+        String(row.id),
+        SERVICE_STATUS_LABELS[row.status],
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [items, query])
+
+  const selectedNavIndex = useMemo(() => {
+    if (selected == null) return -1
+    return filteredItems.findIndex((row) => row.id === selected)
+  }, [filteredItems, selected])
+
+  const goPrevDetail = useCallback(() => {
+    if (selectedNavIndex <= 0) return
+    setSelected(filteredItems[selectedNavIndex - 1].id)
+  }, [filteredItems, selectedNavIndex])
+
+  const goNextDetail = useCallback(() => {
+    if (selectedNavIndex < 0 || selectedNavIndex >= filteredItems.length - 1) return
+    setSelected(filteredItems[selectedNavIndex + 1].id)
+  }, [filteredItems, selectedNavIndex])
+
+  useEffect(() => {
+    if (!displayRow) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setSelected(null)
+        return
+      }
+      const tag = e.target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) {
+        return
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        goPrevDetail()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        goNextDetail()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [displayRow, goPrevDetail, goNextDetail])
 
   const sendQuoteMessage = async () => {
     if (!accessToken || !selected || quoteMsgBusy || busy) return
@@ -291,439 +325,220 @@ export default function AdminServices() {
     }
   }
 
+  const acceptPrice = async () => {
+    if (!accessToken || !selected || busy) return
+    setBusy(true)
+    setErr('')
+    try {
+      const res = await fetch(apiUrl(`/api/services/${selected}/accept`), {
+        method: 'POST',
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(data.error || 'No se pudo aceptar')
+        setBusy(false)
+        return
+      }
+      setDetailRow(data)
+      await load()
+      setSelected(data.id)
+    } catch {
+      setErr('Error de red')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const rejectPrice = async () => {
+    if (!accessToken || !selected || busy) return
+    setBusy(true)
+    setErr('')
+    try {
+      const res = await fetch(apiUrl(`/api/services/${selected}/reject`), {
+        method: 'POST',
+        headers: jsonAuthHeaders(accessToken),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(data.error || 'No se pudo rechazar')
+        setBusy(false)
+        return
+      }
+      setDetailRow(data)
+      await load()
+      setSelected(data.id)
+    } catch {
+      setErr('Error de red')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const closeDetail = () => setSelected(null)
+
+  const ACTIONABLE = useMemo(
+    () => new Set(['pending_review', 'price_sent', 'accepted', 'in_progress']),
+    [],
+  )
+
+  const goActionable = useCallback(() => {
+    const next = filteredItems.find((row) => ACTIONABLE.has(row.status))
+    if (next) setSelected(next.id)
+  }, [filteredItems, ACTIONABLE])
+
   return (
-    <div className="admin-dashboard">
-      <header className="admin-dashboard-header">
-        <div className="admin-dashboard-header-inner">
-          <div className="admin-dashboard-brand">
-            <h1 className="admin-dashboard-title">Solicitudes de servicio</h1>
-            <p className="admin-dashboard-subtitle">
-              Presupuestos manuales, asignación de proveedor y cierre — todas las comunidades
-            </p>
-          </div>
-          <div className="admin-dashboard-header-actions">
-            <NotificationsBell variant="admin" />
-            <Link to="/admin" className="admin-dashboard-back btn btn--ghost">
-              ← Panel comunidades
-            </Link>
-            <Link to="/" className="btn btn--ghost">
-              App vecinos
-            </Link>
-          </div>
-        </div>
-      </header>
-
+    <SuperAdminShell
+      badgeLabel={
+        isScopedServiceAdmin
+          ? user?.company?.name?.trim() || 'Prestador de servicios'
+          : 'Super administrador'
+      }
+      isCompanyScoped={isScopedServiceAdmin}
+      navItems={saNavItems}
+      activeNavId="servicios"
+      headerActions={<NotificationsBell variant="admin" />}
+    >
       <main className="admin-dashboard-main">
-        <div className="admin-dashboard-inner sr-admin-layout">
-          <div className="sr-admin-list-wrap">
-            <div className="sr-admin-filters">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                aria-label="Filtrar por estado"
-              >
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value || 'all'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load()}>
-                Actualizar
-              </button>
-            </div>
-
-            {err ? (
-              <p className="admin-banner-error" role="alert">
-                {err}
-              </p>
-            ) : null}
-
-            {loading ? (
-              <p className="sr-muted">Cargando…</p>
-            ) : items.length === 0 ? (
-              <p className="sr-muted">No hay solicitudes.</p>
-            ) : (
-              <ul className="sr-card-list">
-                {items.map((row) => (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      className={`sr-card card sr-admin-row ${selected === row.id ? 'sr-admin-row--on' : ''}`}
-                      onClick={() => setSelected(row.id)}
-                    >
-                      <div className="sr-card-top">
-                        <span className="sr-card-cat">{categoryLabel(row.categoryId)}</span>
-                        <span className={`sr-badge ${serviceRequestStatusBadgeClass(row.status)}`}>
-                          {SERVICE_STATUS_LABELS[row.status] ?? row.status}
-                        </span>
-                      </div>
-                      <p className="sr-card-desc">
-                        {row.description.length > 140 ? `${row.description.slice(0, 140)}…` : row.description}
-                      </p>
-                      {row.serviceSubtypeLabel ? (
-                        <span className="sr-card-subtype">{row.serviceSubtypeLabel}</span>
-                      ) : null}
-                      <div className="sr-admin-row-meta">
-                        <span>{row.communityName || `Comunidad #${row.communityId}`}</span>
-                        {' · '}
-                        <span>{row.requesterEmail || '—'}</span>
-                        {' · '}
-                        {new Date(row.createdAt).toLocaleDateString('es-ES')}
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <aside className="card sr-admin-detail-aside">
-            {!displayRow ? (
-              <p className="sr-muted">Selecciona una solicitud para ver detalles y acciones.</p>
-            ) : (
-              <div className="sr-admin-detail-premium">
-                {detailLoading ? <p className="sr-muted sr-admin-detail-loading">Cargando detalle…</p> : null}
-
-                <header className="sr-detail-hero card">
-                  <div className="sr-detail-hero__visual" aria-hidden="true">
-                    <span className="sr-detail-hero__icon">{adminCat.icon}</span>
-                  </div>
-                  <div className="sr-detail-hero__text">
-                    <p className="sr-detail-hero__eyebrow">Solicitud #{displayRow.id} · Super admin</p>
-                    <h1 className="sr-detail-hero__title">{adminCat.name}</h1>
-                    <div className="sr-detail-hero__meta">
-                      <span
-                        className={`sr-badge sr-badge--lg ${serviceRequestStatusBadgeClass(displayRow.status)}`}
-                      >
-                        {SERVICE_STATUS_LABELS[displayRow.status] ?? displayRow.status}
-                      </span>
-                      <span className="sr-detail-hero__dot" aria-hidden="true">
-                        ·
-                      </span>
-                      <time className="sr-detail-hero__time" dateTime={displayRow.createdAt}>
-                        {new Date(displayRow.createdAt).toLocaleString('es-ES', {
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </time>
-                    </div>
-                  </div>
-                </header>
-
-                <section className="card sr-admin-meta-strip" aria-label="Datos de la solicitud">
-                  <div className="sr-admin-meta-strip__grid">
-                    <div className="sr-admin-meta-strip__cell">
-                      <span className="sr-admin-meta-strip__k">Comunidad</span>
-                      <span className="sr-admin-meta-strip__v">
-                        {displayRow.communityName || `#${displayRow.communityId}`}
-                      </span>
-                    </div>
-                    <div className="sr-admin-meta-strip__cell">
-                      <span className="sr-admin-meta-strip__k">Vecino</span>
-                      <span className="sr-admin-meta-strip__v">
-                        {displayRow.requesterName?.trim() || displayRow.requesterEmail || '—'}
-                      </span>
-                    </div>
-                    {displayRow.requesterEmail ? (
-                      <div className="sr-admin-meta-strip__cell">
-                        <span className="sr-admin-meta-strip__k">Correo</span>
-                        <span className="sr-admin-meta-strip__v sr-admin-meta-strip__v--mono">
-                          {displayRow.requesterEmail}
-                        </span>
-                      </div>
-                    ) : null}
-                    {displayRow.requesterPiso || displayRow.requesterPortal ? (
-                      <div className="sr-admin-meta-strip__cell">
-                        <span className="sr-admin-meta-strip__k">Vivienda</span>
-                        <span className="sr-admin-meta-strip__v">
-                          {[displayRow.requesterPortal, displayRow.requesterPiso]
-                            .filter(Boolean)
-                            .join(' · ') || '—'}
-                        </span>
-                      </div>
-                    ) : null}
-                    {displayRow.providerName ? (
-                      <div className="sr-admin-meta-strip__cell sr-admin-meta-strip__cell--wide">
-                        <span className="sr-admin-meta-strip__k">Proveedor asignado</span>
-                        <span className="sr-admin-meta-strip__v">{displayRow.providerName}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-
-                <nav className="sr-track card" aria-label="Progreso del servicio">
-                  <p className="sr-track__title">Seguimiento</p>
-                  <ol className="sr-track__list">
-                    {adminProgressSteps.map((step, i) => (
-                      <li
-                        key={step.key}
-                        className={`sr-track__item sr-track__item--${step.state}`}
-                      >
-                        <span className="sr-track__rail" aria-hidden="true">
-                          {i < adminProgressSteps.length - 1 ? (
-                            <span className="sr-track__rail-line" />
-                          ) : null}
-                        </span>
-                        <span className="sr-track__dot-wrap">
-                          <span className="sr-track__dot">
-                            {step.state === 'done'
-                              ? '✓'
-                              : step.state === 'failed'
-                                ? '✕'
-                                : i + 1}
-                          </span>
-                        </span>
-                        <span className="sr-track__copy">
-                          <span className="sr-track__label">{step.label}</span>
-                          <span className="sr-track__sub">{step.sub}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </nav>
-
-                <section className="card sr-detail-panel">
-                  <h2 className="sr-detail-panel__h">Mensaje del vecino</h2>
-                  {displayRow.description?.trim() ? (
-                    <p className="sr-detail-panel__body">{displayRow.description}</p>
-                  ) : (
-                    <p className="sr-detail-panel__body sr-detail-panel__empty">
-                      Sin texto; revisa las fotos.
-                    </p>
-                  )}
-                  {displayRow.serviceSubtypeLabel ||
-                  displayRow.preferredDate ||
-                  displayRow.needsTechnicalVisit ? (
-                    <div className="sr-detail-chip-row">
-                      {displayRow.serviceSubtypeLabel ? (
-                        <span className="sr-detail-chip">
-                          <span className="sr-detail-chip__k">
-                            {serviceSubtypeChipLabelEs(displayRow.categoryId)}
-                          </span>
-                          <span className="sr-detail-chip__v">{displayRow.serviceSubtypeLabel}</span>
-                        </span>
-                      ) : null}
-                      {displayRow.needsTechnicalVisit ? (
-                        <span className="sr-detail-chip">
-                          <span className="sr-detail-chip__k">Visita</span>
-                          <span className="sr-detail-chip__v">Necesita visita técnica</span>
-                        </span>
-                      ) : null}
-                      {displayRow.preferredDate ? (
-                        <span className="sr-detail-chip">
-                          <span className="sr-detail-chip__k">Fecha preferida</span>
-                          <span className="sr-detail-chip__v">{displayRow.preferredDate}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </section>
-
-                <ServiceRequestPhotoGallery photos={displayRow.photos} heading="Fotos del vecino" />
-
-                {displayRow.priceAmount != null &&
-                ['price_sent', 'accepted', 'rejected', 'in_progress', 'completed'].includes(
-                  displayRow.status,
-                ) ? (
-                  <section className="card sr-price-panel sr-admin-price-summary">
-                    <div className="sr-price-panel__head">
-                      <span className="sr-price-panel__tag">Presupuesto enviado al vecino</span>
-                      <p className="sr-price-panel__amount">
-                        {formatServicePriceDisplay(displayRow.priceAmount, displayRow.priceAmountMax) ?? '—'}
-                      </p>
-                    </div>
-                    {displayRow.priceNote ? (
-                      <p className="sr-price-panel__note">{displayRow.priceNote}</p>
-                    ) : null}
-                  </section>
-                ) : null}
-
-                {SERVICE_MESSAGE_THREAD_STATUSES.includes(displayRow.status) ? (
-                  <section className="card sr-quote-thread-card">
-                    <header className="sr-quote-thread-card__head">
-                      <span className="sr-quote-thread-card__icon" aria-hidden="true">
-                        💬
-                      </span>
-                      <div className="sr-quote-thread-card__head-text">
-                        <p className="sr-quote-thread-card__eyebrow">Conversación</p>
-                        <h2 className="sr-quote-thread-card__title">Mensajes con el vecino</h2>
-                        <p className="sr-quote-thread-card__sub">{adminMessageSubtitle(displayRow.status)}</p>
-                      </div>
-                    </header>
-                    <div className="sr-quote-thread-wrap sr-quote-thread-wrap--card">
-                      {quoteMessages.length > 0 ? (
-                        <ul className="sr-quote-thread sr-quote-thread--admin" aria-label="Mensajes">
-                          {quoteMessages.map((m) => (
-                            <li
-                              key={m.id}
-                              className={`sr-quote-msg ${m.fromStaff ? 'sr-quote-msg--me' : 'sr-quote-msg--staff'}`}
-                            >
-                              <span className="sr-quote-msg__who">{m.authorLabel}</span>
-                              <p className="sr-quote-msg__body">{m.body}</p>
-                              <time className="sr-quote-msg__time" dateTime={m.createdAt}>
-                                {new Date(m.createdAt).toLocaleString('es-ES', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </time>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="sr-quote-empty" role="status">
-                          <span className="sr-quote-empty__glyph" aria-hidden="true" />
-                          <p className="sr-quote-empty__title">Sin mensajes todavía</p>
-                          <p className="sr-quote-empty__hint">
-                            {SERVICE_MESSAGE_COMPOSE_STATUSES.includes(displayRow.status)
-                              ? 'Escribe abajo para contactar con el vecino.'
-                              : 'No hay mensajes en esta fase.'}
-                          </p>
-                        </div>
-                      )}
-                      {SERVICE_MESSAGE_COMPOSE_STATUSES.includes(displayRow.status) ? (
-                        <div className="sr-quote-compose">
-                          <label className="sr-quote-compose__label" htmlFor="admin-sr-quote-msg">
-                            Tu respuesta al vecino
-                          </label>
-                          {quoteMsgErr ? (
-                            <p className="sr-quote-compose__err" role="alert">
-                              {quoteMsgErr}
-                            </p>
-                          ) : null}
-                          <textarea
-                            id="admin-sr-quote-msg"
-                            className="sr-quote-compose__input"
-                            rows={4}
-                            maxLength={4000}
-                            placeholder="Ej. Confirmación de visita, aclaración del presupuesto…"
-                            value={quoteMsgDraft}
-                            onChange={(e) => setQuoteMsgDraft(e.target.value)}
-                            disabled={quoteMsgBusy || busy}
-                            aria-label="Mensaje al vecino"
-                          />
-                          <div className="sr-quote-compose__footer">
-                            <span className="sr-quote-compose__counter">
-                              {quoteMsgDraft.length}/4000
-                            </span>
-                            <button
-                              type="button"
-                              className="btn btn--primary sr-quote-compose__send"
-                              disabled={quoteMsgBusy || busy || !quoteMsgDraft.trim()}
-                              onClick={() => void sendQuoteMessage()}
-                            >
-                              {quoteMsgBusy ? 'Enviando…' : 'Enviar respuesta'}
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </section>
-                ) : null}
-
-                <div className="sr-admin-detail-actions">
-                  {displayRow.status === 'pending_review' ? (
-                    <>
-                      <div className="sr-admin-price-range">
-                        <label>
-                          Precio mínimo estimado (€)
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={priceAmount}
-                            onChange={(e) => setPriceAmount(e.target.value)}
-                            placeholder="0.00"
-                            autoComplete="off"
-                          />
-                        </label>
-                        <label>
-                          Precio máximo estimado (€)
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={priceAmountMax}
-                            onChange={(e) => setPriceAmountMax(e.target.value)}
-                            placeholder="Opcional"
-                            autoComplete="off"
-                          />
-                        </label>
-                      </div>
-                      <p className="sr-admin-price-hint">
-                        Si indicas un máximo, el vecino verá un rango orientativo (p. ej. 80 – 120 €).
-                      </p>
-                      <label>
-                        Mensaje (opcional)
-                        <textarea
-                          value={priceNote}
-                          onChange={(e) => setPriceNote(e.target.value)}
-                          placeholder="Explicación breve del presupuesto"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={busy}
-                        onClick={() => void sendPrice()}
-                      >
-                        Enviar presupuesto
-                      </button>
-                    </>
-                  ) : null}
-
-                  {displayRow.status === 'accepted' ? (
-                    <>
-                      <label>
-                        Proveedor (nombre / contacto)
-                        <input
-                          type="text"
-                          value={providerName}
-                          onChange={(e) => setProviderName(e.target.value)}
-                          placeholder="Ej. Limpiezas García"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={busy}
-                        onClick={() => void assignProvider()}
-                      >
-                        Asignar y poner en curso
-                      </button>
-                    </>
-                  ) : null}
-
-                  {displayRow.status === 'in_progress' ? (
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      disabled={busy}
-                      onClick={() => void markCompleted()}
-                    >
-                      Marcar completado
-                    </button>
-                  ) : null}
-
-                  {(displayRow.status === 'price_sent' ||
-                    displayRow.status === 'rejected' ||
-                    displayRow.status === 'completed') && (
-                    <p className="sr-muted" style={{ fontSize: 'var(--text-sm)' }}>
-                      {displayRow.status === 'price_sent' &&
-                        'Esperando respuesta del vecino (aceptar / rechazar).'}
-                      {displayRow.status === 'rejected' && 'El vecino rechazó el presupuesto.'}
-                      {displayRow.status === 'completed' && 'Servicio cerrado.'}
-                    </p>
-                  )}
+        <div className="admin-dashboard-inner">
+          <div className="sa-sv">
+            <section>
+              <div className="sa-sv__block-head sa-sv__block-head--row">
+                <div>
+                  <h2 className="sa-sv__block-title">Solicitudes de servicio</h2>
+                  <p className="sa-sv__block-sub">
+                    Presupuesto, asignación de proveedor y cierre. Misma lógica que antes.
+                  </p>
                 </div>
               </div>
-            )}
-          </aside>
+
+              <div className="sa-sv__filters">
+                <div className="sa-sv__search">
+                  <label className="sa-sv__filter-label" htmlFor="sa-sv-search">
+                    Buscar
+                  </label>
+                  <input
+                    id="sa-sv-search"
+                    className="sa-sv__input"
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Comunidad, email, tipo, descripción…"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="sa-sv__filter-label" htmlFor="sa-sv-status">
+                    Estado
+                  </label>
+                  <select
+                    id="sa-sv-status"
+                    className="sa-sv__input"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    {STATUS_OPTIONS.map((o) => (
+                      <option key={o.value || 'all'} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sa-sv__filters-actions">
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => void load()}>
+                    Actualizar
+                  </button>
+                </div>
+              </div>
+
+              {err ? (
+                <p className="admin-banner-error" role="alert">
+                  {err}
+                </p>
+              ) : null}
+
+              {!loading ? (
+                <p className="sa-sv__count">
+                  {filteredItems.length === items.length
+                    ? `${items.length} solicitud${items.length === 1 ? '' : 'es'}`
+                    : `${filteredItems.length} de ${items.length} solicitudes`}
+                </p>
+              ) : null}
+
+              {loading ? (
+                <p className="sa-sv__empty">Cargando…</p>
+              ) : items.length === 0 ? (
+                <div className="sa-sv__empty">
+                  <p className="sa-sv__empty-title">
+                    {statusFilter
+                      ? 'No hay solicitudes de servicio con este estado'
+                      : 'No hay solicitudes de servicio pendientes'}
+                  </p>
+                  <p>Cuando un vecino envíe una solicitud aparecerá aquí.</p>
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="sa-sv__empty">
+                  <p className="sa-sv__empty-title">No hay solicitudes con estos filtros</p>
+                  <p>Prueba otra búsqueda o limpia el filtro de texto.</p>
+                </div>
+              ) : (
+                <div className="sa-sv__rows">
+                  {filteredItems.map((row) => (
+                    <SuperAdminServiceRow
+                      key={row.id}
+                      row={row}
+                      categories={SERVICE_CATEGORIES}
+                      selected={selected === row.id}
+                      onOpenDetail={() => setSelected(row.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {displayRow ? (
+              <SuperAdminServiceDetail
+                displayRow={displayRow}
+                detailLoading={detailLoading}
+                quoteMessages={quoteMessages}
+                quoteMsgDraft={quoteMsgDraft}
+                quoteMsgBusy={quoteMsgBusy}
+                quoteMsgErr={quoteMsgErr}
+                priceAmount={priceAmount}
+                priceAmountMax={priceAmountMax}
+                priceNote={priceNote}
+                providerName={providerName}
+                busy={busy}
+                onClose={closeDetail}
+                onPriceAmount={setPriceAmount}
+                onPriceAmountMax={setPriceAmountMax}
+                onPriceNote={setPriceNote}
+                onProviderName={setProviderName}
+                onQuoteMsgDraft={setQuoteMsgDraft}
+                onSendQuoteMessage={sendQuoteMessage}
+                onSendPrice={sendPrice}
+                onAssignProvider={assignProvider}
+                onMarkCompleted={markCompleted}
+                onAcceptPrice={acceptPrice}
+                onRejectPrice={rejectPrice}
+                onPrev={selectedNavIndex > 0 ? goPrevDetail : null}
+                onNext={
+                  selectedNavIndex >= 0 && selectedNavIndex < filteredItems.length - 1
+                    ? goNextDetail
+                    : null
+                }
+                onGoActionable={
+                  displayRow && !ACTIONABLE.has(displayRow.status) && filteredItems.some((r) => ACTIONABLE.has(r.status))
+                    ? goActionable
+                    : null
+                }
+                navIndex={Math.max(0, selectedNavIndex)}
+                navTotal={filteredItems.length}
+              />
+            ) : null}
+          </div>
         </div>
       </main>
-    </div>
+    </SuperAdminShell>
   )
 }

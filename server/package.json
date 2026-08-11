@@ -17,6 +17,9 @@
     "db:migrate:dev": "cd .. && prisma migrate dev",
     "seed": "tsx src/seed-super-admin.ts",
     "seed:demo": "tsx src/seed-demo-community.ts",
+    "seed:billing-catalog": "tsx src/seed-billing-catalog.ts",
+    "test:billing": "tsx --test src/lib/billing/**/*.test.ts",
+    "test:billing:b3": "tsx --test src/lib/billing/read-api.test.ts",
     "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts",
     "prefs:disable-concierge-email": "tsx src/scripts/disable-concierge-notify-email.ts",
     "storage:avatar-backfill": "tsx src/scripts/avatar-r2-backfill.ts"

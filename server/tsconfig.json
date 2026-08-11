@@ -15,5 +15,6 @@
       "@prisma/client": ["../node_modules/@prisma/client"]
     }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

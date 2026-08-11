@@ -26,6 +26,7 @@ import { scheduleSubscriptionExpiryJob } from './jobs/subscription-expiry.js'
 import { attachRealtimeConnections } from './lib/realtime-hub.js'
 import { poolAccessRouter } from './routes/pool-access.js'
 import { adminQuoteRequestsRouter } from './routes/quote-requests-admin.js'
+import { adminBillingRouter } from './routes/admin-billing.js'
 import { resolveAvatarFile } from './lib/profile-avatar.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -84,6 +85,7 @@ app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireAdminCommunitiesAccess, adminCommunitiesRouter)
 app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)
 app.use('/api/admin/quote-requests', ...requireSuperAdmin, adminQuoteRequestsRouter)
+app.use('/api/admin/billing', ...requireSuperAdmin, adminBillingRouter)
 app.use('/api/company/communities', ...requireCompanyAdmin, companyCommunitiesRouter)
 
 const port = Number(process.env.PORT || 4001)

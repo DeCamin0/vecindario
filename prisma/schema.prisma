@@ -100,6 +100,10 @@ model VecindarioUser {
   controlEntradaCreated      CommunityControlEntradaEntry[] @relation("ControlEntradaCreatedBy")
   controlEntradaSalida       CommunityControlEntradaEntry[] @relation("ControlEntradaSalidaBy")
   controlEntradaUpdated      CommunityControlEntradaEntry[] @relation("ControlEntradaUpdatedBy")
+  /// Auditoría comercial (billing): actor que configuró / actualizó.
+  billingConfigured          CommunityBilling[]          @relation("BillingConfiguredBy")
+  billingUpdated             CommunityBilling[]          @relation("BillingUpdatedBy")
+  billingAuditActions        CommunityBillingAudit[]     @relation("BillingAuditActor")
 
   @@index([communityId], map: "vecindario_users_community_id_idx")
   @@index([companyAdminCompanyId], map: "vecindario_users_company_admin_company_idx")
@@ -252,6 +256,9 @@ model Community {
   keyLoans                 CommunityKeyLoan[]
   diarioEntries            CommunityDiarioEntry[]
   controlEntradaEntries    CommunityControlEntradaEntry[]
+  /// Contrato comercial opcional (ausencia = Sin configurar). No afecta flags ni acceso.
+  billing                  CommunityBilling?
+  billingAudits            CommunityBillingAudit[]
 
   @@index([companyId], map: "communities_company_id_idx")
   @@index([serviceProviderCompanyId], map: "communities_service_provider_company_id_idx")
@@ -681,4 +688,198 @@ model VecindarioQuoteRequest {
 
   @@index([createdAt], map: "vqr_created_idx")
   @@map("vecindario_quote_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Billing (Super Admin) — catálogo + contrato por comunidad.
+// Ausencia de CommunityBilling = "Sin configurar". Nunca se infiere de flags.
+// ---------------------------------------------------------------------------
+
+/// Catálogo de planes comerciales (metadatos; precios por usageMode en BillingCatalogPlanPrice).
+model BillingCatalogPlan {
+  id              Int      @id @default(autoincrement())
+  /// comunidad | conserjeria | completo | a_medida
+  code            String   @unique @db.VarChar(64)
+  name            String   @db.VarChar(128)
+  /// Espejo histórico neighbors (no autoridad tras B7.2; precios en plan_prices).
+  monthlyPriceEur Decimal  @map("monthly_price_eur") @db.Decimal(10, 2)
+  /// Códigos de módulos incluidos en el pack (JSON string[]). a_medida = [].
+  includesJson    Json     @default("[]") @map("includes_json")
+  /// Si false, no se ofrece a nuevos (contratos snapshot siguen válidos).
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  prices BillingCatalogPlanPrice[]
+
+  @@map("billing_catalog_plans")
+}
+
+/// Precio de lista de un plan por usageMode (fuente de verdad comercial).
+model BillingCatalogPlanPrice {
+  id              Int      @id @default(autoincrement())
+  planCode        String   @map("plan_code") @db.VarChar(64)
+  /// neighbors_and_staff | staff_only
+  usageMode       String   @map("usage_mode") @db.VarChar(32)
+  monthlyPriceEur Decimal  @map("monthly_price_eur") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  plan BillingCatalogPlan @relation(fields: [planCode], references: [code], onDelete: Cascade)
+
+  @@unique([planCode, usageMode], map: "bcpp_plan_mode_uidx")
+  @@index([usageMode], map: "bcpp_usage_mode_idx")
+  @@map("billing_catalog_plan_prices")
+}
+
+/// Auditoría de cambios de precios del catálogo (no contratos).
+model BillingCatalogAudit {
+  id          Int      @id @default(autoincrement())
+  actorUserId Int      @map("actor_user_id")
+  actorEmail  String   @map("actor_email") @db.VarChar(255)
+  /// plan_price | module_price | plan_includes
+  entityType  String   @map("entity_type") @db.VarChar(32)
+  entityCode  String   @map("entity_code") @db.VarChar(64)
+  usageMode   String?  @map("usage_mode") @db.VarChar(32)
+  field       String   @db.VarChar(64)
+  /// Precio o JSON compacto de includes (B7.3).
+  beforeValue String   @map("before_value") @db.VarChar(512)
+  afterValue  String   @map("after_value") @db.VarChar(512)
+  batchId     String?  @map("batch_id") @db.VarChar(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt], map: "bca_created_idx")
+  @@index([entityCode], map: "bca_entity_idx")
+  @@index([batchId], map: "bca_batch_idx")
+  @@map("billing_catalog_audits")
+}
+
+/// Catálogo de módulos cobrables (precios de lista para NUEVOS contratos).
+model BillingCatalogModule {
+  id           Int      @id @default(autoincrement())
+  /// incidents | bookings | services | pool | parcels | key_loans | diario | control_entrada
+  code         String   @unique @db.VarChar(64)
+  name         String   @db.VarChar(128)
+  listPriceEur Decimal  @map("list_price_eur") @db.Decimal(10, 2)
+  /// Flag funcional asociado (solo referencia; billing NUNCA escribe flags).
+  flagKey      String?  @map("flag_key") @db.VarChar(64)
+  /// Si se rellena, el módulo se considera aditivo bajo otro (p.ej. futuro); null = cobrable top-level.
+  parentCode   String?  @map("parent_code") @db.VarChar(64)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("billing_catalog_modules")
+}
+
+/// Tramos globales de suplemento por tamaño (viviendas contractuales).
+/// Catálogo solo: NUNCA escribe community_billing. Snapshot = size_surcharge_eur del contrato.
+model BillingCatalogSizeTier {
+  id            Int      @id @default(autoincrement())
+  /// Inclusive. Primer tramo del set válido debe ser 0.
+  fromUnits     Int      @map("from_units")
+  /// Inclusive. Null = infinito (debe existir exactamente un tramo así, el último).
+  toUnits       Int?     @map("to_units")
+  surchargeEur  Decimal  @map("surcharge_eur") @db.Decimal(10, 2)
+  sortOrder     Int      @default(0) @map("sort_order")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([fromUnits], map: "bcst_from_uidx")
+  @@index([sortOrder], map: "bcst_sort_idx")
+  @@map("billing_catalog_size_tiers")
+}
+
+/// Contrato comercial 1:0..1 por comunidad. Sin fila = Sin configurar.
+model CommunityBilling {
+  id                   Int       @id @default(autoincrement())
+  communityId          Int       @unique @map("community_id")
+  community            Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  /// Snapshot del plan: comunidad | conserjeria | completo | a_medida
+  planCode             String    @map("plan_code") @db.VarChar(64)
+  planName             String    @map("plan_name") @db.VarChar(128)
+  /// Precio lista del plan en el momento del contrato.
+  planListPriceEur     Decimal   @map("plan_list_price_eur") @db.Decimal(10, 2)
+  /// Precio cobrado del plan/pack (puede diferir del lista).
+  planChargedPriceEur  Decimal   @map("plan_charged_price_eur") @db.Decimal(10, 2)
+
+  /// neighbors_and_staff | staff_only — decisión comercial explícita (no inferida de flags).
+  usageMode            String    @default("neighbors_and_staff") @map("usage_mode") @db.VarChar(32)
+
+  /// billable | demo | courtesy | promo | legacy | non_billable
+  commercialStatus     String    @map("commercial_status") @db.VarChar(32)
+
+  /// Viviendas usadas para tramo (manual o sugerencia aceptada). Null = desconocido.
+  dwellingCount        Int?      @map("dwelling_count")
+  /// manual | suggested_accepted | unknown
+  dwellingSource       String    @default("unknown") @map("dwelling_source") @db.VarChar(32)
+  sizeSurchargeEur     Decimal   @default(0) @map("size_surcharge_eur") @db.Decimal(10, 2)
+
+  discountEur          Decimal   @default(0) @map("discount_eur") @db.Decimal(10, 2)
+  discountNote         String?   @map("discount_note") @db.VarChar(512)
+
+  /// Si no null, sustituye el cálculo por líneas (total neto negociado).
+  negotiatedTotalEur   Decimal?  @map("negotiated_total_eur") @db.Decimal(10, 2)
+
+  vatRatePct           Decimal   @default(21.00) @map("vat_rate_pct") @db.Decimal(5, 2)
+  currency             String    @default("EUR") @db.VarChar(3)
+  notes                String?   @db.Text
+
+  configuredAt         DateTime  @default(now()) @map("configured_at")
+  configuredByUserId   Int?      @map("configured_by_user_id")
+  configuredBy         VecindarioUser? @relation("BillingConfiguredBy", fields: [configuredByUserId], references: [id], onDelete: SetNull)
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  updatedByUserId      Int?      @map("updated_by_user_id")
+  updatedBy            VecindarioUser? @relation("BillingUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  lines                CommunityBillingLine[]
+
+  @@index([commercialStatus], map: "cbill_status_idx")
+  @@index([planCode], map: "cbill_plan_idx")
+  @@index([usageMode], map: "cbill_usage_mode_idx")
+  @@map("community_billing")
+}
+
+/// Líneas de módulos del contrato (precios snapshot; no se recalculan desde catálogo).
+model CommunityBillingLine {
+  id                 Int              @id @default(autoincrement())
+  communityBillingId Int              @map("community_billing_id")
+  communityBilling   CommunityBilling @relation(fields: [communityBillingId], references: [id], onDelete: Cascade)
+
+  moduleCode         String           @map("module_code") @db.VarChar(64)
+  moduleName         String           @map("module_name") @db.VarChar(128)
+  /// true = incluido en el pack (charged suele ser 0).
+  includedInPlan     Boolean          @default(false) @map("included_in_plan")
+  /// catalog | included | free | custom
+  pricingMode        String           @map("pricing_mode") @db.VarChar(32)
+  listPriceEur       Decimal          @map("list_price_eur") @db.Decimal(10, 2)
+  chargedPriceEur    Decimal          @map("charged_price_eur") @db.Decimal(10, 2)
+  sortOrder          Int              @default(0) @map("sort_order")
+
+  @@unique([communityBillingId, moduleCode], map: "cbill_line_billing_module_uid")
+  @@index([moduleCode], map: "cbill_line_module_idx")
+  @@map("community_billing_lines")
+}
+
+/// Historial de cambios comerciales (quién / qué / cuándo).
+model CommunityBillingAudit {
+  id            Int            @id @default(autoincrement())
+  communityId   Int            @map("community_id")
+  community     Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  actorUserId   Int?           @map("actor_user_id")
+  actor         VecindarioUser? @relation("BillingAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorEmail    String?        @map("actor_email") @db.VarChar(255)
+  /// create | update | delete | status_change
+  action        String         @db.VarChar(32)
+  beforeJson    Json?          @map("before_json")
+  afterJson     Json?          @map("after_json")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  @@index([communityId, createdAt], map: "cbill_audit_comm_created_idx")
+  @@index([actorUserId], map: "cbill_audit_actor_idx")
+  @@map("community_billing_audits")
 }

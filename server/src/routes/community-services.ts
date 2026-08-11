@@ -816,7 +816,7 @@ communityServicesRouter.patch('/:id/status', requireAuth, async (req, res) => {
   res.json(mapRowDetail(updated, { isSuper, viewerUserId: user.id }))
 })
 
-/** POST /api/services/:id/accept */
+/** POST /api/services/:id/accept — vecino titular o super_admin (en nombre del vecino) */
 communityServicesRouter.post('/:id/accept', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) {
@@ -829,7 +829,9 @@ communityServicesRouter.post('/:id/accept', requireAuth, async (req, res) => {
     res.status(404).json({ error: 'No encontrado' })
     return
   }
-  if (row.requesterUserId !== user.id) {
+  const isSuper = user.role === 'super_admin'
+  const isOwner = row.requesterUserId === user.id
+  if (!isSuper && !isOwner) {
     res.status(403).json({ error: 'No autorizado' })
     return
   }
@@ -850,10 +852,10 @@ communityServicesRouter.post('/:id/accept', requireAuth, async (req, res) => {
     },
   })
   void serviceNotifications.neighborAccepted({ serviceRequestId: id }).catch(logNotifyErr)
-  res.json(mapRowDetail(updated, { isSuper: false, viewerUserId: user.id }))
+  res.json(mapRowDetail(updated, { isSuper, viewerUserId: user.id }))
 })
 
-/** POST /api/services/:id/reject */
+/** POST /api/services/:id/reject — vecino titular o super_admin (en nombre del vecino) */
 communityServicesRouter.post('/:id/reject', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) {
@@ -866,7 +868,9 @@ communityServicesRouter.post('/:id/reject', requireAuth, async (req, res) => {
     res.status(404).json({ error: 'No encontrado' })
     return
   }
-  if (row.requesterUserId !== user.id) {
+  const isSuper = user.role === 'super_admin'
+  const isOwner = row.requesterUserId === user.id
+  if (!isSuper && !isOwner) {
     res.status(403).json({ error: 'No autorizado' })
     return
   }
@@ -887,5 +891,5 @@ communityServicesRouter.post('/:id/reject', requireAuth, async (req, res) => {
     },
   })
   void serviceNotifications.neighborRejected({ serviceRequestId: id }).catch(logNotifyErr)
-  res.json(mapRowDetail(updated, { isSuper: false, viewerUserId: user.id }))
+  res.json(mapRowDetail(updated, { isSuper, viewerUserId: user.id }))
 })

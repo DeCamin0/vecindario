@@ -1,0 +1,293 @@
+/**
+ * V8 — Chrome de modales Super Admin (scoped under .sa-shell / .sa-modal*).
+ * No altera .btn/.card globales fuera del shell.
+ */
+
+.sa-shell .admin-modal-overlay.sa-modal-overlay,
+.sa-shell .sa-modal-overlay {
+  background: rgba(15, 23, 42, 0.45);
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 100;
+}
+
+.sa-shell .admin-modal.sa-modal,
+.sa-shell .sa-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(92vh, 920px);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--sa-border, #d8dee8);
+  border-radius: var(--sa-radius, 12px);
+  background: var(--sa-surface, #fff);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+  color: var(--sa-text-body, #334155);
+}
+
+.sa-shell .admin-modal.sa-modal.sa-modal--wide,
+.sa-shell .admin-modal.admin-modal--wide.sa-modal {
+  max-width: min(96vw, 1080px);
+  width: 100%;
+}
+
+@media (min-width: 1440px) {
+  .sa-shell .admin-modal.admin-modal--wide.sa-modal {
+    max-width: min(96vw, 1200px);
+  }
+}
+
+.sa-modal__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.95rem 1.15rem 0.85rem;
+  border-bottom: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 55%, #fff);
+}
+
+.sa-modal__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--sa-text, #0a0f1a);
+}
+
+.sa-modal__sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--sa-text-quiet, #64748b);
+}
+
+.sa-modal__close {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--sa-text-quiet, #64748b);
+  cursor: pointer;
+}
+
+.sa-modal__close:hover {
+  background: var(--sa-bg, #f3f5f8);
+  color: var(--sa-text, #0a0f1a);
+}
+
+.sa-modal__form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.sa-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.85rem 1.15rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sa-modal__foot {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1.15rem 0.9rem;
+  border-top: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 40%, #fff);
+}
+
+/* Compact medium modals (company admin, onboarding, password) */
+.sa-shell .admin-modal.sa-modal:not(.admin-modal--wide) {
+  max-width: min(94vw, 440px);
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-head {
+  flex-shrink: 0;
+  padding: 0.95rem 1.15rem 0.85rem;
+  border-bottom: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 55%, #fff);
+  margin: 0;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: var(--sa-text, #0a0f1a);
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-body,
+.sa-shell .admin-modal.sa-modal .admin-modal-form:not(.sa-modal__form) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 1.15rem 1rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-actions,
+.sa-shell .admin-modal.sa-modal .admin-modal-actions--footer {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.75rem 1.15rem 0.9rem;
+  border-top: 1px solid var(--sa-border-subtle, #e6ebf2);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 40%, #fff);
+}
+
+.sa-shell .admin-modal.sa-modal .admin-label {
+  color: var(--sa-text, #0a0f1a);
+  font-size: 0.8rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-field-hint {
+  color: var(--sa-text-quiet, #64748b);
+  font-size: 0.74rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-input,
+.sa-shell .admin-modal.sa-modal .admin-select,
+.sa-shell .admin-modal.sa-modal textarea {
+  border-color: var(--sa-border, #d8dee8);
+  border-radius: var(--sa-radius-sm, 8px);
+  background: var(--sa-surface, #fff);
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-fieldset {
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+  border-radius: var(--sa-radius-sm, 8px);
+  background: color-mix(in srgb, var(--sa-bg, #f3f5f8) 35%, #fff);
+  padding: 0.75rem 0.85rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-fieldset-legend {
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: var(--sa-text, #0a0f1a);
+  padding: 0 0.25rem;
+}
+
+/* Form sections */
+.sa-form-section {
+  border: 1px solid var(--sa-border-subtle, #e6ebf2);
+  border-radius: var(--sa-radius-sm, 8px);
+  background: var(--sa-surface, #fff);
+  padding: 0.75rem 0.85rem 0.9rem;
+}
+
+.sa-form-section__head {
+  margin: 0 0 0.65rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--sa-border-subtle, #e6ebf2);
+}
+
+.sa-form-section__title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--sa-text-quiet, #64748b);
+}
+
+.sa-form-section__sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--sa-text-quiet, #64748b);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.sa-form-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-row--stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1100px) {
+  .sa-shell .admin-modal.sa-modal .admin-modal-row--stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .sa-shell .admin-modal.sa-modal .admin-modal-row,
+  .sa-shell .admin-modal.sa-modal .admin-modal-row--stats {
+    grid-template-columns: 1fr;
+  }
+
+  .sa-shell .admin-modal.admin-modal--wide.sa-modal {
+    max-width: 100%;
+  }
+}
+
+/* Users / portals wide modals: flex column with sticky foot */
+.sa-shell .admin-modal.admin-modal--wide.sa-modal.admin-modal--scroll {
+  overflow: hidden;
+}
+
+.sa-shell .admin-modal.admin-modal--wide.sa-modal.admin-modal--scroll > .admin-modal-title,
+.sa-shell .admin-modal.admin-modal--wide.sa-modal.admin-modal--scroll > .sa-modal__head {
+  flex-shrink: 0;
+}
+
+.sa-modal__scroll-region {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.85rem 1.15rem 1rem;
+}
+
+/* Medium modals: form body scrolls, actions stay visible */
+.sa-shell .admin-modal.sa-modal > form.admin-modal-form,
+.sa-shell .admin-modal.sa-modal > form.admin-modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-close {
+  border: 0;
+  background: transparent;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--sa-text-quiet, #64748b);
+  cursor: pointer;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+}
+
+.sa-shell .admin-modal.sa-modal .admin-modal-close:hover {
+  background: var(--sa-bg, #f3f5f8);
+  color: var(--sa-text, #0a0f1a);
+}
