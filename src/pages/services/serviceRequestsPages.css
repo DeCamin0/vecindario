@@ -11,6 +11,19 @@
   flex-shrink: 0;
 }
 
+.sr-quick-cats {
+  margin-bottom: var(--section-gap);
+}
+
+.sr-quick-cats__grid {
+  margin-top: var(--space-2);
+}
+
+a.sr-quick-cats__item {
+  text-decoration: none;
+  color: inherit;
+}
+
 .sr-card-list {
   list-style: none;
   margin: 0;
@@ -125,6 +138,31 @@
 .sr-inline-error {
   color: var(--color-error);
   margin-bottom: var(--space-4);
+}
+
+/* Lista servicios — desktop (solo layout) */
+@media (min-width: 1200px) {
+  .sr-list-page .sr-list-header {
+    align-items: center;
+    margin-bottom: var(--section-gap-lg);
+  }
+
+  .sr-card-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: var(--space-4);
+  }
+
+  .sr-empty {
+    padding: var(--space-10) var(--space-8);
+    max-width: 36rem;
+  }
+}
+
+@media (min-width: 1600px) {
+  .sr-card-list {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  }
 }
 
 .sr-new-toolbar {

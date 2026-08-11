@@ -43,6 +43,7 @@ const DEFAULT_APP_NAV_FLAGS = {
   poolAccess: false,
   paqueteria: false,
   cuadernoDiario: false,
+  controlEntrada: false,
 }
 
 /** loginSlug del API (login / me) → storage para PWA y getSignInPath. */
@@ -346,6 +347,8 @@ export function AuthProvider({ children }) {
   const [cuadernoDiarioAccess, setCuadernoDiarioAccess] = useState('none')
   /** false hasta resolver permiso (evita redirect a / al refrescar /cuaderno-diario). */
   const [cuadernoDiarioAccessReady, setCuadernoDiarioAccessReady] = useState(false)
+  const [controlEntradaAccess, setControlEntradaAccess] = useState('none')
+  const [controlEntradaAccessReady, setControlEntradaAccessReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -357,6 +360,8 @@ export function AuthProvider({ children }) {
       setServiceRequestCategoryModes(null)
       setCuadernoDiarioAccess('none')
       setCuadernoDiarioAccessReady(true)
+      setControlEntradaAccess('none')
+      setControlEntradaAccessReady(true)
       setAppNavFlagsReady(true)
       return () => {
         cancelled = true
@@ -383,6 +388,7 @@ export function AuthProvider({ children }) {
           poolAccess: data.appNavPoolAccessEnabled === true,
           paqueteria: data.appNavPaqueteriaEnabled === true,
           cuadernoDiario: data.appNavCuadernoDiarioEnabled === true,
+          controlEntrada: data.appNavControlEntradaEnabled === true,
         })
         setPaqueteriaSpecialDeliveryEnabled(data.paqueteriaSpecialDeliveryEnabled === true)
         setPaqueteriaKeyLoansEnabled(data.paqueteriaKeyLoansEnabled === true)
@@ -447,6 +453,48 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [communityId, accessToken, communityAccessCode, appNavFlagsReady, appNavFlags.cuadernoDiario])
+
+  useEffect(() => {
+    let cancelled = false
+    const id = communityId
+    if (id == null || !appNavFlagsReady || !appNavFlags.controlEntrada) {
+      setControlEntradaAccess('none')
+      setControlEntradaAccessReady(true)
+      return () => {
+        cancelled = true
+      }
+    }
+    if (!accessToken) {
+      setControlEntradaAccess('none')
+      setControlEntradaAccessReady(false)
+      return () => {
+        cancelled = true
+      }
+    }
+    setControlEntradaAccessReady(false)
+    const q = new URLSearchParams({ communityId: String(id) })
+    const ac = communityAccessCode?.trim()
+    if (ac) q.set('accessCode', ac.toUpperCase())
+    fetch(apiUrl(`/api/community/control-entrada/access?${q}`), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('access'))))
+      .then((data) => {
+        if (cancelled) return
+        const a = data?.access
+        setControlEntradaAccess(a === 'write' || a === 'read' ? a : 'none')
+        setControlEntradaAccessReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setControlEntradaAccess('none')
+          setControlEntradaAccessReady(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [communityId, accessToken, communityAccessCode, appNavFlagsReady, appNavFlags.controlEntrada])
 
   useEffect(() => {
     let cancelled = false
@@ -1023,6 +1071,8 @@ export function AuthProvider({ children }) {
     paqueteriaKeyLoansEnabled,
     cuadernoDiarioAccess,
     cuadernoDiarioAccessReady,
+    controlEntradaAccess,
+    controlEntradaAccessReady,
     serviceRequestCategoryModes,
     managedCommunities,
     managedCommunitiesLoading,

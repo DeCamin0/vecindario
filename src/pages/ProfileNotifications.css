@@ -19,6 +19,14 @@
   padding: var(--space-5) var(--space-6);
 }
 
+@media (min-width: 1024px) {
+  .profile-notif-card {
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
 .profile-notif-intro {
   margin: 0 0 var(--space-5);
   font-size: var(--text-sm);

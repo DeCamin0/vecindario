@@ -5,8 +5,15 @@ import { useAuth } from '../context/AuthContext'
  * Redirige a inicio si la comunidad tiene desactivada la pestaña (todos los roles).
  */
 export default function RequireCommunityNavTab({ tab, children }) {
-  const { appNavFlags, appNavFlagsReady, userRole, cuadernoDiarioAccess, cuadernoDiarioAccessReady } =
-    useAuth()
+  const {
+    appNavFlags,
+    appNavFlagsReady,
+    userRole,
+    cuadernoDiarioAccess,
+    cuadernoDiarioAccessReady,
+    controlEntradaAccess,
+    controlEntradaAccessReady,
+  } = useAuth()
   const location = useLocation()
   if (!appNavFlagsReady) {
     return (
@@ -18,7 +25,7 @@ export default function RequireCommunityNavTab({ tab, children }) {
     )
   }
   if (tab === 'cuadernoDiario') {
-    if (!appNavFlagsReady || !appNavFlags.cuadernoDiario || !cuadernoDiarioAccessReady) {
+    if (!appNavFlags.cuadernoDiario || !cuadernoDiarioAccessReady) {
       return (
         <div className="page-container">
           <p className="welcome-intro" style={{ marginTop: '2rem' }}>
@@ -28,6 +35,21 @@ export default function RequireCommunityNavTab({ tab, children }) {
       )
     }
     if (cuadernoDiarioAccess === 'none') {
+      return <Navigate to="/" replace />
+    }
+    return children
+  }
+  if (tab === 'controlEntrada') {
+    if (!appNavFlags.controlEntrada || !controlEntradaAccessReady) {
+      return (
+        <div className="page-container">
+          <p className="welcome-intro" style={{ marginTop: '2rem' }}>
+            Cargando…
+          </p>
+        </div>
+      )
+    }
+    if (controlEntradaAccess === 'none') {
       return <Navigate to="/" replace />
     }
     return children

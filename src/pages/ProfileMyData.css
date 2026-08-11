@@ -19,6 +19,24 @@
   padding: var(--space-6);
 }
 
+@media (min-width: 1024px) {
+  .profile-my-data-card {
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+@media (min-width: 1200px) {
+  .profile-my-data-card {
+    max-width: 52rem;
+  }
+
+  .profile-my-data-readonly {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .profile-my-data-readonly {
   display: grid;
   gap: var(--space-4);

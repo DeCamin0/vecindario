@@ -23,10 +23,16 @@ export default function ManagementStatsTiles({
   nav,
   statsClassName = 'community-admin-stats',
   interactive = true,
+  /** Oculta fichas redundantes con "Hoy en la comunidad" (solo UI). */
+  hiddenKeys = [],
 }) {
+  const hidden = new Set(Array.isArray(hiddenKeys) ? hiddenKeys : [])
+  const defs = OVERVIEW_DEFS.filter((stat) => !hidden.has(stat.key))
+  if (defs.length === 0) return null
+
   return (
     <div className={statsClassName} aria-busy={overviewLoading}>
-      {OVERVIEW_DEFS.map((stat) => {
+      {defs.map((stat) => {
         const raw = rawForStat(stat.key, overviewStats)
         const value = statDisplay(stat.navKey, raw)
         const to = interactive ? getManagementStatTo(stat.key, nav) : null

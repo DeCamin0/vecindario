@@ -1,6 +1,9 @@
 import {
   SALON_WEEKDAY_LABELS,
+  applyAllowedDateKeysToCells,
   buildSalonCalendarCells,
+  canNavigateAllowedMonthNext,
+  canNavigateAllowedMonthPrev,
   canNavigateSalonMonthNext,
   canNavigateSalonMonthPrev,
   currentYearMonth,
@@ -19,6 +22,7 @@ import {
  * @param {number} [props.minDaysInAdvance]
  * @param {(dateKey: string) => 'free'|'partial'|'occupied'|'disabled'} props.getDayStatus
  * @param {boolean} [props.showPartialLegend]
+ * @param {Set<string>|string[]|null} [props.allowedDateKeys] - si se pasa, solo esos días son seleccionables
  */
 export default function SalonBookingCalendar({
   monthYear,
@@ -29,16 +33,25 @@ export default function SalonBookingCalendar({
   minDaysInAdvance = 0,
   getDayStatus,
   showPartialLegend = false,
+  allowedDateKeys = null,
 }) {
-  const cells = buildSalonCalendarCells(monthYear, maxDaysInAdvance, new Date(), minDaysInAdvance)
-  const canPrev = canNavigateSalonMonthPrev(monthYear)
-  const canNext = canNavigateSalonMonthNext(monthYear, maxDaysInAdvance)
+  const rawCells = buildSalonCalendarCells(monthYear, maxDaysInAdvance, new Date(), minDaysInAdvance)
+  const cells = applyAllowedDateKeysToCells(rawCells, allowedDateKeys)
+  const canPrev = allowedDateKeys
+    ? canNavigateAllowedMonthPrev(monthYear, allowedDateKeys)
+    : canNavigateSalonMonthPrev(monthYear)
+  const canNext = allowedDateKeys
+    ? canNavigateAllowedMonthNext(monthYear, allowedDateKeys)
+    : canNavigateSalonMonthNext(monthYear, maxDaysInAdvance)
   const title = formatYearMonthLabel(monthYear)
 
   const goToday = () => {
     const ym = currentYearMonth()
     onMonthChange(ym)
-    const todayCells = buildSalonCalendarCells(ym, maxDaysInAdvance, new Date(), minDaysInAdvance)
+    const todayCells = applyAllowedDateKeysToCells(
+      buildSalonCalendarCells(ym, maxDaysInAdvance, new Date(), minDaysInAdvance),
+      allowedDateKeys,
+    )
     const todayCell = todayCells.find((c) => c.type === 'day' && c.isToday && c.selectable)
     if (todayCell) onDateSelect(todayCell.key)
   }

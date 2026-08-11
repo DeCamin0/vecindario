@@ -41,12 +41,14 @@ async function queryCommunityParcels(
   dateFrom: Date | null,
   dateTo: Date | null,
   recipientUserId?: number,
+  qRaw = '',
 ) {
   const where: {
     communityId: number
     recipientUserId?: number
     status: ParcelStatusFilter
     pickedUpAt?: { gte?: Date; lte?: Date }
+    OR?: Array<Record<string, unknown>>
   } = { communityId, status: statusFilter }
   if (recipientUserId != null) where.recipientUserId = recipientUserId
   if (statusFilter === 'picked_up' && (dateFrom || dateTo)) {
@@ -54,10 +56,28 @@ async function queryCommunityParcels(
     if (dateFrom) where.pickedUpAt.gte = dateFrom
     if (dateTo) where.pickedUpAt.lte = dateTo
   }
+  if (qRaw) {
+    const or: Array<Record<string, unknown>> = [
+      { portal: { contains: qRaw } },
+      { piso: { contains: qRaw } },
+      { puerta: { contains: qRaw } },
+      { recipientName: { contains: qRaw } },
+      { createdByName: { contains: qRaw } },
+      { itemDescription: { contains: qRaw } },
+      { lastPackageByName: { contains: qRaw } },
+      { pickedUpByName: { contains: qRaw } },
+    ]
+    const idCandidate = qRaw.replace(/^#/, '')
+    const idNum = Number.parseInt(idCandidate, 10)
+    if (Number.isInteger(idNum) && idNum > 0 && String(idNum) === idCandidate) {
+      or.push({ id: idNum })
+    }
+    where.OR = or
+  }
 
   const archivedDateSearch = statusFilter === 'picked_up' && Boolean(dateFrom || dateTo)
   const take =
-    statusFilter === 'picked_up' && !archivedDateSearch ? ARCHIVED_PREVIEW_LIMIT : 200
+    statusFilter === 'picked_up' && !archivedDateSearch && !qRaw ? ARCHIVED_PREVIEW_LIMIT : 200
   const orderBy =
     statusFilter === 'picked_up'
       ? [{ pickedUpAt: 'desc' as const }, { createdAt: 'desc' as const }]
@@ -266,6 +286,17 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
   const statusFilter = parseParcelStatusFilter(req.query.status)
   const dateFrom = parseDateQueryBound(req.query.dateFrom, false)
   const dateTo = parseDateQueryBound(req.query.dateTo, true)
+  const qRaw = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (qRaw) {
+    if (qRaw.length < 2) {
+      res.status(400).json({ error: 'Escribe al menos 2 caracteres para buscar.' })
+      return
+    }
+    if (qRaw.length > 80) {
+      res.status(400).json({ error: 'La búsqueda no puede superar 80 caracteres.' })
+      return
+    }
+  }
 
   const gate = await loadCommunityForParcels(communityId, accessCode)
   if (!gate.ok) {
@@ -285,7 +316,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
       res.status(403).json({ error: 'No perteneces a esta comunidad.' })
       return
     }
-    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo, uid)
+    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo, uid, qRaw)
     res.json({ parcels: rows.map(serializeParcel) })
     return
   }
@@ -297,7 +328,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
     role === 'super_admin'
   ) {
     if (role === 'super_admin') {
-      const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo)
+      const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo, undefined, qRaw)
       res.json({ parcels: rows.map(serializeParcel) })
       return
     }
@@ -306,7 +337,7 @@ communityParcelsRouter.get('/parcels', requireAuth, async (req, res) => {
       res.status(staff.status).json({ error: staff.message })
       return
     }
-    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo)
+    const rows = await queryCommunityParcels(communityId, statusFilter, dateFrom, dateTo, undefined, qRaw)
     res.json({ parcels: rows.map(serializeParcel) })
     return
   }

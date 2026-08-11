@@ -27,6 +27,9 @@ import {
   PARCEL_MAX_BULTOS,
 } from './parcelPackageCount.js'
 
+/** Espejo del `take` de pendientes en GET /api/community/parcels (solo UI; no cambia API). */
+const PARCEL_PENDING_LIST_CAP = 200
+
 export default function PaqueteriaListPage() {
   const { accessToken, communityId, communityAccessCode, userRole, paqueteriaSpecialDeliveryEnabled, paqueteriaKeyLoansEnabled, appNavFlagsReady } =
     useAuth()
@@ -40,6 +43,9 @@ export default function PaqueteriaListPage() {
   const [archivedDateTo, setArchivedDateTo] = useState('')
   const [archivedSearchApplied, setArchivedSearchApplied] = useState({ from: '', to: '' })
   const archivedDateSearchActive = Boolean(archivedSearchApplied.from || archivedSearchApplied.to)
+  const [listSearchInput, setListSearchInput] = useState('')
+  const [listSearchApplied, setListSearchApplied] = useState('')
+  const listTextSearchActive = listSearchApplied.length >= 2
   const [packageUpdateBusyId, setPackageUpdateBusyId] = useState(null)
   const [packageUpdateError, setPackageUpdateError] = useState('')
 
@@ -67,6 +73,9 @@ export default function PaqueteriaListPage() {
         if (archivedSearchApplied.from) q.set('dateFrom', archivedSearchApplied.from)
         if (archivedSearchApplied.to) q.set('dateTo', archivedSearchApplied.to)
       }
+      if (listSearchApplied.length >= 2) {
+        q.set('q', listSearchApplied)
+      }
       if (isStaff && communityAccessCode?.trim()) {
         q.set('accessCode', communityAccessCode.trim().toUpperCase())
       }
@@ -82,11 +91,30 @@ export default function PaqueteriaListPage() {
     } finally {
       setLoading(false)
     }
-  }, [accessToken, communityId, communityAccessCode, isStaff, listTab, archivedSearchApplied])
+  }, [accessToken, communityId, communityAccessCode, isStaff, listTab, archivedSearchApplied, listSearchApplied])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const qText = listSearchInput.trim()
+    if (qText.length < 2) {
+      setListSearchApplied('')
+      return
+    }
+    const timer = setTimeout(() => {
+      setListSearchApplied(qText.slice(0, 80))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [listSearchInput])
+
+  useEffect(() => {
+    setListSearchInput('')
+    setListSearchApplied('')
+    setFilterPiso('')
+    setFilterDwellingKey('')
+  }, [communityId])
 
   const pisoOptions = useMemo(() => {
     if (!isStaff) return []
@@ -129,6 +157,22 @@ export default function PaqueteriaListPage() {
   }, [filteredParcels])
 
   const hasActiveFilter = Boolean(filterPiso || filterDwellingKey)
+
+  /** KPI solo con lista pendientes fiable (sin búsqueda API ni tab Recogidos). */
+  const pendingKpis = useMemo(() => {
+    if (loading || error || listTab !== 'pendientes' || listTextSearchActive) return null
+    const count = parcels.length
+    let bultos = 0
+    for (const p of parcels) {
+      if (isSpecialParcel(p)) continue
+      bultos += normalizeParcelPackageCount(p.packageCount)
+    }
+    const truncated = count >= PARCEL_PENDING_LIST_CAP
+    return {
+      packagesDisplay: truncated ? `${PARCEL_PENDING_LIST_CAP}+` : String(count),
+      bultosDisplay: truncated ? `≥${bultos}` : String(bultos),
+    }
+  }, [loading, error, listTab, listTextSearchActive, parcels])
 
   const clearFilters = () => {
     setFilterPiso('')
@@ -232,6 +276,51 @@ export default function PaqueteriaListPage() {
           </button>
         </div>
       </div>
+      {pendingKpis ? (
+        <div className="pq-kpi-row" aria-label="Resumen de pendientes">
+          <div className="pq-kpi">
+            <span className="pq-kpi__label">Paquetes pendientes</span>
+            <span className="pq-kpi__value">{pendingKpis.packagesDisplay}</span>
+          </div>
+          <div className="pq-kpi">
+            <span className="pq-kpi__label">Bultos pendientes</span>
+            <span className="pq-kpi__value">{pendingKpis.bultosDisplay}</span>
+          </div>
+        </div>
+      ) : null}
+      <div className="pq-list-search card">
+        <label className="form-label" htmlFor="pq-list-q">
+          Buscar
+        </label>
+        <div className="pq-list-search__row">
+          <input
+            id="pq-list-q"
+            type="search"
+            className="form-input"
+            placeholder="Nº, vivienda, destinatario, descripción…"
+            value={listSearchInput}
+            onChange={(e) => setListSearchInput(e.target.value)}
+            autoComplete="off"
+            maxLength={80}
+          />
+          {listSearchInput ? (
+            <button
+              type="button"
+              className="btn btn--ghost pq-list-search__clear"
+              onClick={() => setListSearchInput('')}
+            >
+              Limpiar
+            </button>
+          ) : null}
+        </div>
+        <p className="pq-list-search__hint">
+          {listSearchInput.trim().length > 0 && listSearchInput.trim().length < 2
+            ? 'Escribe al menos 2 caracteres.'
+            : listTextSearchActive
+              ? `Mostrando coincidencias de «${listSearchApplied}».`
+              : 'Los resultados aparecen al teclear (mín. 2 caracteres).'}
+        </p>
+      </div>
       {listTab === 'recogidos' ? (
         <form
           className="pq-archive-filters card"
@@ -246,7 +335,9 @@ export default function PaqueteriaListPage() {
           <p className="pq-archive-filters__hint">
             {archivedDateSearchActive
               ? 'Resultados filtrados por fecha de recogida. Usa «Limpiar fechas» para volver a los 5 más recientes.'
-              : 'Por defecto se muestran solo los 5 paquetes recogidos más recientes. Indica fechas y pulsa Buscar para ver más.'}
+              : listTextSearchActive
+                ? 'La búsqueda por texto incluye más resultados recogidos. También puedes filtrar por fechas de recogida.'
+                : 'Por defecto se muestran solo los 5 paquetes recogidos más recientes. Indica fechas y pulsa Buscar fechas para ver más.'}
           </p>
           <div className="pq-archive-filters__row">
             <div className="form-field pq-archive-filters__field">
@@ -274,7 +365,7 @@ export default function PaqueteriaListPage() {
               />
             </div>
             <button type="submit" className="btn btn--secondary pq-archive-filters__btn">
-              Buscar
+              Buscar fechas
             </button>
             {archivedDateFrom || archivedDateTo || archivedDateSearchActive ? (
               <button
@@ -378,16 +469,22 @@ export default function PaqueteriaListPage() {
         {!loading && !error && parcels.length === 0 ? (
           <div className="pq-list-empty card">
             <p className="pq-list-empty-title">
-              {listTab === 'recogidos' ? 'Sin paquetes recogidos' : 'No hay paquetes pendientes'}
+              {listTextSearchActive
+                ? 'Sin resultados'
+                : listTab === 'recogidos'
+                  ? 'Sin paquetes recogidos'
+                  : 'No hay paquetes pendientes'}
             </p>
             <p className="pq-list-muted">
-              {listTab === 'recogidos'
-                ? archivedDateSearchActive
-                  ? 'No hay paquetes recogidos en ese intervalo de fechas.'
-                  : 'No hay paquetes recogidos recientes. Usa Buscar con fechas para consultar el historial.'
-                : isNeighbor
-                  ? 'Cuando la conserjería registre un envío para tu vivienda, aparecerá aquí.'
-                  : 'Cuando se registre un paquete pendiente de recogida, aparecerá en esta lista.'}
+              {listTextSearchActive
+                ? `No hay paquetes que coincidan con «${listSearchApplied}».`
+                : listTab === 'recogidos'
+                  ? archivedDateSearchActive
+                    ? 'No hay paquetes recogidos en ese intervalo de fechas.'
+                    : 'No hay paquetes recogidos recientes. Usa Buscar fechas para consultar el historial.'
+                  : isNeighbor
+                    ? 'Cuando la conserjería registre un envío para tu vivienda, aparecerá aquí.'
+                    : 'Cuando se registre un paquete pendiente de recogida, aparecerá en esta lista.'}
             </p>
           </div>
         ) : null}
@@ -415,75 +512,95 @@ export default function PaqueteriaListPage() {
               const showInitial = parcelShowsInitialRegistration(p)
               const canAddBulto = canRegister && pending && !special && pkg < PARCEL_MAX_BULTOS
               const addBusy = packageUpdateBusyId === p.id
+              const recipientText = p.recipientName?.trim() || ''
+              const specialDesc = special && p.itemDescription ? String(p.itemDescription) : ''
               return (
-                <li key={p.id}>
+                <li key={p.id} className="pq-parcel-list__item">
                   <Link to={`/paqueteria/${p.id}`} className="pq-parcel-card">
-                    <div className="pq-parcel-card__body">
-                      <div className="pq-parcel-card__row pq-parcel-card__row--top">
-                        <span className="pq-parcel-id">#{p.id}</span>
-                        {special ? (
-                          <span className="pq-parcel-kind pq-parcel-kind--special">Entrega especial</span>
-                        ) : null}
-                        <div className="pq-parcel-dwelling" aria-label={`Vivienda ${p.portal}, ${p.piso}, ${p.puerta}`}>
-                          <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.portal}</span>
-                          <span className="pq-parcel-sep" aria-hidden>
-                            ·
-                          </span>
-                          <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.piso}</span>
-                          <span className="pq-parcel-sep" aria-hidden>
-                            ·
-                          </span>
-                          <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.puerta}</span>
-                        </div>
-                        {p.recipientName?.trim() ? (
-                          <span className="pq-parcel-desc" title={p.recipientName.trim()}>
-                            {p.recipientName.trim()}
-                          </span>
-                        ) : null}
-                        {special && p.itemDescription ? (
-                          <span className="pq-parcel-desc" title={p.itemDescription}>
-                            {p.itemDescription}
-                          </span>
-                        ) : !special ? (
+                    <span className="pq-parcel-col pq-parcel-col--id">
+                      <span className="pq-parcel-id">#{p.id}</span>
+                      {special ? (
+                        <span className="pq-parcel-kind pq-parcel-kind--special">Entrega especial</span>
+                      ) : null}
+                    </span>
+                    <div
+                      className="pq-parcel-col pq-parcel-col--dwelling"
+                      aria-label={`Vivienda ${p.portal}, ${p.piso}, ${p.puerta}`}
+                    >
+                      <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.portal}</span>
+                      <span className="pq-parcel-sep" aria-hidden>
+                        ·
+                      </span>
+                      <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.piso}</span>
+                      <span className="pq-parcel-sep" aria-hidden>
+                        ·
+                      </span>
+                      <span className="pq-parcel-chip pq-parcel-chip--readonly">{p.puerta}</span>
+                    </div>
+                    <span className="pq-parcel-col pq-parcel-col--recipient">
+                      {recipientText ? (
+                        <span className="pq-parcel-desc" title={recipientText}>
+                          {recipientText}
+                        </span>
+                      ) : null}
+                      {specialDesc ? (
+                        <span className="pq-parcel-desc pq-parcel-desc--secondary" title={specialDesc}>
+                          {specialDesc}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="pq-parcel-col pq-parcel-col--bultos">
+                      {!special ? (
                         <span className={`pq-parcel-bultos${pkg > 1 ? ' pq-parcel-bultos--many' : ''}`}>
                           {bultosLabel(pkg)}
                         </span>
-                        ) : null}
-                      </div>
-                      <div className="pq-parcel-card__row pq-parcel-card__row--meta">
-                        <span className={pending ? 'pq-parcel-status pq-parcel-status--pending' : 'pq-parcel-status pq-parcel-status--done'}>
-                          {pending ? 'Pendiente de recogida' : 'Recogido'}
+                      ) : (
+                        <span className="pq-parcel-bultos pq-parcel-bultos--na" aria-hidden>
+                          —
                         </span>
-                        {activityIso ? (
-                          <div className="pq-parcel-dates">
-                            <time className="pq-parcel-date" dateTime={activityIso}>
-                              {formatParcelDateTime(activityIso)}
-                            </time>
-                            {showInitial && p.createdAt ? (
-                              <span className="pq-parcel-date-initial">
-                                Registrado inicial: {formatParcelDateTime(p.createdAt)}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                      {canAddBulto ? (
-                        <div className="pq-parcel-card__actions">
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--sm pq-parcel-add-bulto"
-                            disabled={addBusy}
-                            aria-label={`Añadir bulto al paquete ${p.id}`}
-                            onClick={(ev) => void handleAddBulto(ev, p)}
-                          >
-                            {addBusy ? '…' : '+ Bulto'}
-                          </button>
+                      )}
+                    </span>
+                    <span className="pq-parcel-col pq-parcel-col--status">
+                      <span
+                        className={
+                          pending
+                            ? 'pq-parcel-status pq-parcel-status--pending'
+                            : 'pq-parcel-status pq-parcel-status--done'
+                        }
+                      >
+                        {pending ? 'Pendiente de recogida' : 'Recogido'}
+                      </span>
+                    </span>
+                    <span className="pq-parcel-col pq-parcel-col--date">
+                      {activityIso ? (
+                        <div className="pq-parcel-dates">
+                          <time className="pq-parcel-date" dateTime={activityIso}>
+                            {formatParcelDateTime(activityIso)}
+                          </time>
+                          {showInitial && p.createdAt ? (
+                            <span className="pq-parcel-date-initial">
+                              Registrado inicial: {formatParcelDateTime(p.createdAt)}
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
-                      {staffMeta ? (
-                        <p className="pq-parcel-staff-meta">{staffMeta}</p>
-                      ) : null}
-                    </div>
+                    </span>
+                    {canAddBulto ? (
+                      <span className="pq-parcel-col pq-parcel-col--actions">
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--sm pq-parcel-add-bulto"
+                          disabled={addBusy}
+                          aria-label={`Añadir bulto al paquete ${p.id}`}
+                          onClick={(ev) => void handleAddBulto(ev, p)}
+                        >
+                          {addBusy ? '…' : '+ Bulto'}
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="pq-parcel-col pq-parcel-col--actions" aria-hidden />
+                    )}
+                    {staffMeta ? <p className="pq-parcel-staff-meta">{staffMeta}</p> : null}
                     <span className="pq-parcel-card__chev" aria-hidden>
                       ›
                     </span>

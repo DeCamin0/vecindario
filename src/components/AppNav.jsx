@@ -16,6 +16,12 @@ const baseLinks = [
     icon: 'cuadernoDiario',
     navFlag: 'cuadernoDiario',
   },
+  {
+    to: '/control-entrada',
+    label: 'Control de entrada',
+    icon: 'controlEntrada',
+    navFlag: 'controlEntrada',
+  },
   { to: '/activity', label: 'Actividad', icon: 'activity', navFlag: null },
   { to: '/profile', label: 'Perfil', icon: 'profile' },
 ]
@@ -90,6 +96,13 @@ const icons = {
       <line x1="8" y1="11" x2="14" y2="11" />
     </svg>
   ),
+  controlEntrada: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <polyline points="10 17 15 12 10 7" />
+      <line x1="15" y1="12" x2="3" y2="12" />
+    </svg>
+  ),
 }
 
 const NAV_DEFAULT_FLAGS = {
@@ -99,6 +112,7 @@ const NAV_DEFAULT_FLAGS = {
   poolAccess: false,
   paqueteria: false,
   cuadernoDiario: false,
+  controlEntrada: false,
 }
 
 const poolStaffLinks = [
@@ -114,6 +128,8 @@ export default function AppNav({ id, ariaLabel = 'Navegación principal' }) {
     appNavFlagsReady,
     cuadernoDiarioAccess,
     cuadernoDiarioAccessReady,
+    controlEntradaAccess,
+    controlEntradaAccessReady,
   } = useAuth()
   if (userRole === 'pool_staff') {
     return (
@@ -142,12 +158,17 @@ export default function AppNav({ id, ariaLabel = 'Navegación principal' }) {
     flags.incidents ||
     flags.bookings ||
     flags.paqueteria ||
-    flags.cuadernoDiario
+    flags.cuadernoDiario ||
+    flags.controlEntrada
   const diarioReady = !flags.cuadernoDiario || cuadernoDiarioAccessReady
+  const controlReady = !flags.controlEntrada || controlEntradaAccessReady
   const filteredBase = baseLinks.filter((link) => {
     if (link.navFlag === 'services' && userRole === 'community_admin') return false
     if (link.navFlag === 'cuadernoDiario') {
       return Boolean(flags.cuadernoDiario) && diarioReady && cuadernoDiarioAccess !== 'none'
+    }
+    if (link.navFlag === 'controlEntrada') {
+      return Boolean(flags.controlEntrada) && controlReady && controlEntradaAccess !== 'none'
     }
     if (link.navFlag != null) return Boolean(flags[link.navFlag])
     if (link.to === '/activity') return activityVisible

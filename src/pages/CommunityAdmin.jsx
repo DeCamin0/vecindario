@@ -177,6 +177,33 @@ export default function CommunityAdmin() {
                   </div>
                 </div>
               )}
+              {nav.controlEntrada ? (
+                <Link to="/control-entrada" className="community-admin-action card">
+                  <span className="community-admin-action-icon-wrap" aria-hidden="true">🚪</span>
+                  <div className="community-admin-action-body">
+                    <span className="community-admin-action-label">Control de entrada</span>
+                    <span className="community-admin-action-hint">
+                      {userRole === 'concierge'
+                        ? 'Entrada y salida de personas'
+                        : 'Consulta del registro de entradas (junta y administración)'}
+                    </span>
+                  </div>
+                  <span className="community-admin-action-arrow" aria-hidden="true">→</span>
+                </Link>
+              ) : (
+                <div
+                  className="community-admin-action card community-admin-action--disabled"
+                  aria-disabled="true"
+                >
+                  <span className="community-admin-action-icon-wrap" aria-hidden="true">🚪</span>
+                  <div className="community-admin-action-body">
+                    <span className="community-admin-action-label">Control de entrada</span>
+                    <span className="community-admin-action-hint">
+                      Desactivado para esta comunidad (Super Admin)
+                    </span>
+                  </div>
+                </div>
+              )}
               {nav.paqueteria ? (
                 <Link to="/paqueteria" className="community-admin-action card">
                   <span className="community-admin-action-icon-wrap" aria-hidden="true">📦</span>

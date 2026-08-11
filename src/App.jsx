@@ -13,6 +13,7 @@ import ServiceRequestNewPage from './pages/services/ServiceRequestNewPage'
 import ServiceRequestDetailPage from './pages/services/ServiceRequestDetailPage'
 import Incidents from './pages/Incidents'
 import Bookings from './pages/Bookings'
+import BookingsHistoryPage from './pages/BookingsHistoryPage'
 import Activity from './pages/Activity'
 import Profile from './pages/Profile'
 import ProfileMyData from './pages/ProfileMyData'
@@ -47,6 +48,7 @@ import PaqueteriaDetailPage from './pages/paqueteria/PaqueteriaDetailPage'
 import KeyLoansListPage from './pages/paqueteria/KeyLoansListPage'
 import KeyLoanNewPage from './pages/paqueteria/KeyLoanNewPage'
 import CuadernoDiarioPage from './pages/cuaderno-diario/CuadernoDiarioPage'
+import ControlEntradaPage from './pages/control-entrada/ControlEntradaPage'
 import './App.css'
 
 const routerBasename =
@@ -173,6 +175,14 @@ function App() {
               }
             />
             <Route
+              path="bookings/historial"
+              element={
+                <RequireCommunityNavTab tab="bookings">
+                  <BookingsHistoryPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
               path="bookings"
               element={
                 <RequireCommunityNavTab tab="bookings">
@@ -262,6 +272,14 @@ function App() {
               element={
                 <RequireCommunityNavTab tab="cuadernoDiario">
                   <CuadernoDiarioPage />
+                </RequireCommunityNavTab>
+              }
+            />
+            <Route
+              path="control-entrada"
+              element={
+                <RequireCommunityNavTab tab="controlEntrada">
+                  <ControlEntradaPage />
                 </RequireCommunityNavTab>
               }
             />

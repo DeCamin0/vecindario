@@ -19,6 +19,7 @@ import {
   validateSalonBookingAdvance,
   validateSalonSlotAgainstLocation,
 } from '../lib/custom-locations.js'
+import { compareResidentsByDwelling } from '../lib/portal-dwelling-config.js'
 
 export const communityBookingsRouter = Router()
 
@@ -183,13 +184,27 @@ function userMayCancelBooking(
   return Boolean(actor && self && actor === self)
 }
 
-/** Reservas en BD + registros gimnasio solo del usuario actual (Mi actividad). */
+/** Reservas en BD + registros gimnasio (Mi actividad / historial Reservas). */
 communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
   const communityId = Number(req.query.communityId)
   if (!Number.isInteger(communityId) || communityId < 1) {
     res.status(400).json({ error: 'communityId inválido' })
     return
   }
+
+  const qRaw = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (qRaw) {
+    if (qRaw.length < 2) {
+      res.status(400).json({ error: 'Escribe al menos 2 caracteres para buscar.' })
+      return
+    }
+    if (qRaw.length > 80) {
+      res.status(400).json({ error: 'La búsqueda no puede superar 80 caracteres.' })
+      return
+    }
+  }
+  const previewMode =
+    !qRaw && (req.query.preview === '1' || req.query.preview === 'true' || req.query.limit === '20')
 
   const user = await prisma.vecindarioUser.findUnique({ where: { id: req.userId! } })
   const comm = await prisma.community.findUnique({ where: { id: communityId } })
@@ -199,13 +214,37 @@ communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
   }
 
   const communityWide = userSeesCommunityWideBookingActivity(user, comm)
-  const bookingWhere = communityWide
+  const bookingBase = communityWide
     ? { communityId, status: 'confirmed' as const }
     : { communityId, vecindarioUserId: user.id, status: 'confirmed' as const }
-  const gymWhere = communityWide
+  const gymBase = communityWide
     ? { communityId }
     : { communityId, vecindarioUserId: user.id }
-  const takeEach = communityWide ? 200 : 120
+
+  const bookingWhere: Record<string, unknown> = { ...bookingBase }
+  const gymWhere: Record<string, unknown> = { ...gymBase }
+  if (qRaw) {
+    bookingWhere.OR = [
+      { facilityName: { contains: qRaw } },
+      { facilityId: { contains: qRaw } },
+      { slotLabel: { contains: qRaw } },
+      { slotKey: { contains: qRaw } },
+      { actorEmail: { contains: qRaw } },
+      { actorPiso: { contains: qRaw } },
+      { actorPortal: { contains: qRaw } },
+      { bookedByName: { contains: qRaw } },
+      { user: { is: { name: { contains: qRaw } } } },
+      { user: { is: { email: { contains: qRaw } } } },
+    ]
+    gymWhere.OR = [
+      { actorEmail: { contains: qRaw } },
+      { actorPiso: { contains: qRaw } },
+      { actorPortal: { contains: qRaw } },
+      { tipo: { contains: qRaw } },
+    ]
+  }
+
+  const takeEach = qRaw ? 200 : previewMode ? 20 : communityWide ? 200 : 120
 
   const [bookingRows, gymRows] = await Promise.all([
     prisma.communityBooking.findMany({
@@ -295,7 +334,13 @@ communityBookingsRouter.get('/activity', requireAuth, async (req, res) => {
   ]
 
   items.sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt))
-  res.json({ items, scope: communityWide ? 'community' : 'personal' })
+  const limited = previewMode && !qRaw ? items.slice(0, 20) : items
+  res.json({
+    items: limited,
+    scope: communityWide ? 'community' : 'personal',
+    preview: Boolean(previewMode && !qRaw),
+    truncated: Boolean(qRaw && (bookingRows.length >= takeEach || gymRows.length >= takeEach)),
+  })
 })
 
 /** Vecinos/presidente con community_id (gestión: reservar en su nombre). */
@@ -331,11 +376,12 @@ communityBookingsRouter.get('/neighbors', requireAuth, async (req, res) => {
       puerta: true,
       role: true,
     },
-    orderBy: [{ portal: 'asc' }, { piso: 'asc' }, { puerta: 'asc' }, { id: 'asc' }],
   })
 
+  const sorted = [...rows].sort(compareResidentsByDwelling)
+
   res.json({
-    neighbors: rows.map((r) => {
+    neighbors: sorted.map((r) => {
       const portal = r.portal?.trim() || ''
       const piso = r.piso?.trim() || ''
       const puerta = r.puerta?.trim() || ''

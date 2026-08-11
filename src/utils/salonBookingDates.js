@@ -210,3 +210,52 @@ export function firstSelectableDayInMonth(yearMonth, maxDaysInAdvance, isSelecta
   }
   return null
 }
+
+/** Marca selectable según un allowlist (p. ej. tira pádel larga → calendario). */
+export function applyAllowedDateKeysToCells(cells, allowedDateKeys) {
+  if (!allowedDateKeys) return cells
+  const set = allowedDateKeys instanceof Set ? allowedDateKeys : new Set(allowedDateKeys)
+  if (set.size === 0) return cells
+  return cells.map((cell) => {
+    if (cell.type !== 'day') return cell
+    const allowed = set.has(cell.key)
+    return { ...cell, selectable: allowed, inWindow: allowed }
+  })
+}
+
+export function canNavigateAllowedMonthPrev(yearMonth, allowedDateKeys) {
+  if (!allowedDateKeys) return canNavigateSalonMonthPrev(yearMonth)
+  const set = allowedDateKeys instanceof Set ? allowedDateKeys : new Set(allowedDateKeys)
+  if (set.size === 0) return false
+  const monthStart = `${yearMonth}-01`
+  for (const k of set) {
+    if (String(k) < monthStart) return true
+  }
+  return false
+}
+
+export function canNavigateAllowedMonthNext(yearMonth, allowedDateKeys) {
+  if (!allowedDateKeys) return false
+  const set = allowedDateKeys instanceof Set ? allowedDateKeys : new Set(allowedDateKeys)
+  if (set.size === 0) return false
+  const p = parseYearMonth(yearMonth)
+  if (!p) return false
+  const lastDay = localDateKeyFromParts(p.y, p.m, getDaysInMonthCount(p.y, p.m))
+  for (const k of set) {
+    if (String(k) > lastDay) return true
+  }
+  return false
+}
+
+export function firstAllowedDayInMonth(yearMonth, allowedDateKeys) {
+  if (!allowedDateKeys) return null
+  const set = allowedDateKeys instanceof Set ? allowedDateKeys : new Set(allowedDateKeys)
+  const p = parseYearMonth(yearMonth)
+  if (!p) return null
+  const total = getDaysInMonthCount(p.y, p.m)
+  for (let d = 1; d <= total; d += 1) {
+    const key = localDateKeyFromParts(p.y, p.m, d)
+    if (set.has(key)) return key
+  }
+  return null
+}

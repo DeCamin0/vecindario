@@ -507,6 +507,7 @@ const emptyForm = {
   paqueteriaSpecialDeliveryEnabled: false,
   paqueteriaKeyLoansEnabled: false,
   appNavCuadernoDiarioEnabled: false,
+  appNavControlEntradaEnabled: false,
   serviceCategoryModes: defaultServiceCategoryModesRecord(),
   padelCourtCount: '0',
   padelCourtLabel: '',
@@ -1113,6 +1114,7 @@ export default function Admin() {
       paqueteriaSpecialDeliveryEnabled: c.paqueteriaSpecialDeliveryEnabled === true,
       paqueteriaKeyLoansEnabled: c.paqueteriaKeyLoansEnabled === true,
       appNavCuadernoDiarioEnabled: c.appNavCuadernoDiarioEnabled === true,
+      appNavControlEntradaEnabled: c.appNavControlEntradaEnabled === true,
       serviceCategoryModes: (() => {
         const base = defaultServiceCategoryModesRecord()
         const raw = c.serviceRequestCategoryModesJson
@@ -1640,6 +1642,7 @@ export default function Admin() {
           form.appNavPaqueteriaEnabled && form.paqueteriaSpecialDeliveryEnabled,
         paqueteriaKeyLoansEnabled: form.appNavPaqueteriaEnabled && form.paqueteriaKeyLoansEnabled,
         appNavCuadernoDiarioEnabled: form.appNavCuadernoDiarioEnabled,
+        appNavControlEntradaEnabled: form.appNavControlEntradaEnabled,
         serviceRequestCategoryModes: form.serviceCategoryModes,
         padelCourtCount,
         padelCourtLabel: form.padelCourtLabel.trim().slice(0, 128) || null,
@@ -2919,6 +2922,19 @@ export default function Admin() {
                               }
                             />
                             <span>Cuaderno diario</span>
+                          </label>
+                          <label className="admin-nav-tab-check">
+                            <input
+                              type="checkbox"
+                              checked={community.appNavControlEntradaEnabled === true}
+                              disabled={navTabSavingId === community.id}
+                              onChange={(e) =>
+                                patchCommunityNavTabs(community, {
+                                  appNavControlEntradaEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            <span>Control de entrada</span>
                           </label>
                         </div>
                         <p className="admin-field-hint admin-field-hint--block" style={{ marginTop: '0.35rem' }}>
@@ -4591,6 +4607,18 @@ export default function Admin() {
                         }
                       />
                       <span>Pestaña Cuaderno diario</span>
+                    </label>
+                  </div>
+                  <div className="admin-modal-field admin-modal-field--checkbox">
+                    <label className="admin-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.appNavControlEntradaEnabled}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, appNavControlEntradaEnabled: e.target.checked }))
+                        }
+                      />
+                      <span>Pestaña Control de entrada</span>
                     </label>
                   </div>
                 </fieldset>

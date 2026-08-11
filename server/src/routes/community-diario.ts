@@ -101,6 +101,8 @@ function mapEntry(row: {
   description: string
   createdByUserId: number
   createdByName: string | null
+  updatedByUserId?: number | null
+  updatedByName?: string | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -114,6 +116,8 @@ function mapEntry(row: {
     description: row.description,
     createdByUserId: row.createdByUserId,
     createdByName: row.createdByName?.trim() || null,
+    updatedByUserId: row.updatedByUserId ?? null,
+    updatedByName: row.updatedByName?.trim() || null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -165,7 +169,11 @@ communityDiarioRouter.get('/diario/access', requireAuth, async (req, res) => {
   res.json({ access: gate.access, canWrite: gate.access === 'write' })
 })
 
-/** Lista por día o resumen de días con anotaciones en un mes (YYYY-MM). */
+const DIARIO_SEARCH_MIN = 2
+const DIARIO_SEARCH_MAX = 80
+const DIARIO_SEARCH_LIMIT = 50
+
+/** Lista por día, resumen mensual, o búsqueda por texto en todas las anotaciones. */
 communityDiarioRouter.get('/diario', requireAuth, async (req, res) => {
   const communityId = Number(req.query.communityId)
   if (!Number.isInteger(communityId) || communityId < 1) {
@@ -199,9 +207,42 @@ communityDiarioRouter.get('/diario', requireAuth, async (req, res) => {
     return
   }
 
+  const qRaw = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (qRaw) {
+    if (qRaw.length < DIARIO_SEARCH_MIN) {
+      res.status(400).json({
+        error: `Escribe al menos ${DIARIO_SEARCH_MIN} caracteres para buscar.`,
+      })
+      return
+    }
+    if (qRaw.length > DIARIO_SEARCH_MAX) {
+      res.status(400).json({
+        error: `La búsqueda no puede superar ${DIARIO_SEARCH_MAX} caracteres.`,
+      })
+      return
+    }
+    const rows = await prisma.communityDiarioEntry.findMany({
+      where: {
+        communityId: gate.communityId,
+        description: { contains: qRaw },
+      },
+      orderBy: [{ entryDate: 'desc' }, { startMinute: 'desc' }, { id: 'desc' }],
+      take: DIARIO_SEARCH_LIMIT + 1,
+    })
+    const truncated = rows.length > DIARIO_SEARCH_LIMIT
+    const page = truncated ? rows.slice(0, DIARIO_SEARCH_LIMIT) : rows
+    res.json({
+      q: qRaw,
+      access: gate.access,
+      truncated,
+      entries: page.map(mapEntry),
+    })
+    return
+  }
+
   const entryDate = parseYmd(req.query.date)
   if (!entryDate) {
-    res.status(400).json({ error: 'Indica date=YYYY-MM-DD o month=YYYY-MM.' })
+    res.status(400).json({ error: 'Indica date=YYYY-MM-DD, month=YYYY-MM o q=texto.' })
     return
   }
 
@@ -319,6 +360,8 @@ communityDiarioRouter.patch('/diario/:entryId', requireAuth, async (req, res) =>
   const data: {
     startMinute?: number
     description?: string
+    updatedByUserId?: number
+    updatedByName?: string | null
   } = {}
   if (req.body?.entryDate != null || req.body?.date != null) {
     res.status(400).json({ error: 'No se puede cambiar la fecha de una anotación.' })
@@ -340,6 +383,22 @@ communityDiarioRouter.patch('/diario/:entryId', requireAuth, async (req, res) =>
     }
     data.description = t
   }
+
+  if (data.startMinute === undefined && data.description === undefined) {
+    res.status(400).json({ error: 'Sin cambios.' })
+    return
+  }
+
+  const author = await prisma.vecindarioUser.findUnique({
+    where: { id: req.userId! },
+    select: { id: true, name: true, email: true },
+  })
+  if (!author) {
+    res.status(401).json({ error: 'Sesión no válida.' })
+    return
+  }
+  data.updatedByUserId = author.id
+  data.updatedByName = staffDisplayName(author)
 
   const row = await prisma.communityDiarioEntry.update({
     where: { id: entryId },

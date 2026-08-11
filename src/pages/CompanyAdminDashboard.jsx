@@ -271,6 +271,7 @@ export default function CompanyAdminDashboard() {
     appNavPaqueteriaEnabled: false,
     paqueteriaSpecialDeliveryEnabled: false,
     appNavCuadernoDiarioEnabled: false,
+    appNavControlEntradaEnabled: false,
     padelCourtCount: '0',
     padelMaxHoursPerBooking: '2',
     padelMaxHoursPerApartmentPerDay: '4',
@@ -816,6 +817,18 @@ export default function CompanyAdminDashboard() {
                           }
                         />{' '}
                         App: pestaña Cuaderno diario
+                      </label>
+                    </div>
+                    <div className="admin-modal-field admin-modal-field--checkbox">
+                      <label className="admin-label admin-label--inline">
+                        <input
+                          type="checkbox"
+                          checked={form.appNavControlEntradaEnabled}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, appNavControlEntradaEnabled: e.target.checked }))
+                          }
+                        />{' '}
+                        App: pestaña Control de entrada
                       </label>
                     </div>
                     <div className="admin-modal-row">

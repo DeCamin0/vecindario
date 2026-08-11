@@ -21,6 +21,7 @@ import {
   SALON_UNLIMITED_MAX_DAYS,
   isDateInBookableWindow,
   firstSelectableDayInMonth,
+  firstAllowedDayInMonth,
 } from '../utils/salonBookingDates.js'
 import {
   buildSpaceConfigForCustomFacility,
@@ -288,6 +289,8 @@ function slotStartLocalDate(dateKey, startMin) {
 
 /** Máx. días futuros en la tira (sin antelación / tope duro). */
 const PADEL_MAX_FUTURE_DAYS = 90
+/** Si la tira supera este nº de días, usamos calendario mensual (misma ventana bookable). */
+const PADEL_DATE_STRIP_MAX = 14
 
 /**
  * Ventana en días naturales hacia adelante (p. ej. 48 → 2).
@@ -1218,6 +1221,32 @@ export default function Bookings() {
     return padelCalendarDayKeys(minAdv, spaceConfig.maxDaysInAdvance ?? 7)
   }, [selectedFacility, communityBookingConfig, spaceConfig])
 
+  const showPadelDateCalendar = Boolean(
+    !staffHistoryMode &&
+      isPadelFacilityId(selectedFacility) &&
+      Array.isArray(padelStripDayKeys) &&
+      padelStripDayKeys.length > PADEL_DATE_STRIP_MAX,
+  )
+
+  const padelAllowedDateKeySet = useMemo(
+    () => (showPadelDateCalendar && padelStripDayKeys ? new Set(padelStripDayKeys) : null),
+    [showPadelDateCalendar, padelStripDayKeys],
+  )
+
+  const getPadelCalendarDayStatus = useCallback(
+    (dateKey) => {
+      if (!padelAllowedDateKeySet?.has(dateKey)) return 'disabled'
+      return 'free'
+    },
+    [padelAllowedDateKeySet],
+  )
+
+  useEffect(() => {
+    if (!showPadelDateCalendar) return
+    const key = booking.date || localDateKey(new Date())
+    setSalonPickerMonth(key.slice(0, 7))
+  }, [showPadelDateCalendar, selectedFacility, booking.date])
+
   /** Gestión: calendario ampliado solo para el input «Ir a fecha» (saltar / histórico). */
   const padelConciergeJumpKeys = useMemo(() => {
     if (!isStaffBookingMode || !isPadelFacilityId(selectedFacility) || !communityBookingConfig || !spaceConfig) {
@@ -1513,6 +1542,15 @@ export default function Bookings() {
       firstSelectableDayInMonth(yearMonth, max, isFree) ||
       firstSelectableDayInMonth(yearMonth, max)
     if (pick) handleSalonDaySelect(pick)
+  }
+
+  const handlePadelMonthChange = (yearMonth) => {
+    setSalonPickerMonth(yearMonth)
+    if (booking.date && booking.date.startsWith(yearMonth) && padelAllowedDateKeySet?.has(booking.date)) {
+      return
+    }
+    const pick = firstAllowedDayInMonth(yearMonth, padelAllowedDateKeySet)
+    if (pick) handleDateSelect(pick)
   }
 
   const handleStaffHistoryDateChange = (value) => {
@@ -2062,7 +2100,10 @@ export default function Bookings() {
       )}
 
       {selectedFacility && spaceConfig && !showGymAccessPanel && (
-        <form onSubmit={handleSubmit} className="booking-form card">
+        <form
+          onSubmit={handleSubmit}
+          className={`booking-form card${isPadelFacilityId(selectedFacility) ? ' booking-form--padel-desktop' : ''}`}
+        >
           <div className="booking-form-header">
             <span className="booking-form-facility">
               {facilities ? facilityLabel(facilities, selectedFacility) : selectedFacility}
@@ -2131,7 +2172,7 @@ export default function Bookings() {
             )}
           </p>
 
-          <div className="booking-field">
+          <div className="booking-field booking-field--date">
             <div className="form-label form-label--with-month" role="group" aria-label="Fecha de la reserva">
               <span>
                 Fecha <span className="form-required">*</span>
@@ -2251,6 +2292,18 @@ export default function Bookings() {
                     getDayStatus={getSalonCalendarDayStatus}
                     showPartialLegend={!salonDayBookingFlow}
                   />
+                ) : showPadelDateCalendar ? (
+                  <SalonBookingCalendar
+                    monthYear={salonPickerMonth}
+                    onMonthChange={handlePadelMonthChange}
+                    selectedDate={booking.date}
+                    onDateSelect={handleDateSelect}
+                    maxDaysInAdvance={PADEL_MAX_FUTURE_DAYS}
+                    minDaysInAdvance={0}
+                    getDayStatus={getPadelCalendarDayStatus}
+                    allowedDateKeys={padelAllowedDateKeySet}
+                    showPartialLegend={false}
+                  />
                 ) : (
                   <div className="booking-date-strip" role="group" aria-label="Días disponibles">
                     {dateOptions.map(({ key, day, num }) => (
@@ -2297,7 +2350,7 @@ export default function Bookings() {
           </div>
 
           {!salonDayBookingFlow ? (
-            <div className="booking-field">
+            <div className="booking-field booking-field--slots">
               <label className="form-label">Tramo horario <span className="form-required">*</span></label>
               {errors.timeSlot && (
                 <p className="form-error form-error--inline" role="alert">{errors.timeSlot}</p>
@@ -2535,7 +2588,7 @@ export default function Bookings() {
           <h2 id="booking-my-records-title" className="section-label">
             {isStaffBookingMode ? 'Registros recientes de la comunidad' : 'Tus registros recientes'}
           </h2>
-          <Link to="/activity" className="booking-my-records-link">
+          <Link to="/bookings/historial" className="booking-my-records-link">
             Ver todo
           </Link>
         </div>

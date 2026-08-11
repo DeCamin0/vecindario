@@ -15,6 +15,7 @@ import { communityResidentsRouter } from './routes/community-residents.js'
 import { communityParcelsRouter } from './routes/community-parcels.js'
 import { communityKeyLoansRouter } from './routes/community-key-loans.js'
 import { communityDiarioRouter } from './routes/community-diario.js'
+import { communityControlEntradaRouter } from './routes/community-control-entrada.js'
 import { communityIncidentsRouter } from './routes/community-incidents.js'
 import { communityServicesRouter } from './routes/community-services.js'
 import { notificationsRouter } from './routes/notifications.js'
@@ -78,6 +79,7 @@ app.use('/api/community', communityResidentsRouter)
 app.use('/api/community', communityParcelsRouter)
 app.use('/api/community', communityKeyLoansRouter)
 app.use('/api/community', communityDiarioRouter)
+app.use('/api/community', communityControlEntradaRouter)
 app.use('/api/public', publicCommunitiesRouter)
 app.use('/api/admin/communities', ...requireAdminCommunitiesAccess, adminCommunitiesRouter)
 app.use('/api/admin/companies', ...requireSuperAdmin, adminCompaniesRouter)

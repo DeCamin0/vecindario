@@ -195,6 +195,7 @@ communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
     communityId: number
     status?: string | { in: string[] }
     resolvedAt?: { gte?: Date; lte?: Date }
+    OR?: Array<Record<string, unknown>>
   } = { communityId }
   if (statusFilter === 'pendiente') {
     where.status = { in: [...OPEN_INCIDENT_STATUSES] }
@@ -207,9 +208,27 @@ communityIncidentsRouter.get('/', requireAuth, async (req, res) => {
     if (dateTo) where.resolvedAt.lte = dateTo
   }
 
+  const qRaw = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (qRaw) {
+    if (qRaw.length < 2) {
+      res.status(400).json({ error: 'Escribe al menos 2 caracteres para buscar.' })
+      return
+    }
+    if (qRaw.length > 80) {
+      res.status(400).json({ error: 'La búsqueda no puede superar 80 caracteres.' })
+      return
+    }
+    where.OR = [
+      { description: { contains: qRaw } },
+      { locationText: { contains: qRaw } },
+      { categoryLabel: { contains: qRaw } },
+      { portalLabel: { contains: qRaw } },
+    ]
+  }
+
   const archivedDateSearch = statusFilter === 'resuelta' && Boolean(dateFrom || dateTo)
   const listLimit =
-    statusFilter === 'resuelta' && !archivedDateSearch ? ARCHIVED_PREVIEW_LIMIT : 200
+    statusFilter === 'resuelta' && !archivedDateSearch && !qRaw ? ARCHIVED_PREVIEW_LIMIT : 200
   const orderBy =
     statusFilter === 'resuelta'
       ? [{ resolvedAt: 'desc' as const }, { id: 'desc' as const }]

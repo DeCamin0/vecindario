@@ -143,6 +143,7 @@ Multe servere servesc corect dacă urci tot `dist/` inclusiv folderul ascuns `.w
 
 - Înlocuiește `APPLE_TEAM_ID` cu Team ID-ul real din Apple Developer (10 caractere).
 - `bundle` în app: `com.decamino.vecindario` (deja în `vecindario-mobile`).
+- Fișierul include și **`webcredentials`** (parole / autofill pe domeniu). Pentru app-ul **nativ** Expo trebuie + `webcredentials:` în `associatedDomains` și rebuild — vezi `docs/AUTOFILL-SEPARARE-PAROLE-DeCamino-Vecindario.md`.
 
 ### App mobilă — același host
 

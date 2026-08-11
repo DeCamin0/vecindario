@@ -57,10 +57,39 @@ function minuteFromTimeInput(value) {
   return h * 60 + mi
 }
 
+function formatEntryDateLabel(ymd) {
+  try {
+    return parseYmd(ymd).toLocaleDateString('es-ES', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    })
+  } catch {
+    return ymd
+  }
+}
+
+function formatEditedAt(iso) {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString('es-ES', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return ''
+  }
+}
+
 export default function CuadernoDiarioPage() {
   const { accessToken, communityId, communityAccessCode, cuadernoDiarioAccess, user } = useAuth()
   const { confirm } = useDialog()
   const today = localYmd()
+  const [mode, setMode] = useState('day')
   const [viewDate, setViewDate] = useState(today)
   const [monthCursor, setMonthCursor] = useState(() => {
     const d = new Date()
@@ -76,6 +105,13 @@ export default function CuadernoDiarioPage() {
   const [timeValue, setTimeValue] = useState(timeInputFromMinute(new Date().getHours() * 60 + new Date().getMinutes()))
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchEntries, setSearchEntries] = useState([])
+  const [searchTruncated, setSearchTruncated] = useState(false)
+  const [loadingSearch, setLoadingSearch] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  const [searchHint, setSearchHint] = useState('')
 
   const canWrite = canWriteCuadernoDiario(cuadernoDiarioAccess)
   const canCreateToday = canCreateCuadernoEntry({
@@ -140,13 +176,93 @@ export default function CuadernoDiarioPage() {
     }
   }, [accessToken, communityId, viewDate, queryBase])
 
-  useEffect(() => {
-    void loadMonth()
-  }, [loadMonth])
+  const loadSearch = useCallback(
+    async (rawQ) => {
+      if (!accessToken || communityId == null) {
+        setLoadingSearch(false)
+        return
+      }
+      const qText = String(rawQ || '').trim()
+      if (qText.length < 2) {
+        setSearchQuery('')
+        setSearchEntries([])
+        setSearchTruncated(false)
+        setSearchError('')
+        setSearchHint('Escribe al menos 2 caracteres para buscar en todas las anotaciones.')
+        setLoadingSearch(false)
+        return
+      }
+      setLoadingSearch(true)
+      setSearchError('')
+      setSearchHint('')
+      setSearchQuery(qText)
+      try {
+        const q = queryBase()
+        q.set('q', qText)
+        const res = await fetch(apiUrl(`/api/community/diario?${q}`), {
+          headers: jsonAuthHeaders(accessToken),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
+        setSearchEntries(Array.isArray(data.entries) ? data.entries : [])
+        setSearchTruncated(Boolean(data.truncated))
+      } catch (e) {
+        setSearchEntries([])
+        setSearchTruncated(false)
+        setSearchError(e.message || 'No se pudo buscar')
+      } finally {
+        setLoadingSearch(false)
+      }
+    },
+    [accessToken, communityId, queryBase],
+  )
 
   useEffect(() => {
+    if (mode !== 'day') return
+    void loadMonth()
+  }, [mode, loadMonth])
+
+  useEffect(() => {
+    if (mode !== 'day') return
     void loadDay()
-  }, [loadDay])
+  }, [mode, loadDay])
+
+  useEffect(() => {
+    if (mode !== 'search') return
+    const qText = searchInput.trim()
+    if (qText.length < 2) {
+      setSearchQuery('')
+      setSearchEntries([])
+      setSearchTruncated(false)
+      setSearchError('')
+      setLoadingSearch(false)
+      setSearchHint(
+        qText.length === 0
+          ? 'Escribe para buscar en todas las anotaciones. Los resultados aparecen al teclear.'
+          : 'Escribe al menos 2 caracteres para buscar en todas las anotaciones.',
+      )
+      return
+    }
+    setSearchHint('')
+    const timer = setTimeout(() => {
+      void loadSearch(searchInput)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [mode, searchInput, loadSearch])
+
+  const jumpToDay = (ymd) => {
+    if (!ymd || typeof ymd !== 'string') return
+    const d = parseYmd(ymd)
+    setMonthCursor({ y: d.getFullYear(), m: d.getMonth() })
+    setViewDate(ymd)
+    setMode('day')
+    setError('')
+  }
+
+  const runSearch = (e) => {
+    e?.preventDefault?.()
+    void loadSearch(searchInput)
+  }
 
   const dayStrip = useMemo(() => {
     const n = daysInMonth(monthCursor.y, monthCursor.m)
@@ -309,196 +425,322 @@ export default function CuadernoDiarioPage() {
         </div>
       </header>
 
-      <section className="cd-calendar-card" aria-label="Calendario del mes">
-        <div className="cd-month-nav">
-          <button
-            type="button"
-            className="cd-month-btn"
-            onClick={() => shiftMonth(-1)}
-            aria-label="Mes anterior"
-          >
-            ←
-          </button>
-          <h2 className="cd-month-title">
-            {MONTHS_ES[monthCursor.m]} {monthCursor.y}
-          </h2>
-          <button
-            type="button"
-            className="cd-month-btn"
-            onClick={() => shiftMonth(1)}
-            aria-label="Mes siguiente"
-          >
-            →
-          </button>
-          <span className="cd-month-nav-spacer" aria-hidden="true" />
-          <button
-            type="button"
-            className="cd-today-btn"
-            onClick={() => {
-              const n = new Date()
-              setMonthCursor({ y: n.getFullYear(), m: n.getMonth() })
-              setViewDate(today)
-            }}
-          >
-            Hoy
-          </button>
-        </div>
-
-        {loadingMonth ? (
-          <p className="cd-calendar-loading" aria-live="polite">
-            Cargando calendario…
-          </p>
-        ) : (
-          <div className="cd-day-strip" role="group" aria-label="Días del mes">
-            {dayStrip.map(({ key, day, num, count }) => (
-              <button
-                key={key}
-                type="button"
-                className={[
-                  'cd-day-cell',
-                  viewDate === key ? 'cd-day-cell--selected' : '',
-                  key === today ? 'cd-day-cell--today' : '',
-                  count > 0 ? 'cd-day-cell--has-notes' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={() => setViewDate(key)}
-                aria-pressed={viewDate === key}
-                aria-label={`${day} ${num}, ${count} anotaciones`}
-              >
-                <span className="cd-day-cell-day">{day}</span>
-                <span className="cd-day-cell-num">{num}</span>
-                {count > 0 ? (
-                  <span className="cd-day-cell-count">{count}</span>
-                ) : (
-                  <span className="cd-day-cell-count" aria-hidden="true">
-                    {' '}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div className="cd-day-toolbar">
-        <div>
-          <p className="cd-day-toolbar-label">Día seleccionado</p>
-          <strong className="cd-day-toolbar-date">{selectedDateLabel}</strong>
-        </div>
-        {canCreateToday && !formOpen ? (
-          <button type="button" className="btn btn--primary cd-new-btn" onClick={openCreate}>
-            <span className="cd-new-btn-icon" aria-hidden="true">
-              +
-            </span>
-            Nueva anotación
-          </button>
-        ) : canWrite && viewDate !== today ? (
-          <span className="cd-day-toolbar-hint">Solo lectura en días anteriores</span>
-        ) : null}
+      <div className="cd-mode-tabs" role="tablist" aria-label="Vista del cuaderno">
+        <button
+          type="button"
+          role="tab"
+          id="cd-tab-day"
+          aria-selected={mode === 'day'}
+          aria-controls="cd-panel-day"
+          className={`cd-mode-tab ${mode === 'day' ? 'cd-mode-tab--active' : ''}`}
+          onClick={() => setMode('day')}
+        >
+          Día
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="cd-tab-search"
+          aria-selected={mode === 'search'}
+          aria-controls="cd-panel-search"
+          className={`cd-mode-tab ${mode === 'search' ? 'cd-mode-tab--active' : ''}`}
+          onClick={() => setMode('search')}
+        >
+          Buscar
+        </button>
       </div>
 
-      {formOpen && canWrite && (editingId ? viewDate === today : canCreateToday) ? (
-        <form className="cd-form-panel" onSubmit={(ev) => void handleSubmit(ev)}>
-          <div className="cd-form-head">
-            <h2 className="cd-form-title">{editingId ? 'Editar anotación' : 'Nueva anotación'}</h2>
-          </div>
-          <div className="cd-form-body">
-            <div className="cd-form-grid">
-              <label className="form-label" htmlFor="cd-time">
-                Hora
-              </label>
-              <input
-                id="cd-time"
-                type="time"
-                className="auth-input"
-                value={timeValue}
-                onChange={(e) => setTimeValue(e.target.value)}
-                required
-              />
-              <label className="form-label" htmlFor="cd-desc">
-                Anotación
-              </label>
-              <textarea
-                id="cd-desc"
-                className="auth-input"
-                rows={4}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Ej. Ronda de garajes, llamada ascensor, entrega llaves…"
-                required
-              />
-            </div>
-            <div className="cd-form-actions">
-              <button type="submit" className="btn btn--primary" disabled={submitting}>
-                {submitting ? 'Guardando…' : 'Guardar'}
-              </button>
-              <button type="button" className="btn btn--ghost" onClick={resetForm} disabled={submitting}>
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </form>
-      ) : null}
+      {mode === 'search' ? (
+        <div
+          id="cd-panel-search"
+          role="tabpanel"
+          aria-labelledby="cd-tab-search"
+          className="cd-search-panel"
+        >
+          <form className="cd-search-form" onSubmit={runSearch}>
+            <label className="cd-sr-only" htmlFor="cd-search-q">
+              Buscar en anotaciones
+            </label>
+            <input
+              id="cd-search-q"
+              type="search"
+              className="auth-input cd-search-input"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Buscar en todas las anotaciones…"
+              autoComplete="off"
+              enterKeyHint="search"
+            />
+            <button type="submit" className="btn btn--primary cd-search-btn" disabled={loadingSearch}>
+              {loadingSearch ? 'Buscando…' : 'Buscar'}
+            </button>
+          </form>
 
-      {error ? (
-        <p className="auth-error cd-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+          {searchError ? (
+            <p className="auth-error cd-error" role="alert">
+              {searchError}
+            </p>
+          ) : null}
 
-      {loadingDay ? (
-        <p className="cd-loading" aria-live="polite">
-          Cargando anotaciones…
-        </p>
-      ) : entries.length === 0 ? (
-        <div className="cd-empty" role="status">
-          <div className="cd-empty-icon" aria-hidden="true">
-            📝
-          </div>
-          <p className="cd-empty-title">Sin anotaciones este día</p>
-          <p className="cd-empty-text">
-            {canWrite
-              ? 'Pulsa «Nueva anotación» para registrar tareas, visitas o novedades de conserjería.'
-              : 'El conserje aún no ha registrado nada para esta fecha.'}
-          </p>
+          {loadingSearch ? (
+            <p className="cd-loading" aria-live="polite">
+              Buscando anotaciones…
+            </p>
+          ) : searchQuery && searchEntries.length === 0 && !searchError ? (
+            <div className="cd-empty" role="status">
+              <div className="cd-empty-icon" aria-hidden="true">
+                🔍
+              </div>
+              <p className="cd-empty-title">Sin resultados</p>
+              <p className="cd-empty-text">
+                No hay anotaciones que contengan «{searchQuery}». Prueba con otras palabras.
+              </p>
+            </div>
+          ) : searchEntries.length > 0 ? (
+            <>
+              <h2 className="cd-section-title">
+                {searchEntries.length} resultado{searchEntries.length === 1 ? '' : 's'}
+                {searchTruncated ? ' (mostrando los 50 más recientes)' : ''}
+              </h2>
+              <div className="cd-entries cd-search-entries">
+                {searchEntries.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="cd-entry-card cd-search-result"
+                    onClick={() => jumpToDay(entry.entryDate)}
+                  >
+                    <div className="cd-entry-time-col">
+                      <span className="cd-search-result-date">{formatEntryDateLabel(entry.entryDate)}</span>
+                      <span className="cd-entry-time">{entry.timeLabel}</span>
+                      <span className="cd-entry-time-dot" aria-hidden="true" />
+                    </div>
+                    <div className="cd-entry-body">
+                      <p className="cd-entry-desc">{entry.description}</p>
+                      {entry.createdByName ? (
+                        <p className="cd-entry-meta">Registrado por {entry.createdByName}</p>
+                      ) : null}
+                      {entry.updatedByName ? (
+                        <p className="cd-entry-meta">
+                          Editado por {entry.updatedByName}
+                          {entry.updatedAt ? ` · ${formatEditedAt(entry.updatedAt)}` : ''}
+                        </p>
+                      ) : null}
+                      <span className="cd-search-result-go">Ver día →</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : !searchError ? (
+            <p className="cd-search-hint" role="status">
+              {searchHint ||
+                'Escribe para buscar. Los resultados aparecen al teclear.'}
+            </p>
+          ) : null}
         </div>
       ) : (
-        <>
-          <h2 className="cd-section-title">
-            {entries.length} anotación{entries.length === 1 ? '' : 'es'}
-          </h2>
-          <div className="cd-entries">
-            {entries.map((entry) => (
-              <article key={entry.id} className="cd-entry-card">
-                <div className="cd-entry-time-col">
-                  <span className="cd-entry-time">{entry.timeLabel}</span>
-                  <span className="cd-entry-time-dot" aria-hidden="true" />
-                </div>
-                <div className="cd-entry-body">
-                  <p className="cd-entry-desc">{entry.description}</p>
-                  {entry.createdByName ? (
-                    <p className="cd-entry-meta">Registrado por {entry.createdByName}</p>
-                  ) : null}
-                  {canMutateCuadernoEntry(entry, mutateCtx) ? (
-                    <div className="cd-entry-actions">
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(entry)}>
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => void handleDelete(entry)}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+        <div id="cd-panel-day" className="cd-day-layout" role="tabpanel" aria-labelledby="cd-tab-day">
+          <section className="cd-calendar-card" aria-label="Calendario del mes">
+            <div className="cd-month-nav">
+              <button
+                type="button"
+                className="cd-month-btn"
+                onClick={() => shiftMonth(-1)}
+                aria-label="Mes anterior"
+              >
+                ←
+              </button>
+              <h2 className="cd-month-title">
+                {MONTHS_ES[monthCursor.m]} {monthCursor.y}
+              </h2>
+              <button
+                type="button"
+                className="cd-month-btn"
+                onClick={() => shiftMonth(1)}
+                aria-label="Mes siguiente"
+              >
+                →
+              </button>
+              <span className="cd-month-nav-spacer" aria-hidden="true" />
+              <button
+                type="button"
+                className="cd-today-btn"
+                onClick={() => {
+                  const n = new Date()
+                  setMonthCursor({ y: n.getFullYear(), m: n.getMonth() })
+                  setViewDate(today)
+                }}
+              >
+                Hoy
+              </button>
+            </div>
+
+            {loadingMonth ? (
+              <p className="cd-calendar-loading" aria-live="polite">
+                Cargando calendario…
+              </p>
+            ) : (
+              <div className="cd-day-strip" role="group" aria-label="Días del mes">
+                {dayStrip.map(({ key, day, num, count }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={[
+                      'cd-day-cell',
+                      viewDate === key ? 'cd-day-cell--selected' : '',
+                      key === today ? 'cd-day-cell--today' : '',
+                      count > 0 ? 'cd-day-cell--has-notes' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => setViewDate(key)}
+                    aria-pressed={viewDate === key}
+                    aria-label={`${day} ${num}, ${count} anotaciones`}
+                  >
+                    <span className="cd-day-cell-day">{day}</span>
+                    <span className="cd-day-cell-num">{num}</span>
+                    {count > 0 ? (
+                      <span className="cd-day-cell-count">{count}</span>
+                    ) : (
+                      <span className="cd-day-cell-count" aria-hidden="true">
+                        {' '}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <div className="cd-day-main">
+          <div className="cd-day-toolbar">
+            <div>
+              <p className="cd-day-toolbar-label">Día seleccionado</p>
+              <strong className="cd-day-toolbar-date">{selectedDateLabel}</strong>
+            </div>
+            {canCreateToday && !formOpen ? (
+              <button type="button" className="btn btn--primary cd-new-btn" onClick={openCreate}>
+                <span className="cd-new-btn-icon" aria-hidden="true">
+                  +
+                </span>
+                Nueva anotación
+              </button>
+            ) : canWrite && viewDate !== today ? (
+              <span className="cd-day-toolbar-hint">Solo lectura en días anteriores</span>
+            ) : null}
           </div>
-        </>
+
+          {formOpen && canWrite && (editingId ? viewDate === today : canCreateToday) ? (
+            <form className="cd-form-panel" onSubmit={(ev) => void handleSubmit(ev)}>
+              <div className="cd-form-head">
+                <h2 className="cd-form-title">{editingId ? 'Editar anotación' : 'Nueva anotación'}</h2>
+              </div>
+              <div className="cd-form-body">
+                <div className="cd-form-grid">
+                  <label className="form-label" htmlFor="cd-time">
+                    Hora
+                  </label>
+                  <input
+                    id="cd-time"
+                    type="time"
+                    className="auth-input"
+                    value={timeValue}
+                    onChange={(e) => setTimeValue(e.target.value)}
+                    required
+                  />
+                  <label className="form-label" htmlFor="cd-desc">
+                    Anotación
+                  </label>
+                  <textarea
+                    id="cd-desc"
+                    className="auth-input"
+                    rows={4}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Ej. Ronda de garajes, llamada ascensor, entrega llaves…"
+                    required
+                  />
+                </div>
+                <div className="cd-form-actions">
+                  <button type="submit" className="btn btn--primary" disabled={submitting}>
+                    {submitting ? 'Guardando…' : 'Guardar'}
+                  </button>
+                  <button type="button" className="btn btn--ghost" onClick={resetForm} disabled={submitting}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : null}
+
+          {error ? (
+            <p className="auth-error cd-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          {loadingDay ? (
+            <p className="cd-loading" aria-live="polite">
+              Cargando anotaciones…
+            </p>
+          ) : entries.length === 0 ? (
+            <div className="cd-empty" role="status">
+              <div className="cd-empty-icon" aria-hidden="true">
+                📝
+              </div>
+              <p className="cd-empty-title">Sin anotaciones este día</p>
+              <p className="cd-empty-text">
+                {canWrite
+                  ? 'Pulsa «Nueva anotación» para registrar tareas, visitas o novedades de conserjería.'
+                  : 'El conserje aún no ha registrado nada para esta fecha.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              <h2 className="cd-section-title">
+                {entries.length} anotación{entries.length === 1 ? '' : 'es'}
+              </h2>
+              <div className="cd-entries">
+                {entries.map((entry) => (
+                  <article key={entry.id} className="cd-entry-card">
+                    <div className="cd-entry-time-col">
+                      <span className="cd-entry-time">{entry.timeLabel}</span>
+                      <span className="cd-entry-time-dot" aria-hidden="true" />
+                    </div>
+                    <div className="cd-entry-body">
+                      <p className="cd-entry-desc">{entry.description}</p>
+                      {entry.createdByName ? (
+                        <p className="cd-entry-meta">Registrado por {entry.createdByName}</p>
+                      ) : null}
+                      {entry.updatedByName ? (
+                        <p className="cd-entry-meta">
+                          Editado por {entry.updatedByName}
+                          {entry.updatedAt ? ` · ${formatEditedAt(entry.updatedAt)}` : ''}
+                        </p>
+                      ) : null}
+                      {canMutateCuadernoEntry(entry, mutateCtx) ? (
+                        <div className="cd-entry-actions">
+                          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(entry)}>
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => void handleDelete(entry)}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import HomeTodaySection from '../components/HomeTodaySection.jsx'
 import ManagementStatsTiles from '../components/ManagementStatsTiles.jsx'
 import {
   COMMUNITY_MGMT_NAV_DEFAULT,
   useCommunityManagementStats,
 } from '../hooks/useCommunityManagementStats.js'
+import { useHomeTodaySignals } from '../hooks/useHomeTodaySignals.js'
 import { useAuth, canActAsResident } from '../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../config/api.js'
 import { SERVICE_STATUS_LABELS } from '../constants/serviceRequests.js'
@@ -85,8 +87,16 @@ const STATUS_LABELS_ES = {
 }
 
 export default function Home() {
-  const { community, user, userRole, appNavFlags, appNavFlagsReady, accessToken, communityId } =
-    useAuth()
+  const {
+    community,
+    user,
+    userRole,
+    appNavFlags,
+    appNavFlagsReady,
+    accessToken,
+    communityId,
+    communityAccessCode,
+  } = useAuth()
   const [serverActivityItems, setServerActivityItems] = useState([])
   const [serverIncidents, setServerIncidents] = useState([])
   const [serverServices, setServerServices] = useState([])
@@ -110,6 +120,32 @@ export default function Home() {
     showHomeManagementStats ? communityId : null,
     navForMgmt,
   )
+
+  const poolNeighbor = userRole === 'resident' || userRole === 'president'
+  const poolStaffSummary = userRole === 'concierge' || userRole === 'community_admin'
+  const paqueteriaNeighbor = userRole === 'resident' || userRole === 'president'
+  const paqueteriaStaff =
+    userRole === 'concierge' || userRole === 'community_admin' || userRole === 'super_admin'
+  const canShowPaqueteria = Boolean(navFlags.paqueteria && (paqueteriaNeighbor || paqueteriaStaff))
+
+  const { signals: todaySignals } = useHomeTodaySignals({
+    accessToken,
+    communityId,
+    communityAccessCode,
+    userRole,
+    navFlags,
+    showManagementStats: showHomeManagementStats,
+    overviewStats,
+    overviewLoading,
+    canShowPaqueteria,
+  })
+
+  const managementHiddenKeys = useMemo(() => {
+    const keys = []
+    if (todaySignals.some((s) => s.id === 'bookings')) keys.push('bookings')
+    if (todaySignals.some((s) => s.id === 'incidents')) keys.push('pendingActions')
+    return keys
+  }, [todaySignals])
 
   const allActions = [
     {
@@ -137,8 +173,6 @@ export default function Home() {
       navKey: 'bookings',
     },
   ]
-  const poolNeighbor = userRole === 'resident' || userRole === 'president'
-  const poolStaffSummary = userRole === 'concierge' || userRole === 'community_admin'
   const poolQuick =
     navFlags.poolAccess && (poolNeighbor || poolStaffSummary)
       ? [
@@ -155,10 +189,7 @@ export default function Home() {
           },
         ]
       : []
-  const paqueteriaNeighbor = userRole === 'resident' || userRole === 'president'
-  const paqueteriaStaff = userRole === 'concierge' || userRole === 'community_admin'
-  const paqueteriaQuick =
-    navFlags.paqueteria && (paqueteriaNeighbor || paqueteriaStaff)
+  const paqueteriaQuick = canShowPaqueteria
       ? [
           {
             to: '/paqueteria',
@@ -374,6 +405,8 @@ export default function Home() {
         <p className="welcome-subtitle">¿Qué necesitas hacer hoy?</p>
       </section>
 
+      <HomeTodaySection signals={todaySignals} />
+
       {showHomeManagementStats ? (
         <section
           className="home-management-overview"
@@ -383,8 +416,8 @@ export default function Home() {
             Resumen de tu comunidad
           </h2>
           <p className="home-management-overview-hint">
-            Total incidencias suma pendientes (incl. en gestión) y resueltas; acciones pendientes las que siguen sin resolver.
-            Reservas de hoy y contador de resueltas aparte. Comunidad activa.
+            Volumen de gestión (total y resueltas). La atención inmediata está arriba, en «Hoy en la
+            comunidad».
           </p>
           <ManagementStatsTiles
             overviewStats={overviewStats}
@@ -392,6 +425,7 @@ export default function Home() {
             statDisplay={statDisplay}
             nav={navForMgmt}
             statsClassName="community-admin-stats home-management-stats"
+            hiddenKeys={managementHiddenKeys}
           />
         </section>
       ) : null}

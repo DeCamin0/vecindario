@@ -2,6 +2,42 @@
   margin-bottom: var(--space-5);
 }
 
+/* Desktop — perfil | opciones (mismo contenido, solo layout) */
+@media (min-width: 1200px) {
+  .profile-page {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
+    column-gap: var(--space-8);
+    align-items: start;
+  }
+
+  .profile-page .page-header {
+    grid-column: 1 / -1;
+  }
+
+  .user-card {
+    grid-column: 1;
+    margin-bottom: 0;
+    position: sticky;
+    top: calc(72px + var(--space-4));
+  }
+
+  .profile-menu {
+    grid-column: 2;
+  }
+
+  .profile-logout,
+  .profile-version {
+    grid-column: 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .profile-page .user-card {
+    padding: var(--space-6);
+  }
+}
+
 .profile-page .page-subtitle {
   display: -webkit-box;
   -webkit-line-clamp: 2;

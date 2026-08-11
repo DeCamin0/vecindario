@@ -431,6 +431,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
   const paqueteriaKeyLoansEnabled =
     appNavPaqueteriaEnabled && parseBool(req.body?.paqueteriaKeyLoansEnabled, false)
   const appNavCuadernoDiarioEnabled = parseBool(req.body?.appNavCuadernoDiarioEnabled, false)
+  const appNavControlEntradaEnabled = parseBool(req.body?.appNavControlEntradaEnabled, false)
   let serviceRequestCategoryModesJson: Prisma.InputJsonValue = {}
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'serviceRequestCategoryModes')) {
     const pm = parseServiceRequestCategoryModesBody(
@@ -518,6 +519,7 @@ adminCommunitiesRouter.post('/', async (req, res) => {
       paqueteriaSpecialDeliveryEnabled,
       paqueteriaKeyLoansEnabled,
       appNavCuadernoDiarioEnabled,
+      appNavControlEntradaEnabled,
       serviceRequestCategoryModesJson,
       padelCourtCount,
       padelCourtLabel,
@@ -1406,6 +1408,7 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
     paqueteriaSpecialDeliveryEnabled?: boolean
     paqueteriaKeyLoansEnabled?: boolean
     appNavCuadernoDiarioEnabled?: boolean
+    appNavControlEntradaEnabled?: boolean
     serviceRequestCategoryModesJson?: Prisma.InputJsonValue
     padelCourtCount?: number
     padelCourtLabel?: string | null
@@ -1908,6 +1911,9 @@ adminCommunitiesRouter.patch('/:id', async (req, res) => {
   }
   if ('appNavCuadernoDiarioEnabled' in req.body) {
     data.appNavCuadernoDiarioEnabled = parseBool(req.body.appNavCuadernoDiarioEnabled, false)
+  }
+  if ('appNavControlEntradaEnabled' in req.body) {
+    data.appNavControlEntradaEnabled = parseBool(req.body.appNavControlEntradaEnabled, false)
   }
   if ('serviceRequestCategoryModes' in req.body) {
     const pm = parseServiceRequestCategoryModesBody(

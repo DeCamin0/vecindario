@@ -151,7 +151,7 @@ export default function PaqueteriaNewPage({ deliveryKind = 'courier' }) {
             : 'Registra un paquete para una vivienda; el vecino recibirá aviso.'}
         </p>
       </header>
-      <form className="card" style={{ padding: '1rem', maxWidth: 32 * 16 }} onSubmit={submit}>
+      <form className="card pq-form-card" onSubmit={submit}>
         {error ? (
           <p className="auth-error" role="alert">
             {error}

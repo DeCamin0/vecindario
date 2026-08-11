@@ -28,6 +28,12 @@
   animation: vecindario-dialog-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+@media (min-width: 768px) {
+  .vecindario-dialog {
+    max-width: 32rem;
+  }
+}
+
 .vecindario-dialog__head {
   display: flex;
   gap: var(--space-4);

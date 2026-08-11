@@ -54,30 +54,37 @@
   margin: 0;
 }
 
-.incident-list-tabs {
-  display: inline-flex;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--surface-muted, #f1f5f9);
-  border-radius: var(--radius-full);
+/* Tabs: styles live in index.css (.incident-list-tabs / .incident-list-tab) */
+
+.incident-list-search {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
 }
 
-.incident-list-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
+.incident-list-search .form-label {
+  margin-bottom: var(--space-2);
+}
+
+.incident-list-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.incident-list-search__row .form-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.incident-list-search__clear {
+  flex: 0 0 auto;
+}
+
+.incident-list-search__hint {
+  margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
-  font-weight: 600;
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.incident-list-tab--active {
-  background: var(--surface, #fff);
-  color: var(--color-primary);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  color: var(--text-muted);
 }
 
 .incident-archive-filters {
@@ -194,10 +201,6 @@
   margin-bottom: var(--section-gap);
 }
 
-.form-error--block {
-  margin-bottom: var(--space-3);
-}
-
 .incident-category-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -294,80 +297,7 @@
   text-decoration: underline;
 }
 
-.form-field {
-  margin-bottom: var(--space-5);
-}
-
-.form-field:last-of-type {
-  margin-bottom: var(--space-4);
-}
-
-.form-label {
-  display: block;
-  margin-bottom: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-heading);
-}
-
-.form-required {
-  color: var(--color-error);
-}
-
-.form-input {
-  width: 100%;
-  padding: var(--space-4);
-  font-size: var(--text-md);
-  font-family: inherit;
-  line-height: var(--leading-normal);
-  color: var(--text-heading);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.form-input::placeholder {
-  color: var(--text-quiet);
-}
-
-.form-input:hover {
-  border-color: var(--text-quiet);
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
-}
-
-.form-input--error {
-  border-color: var(--color-error);
-}
-
-.form-input--error:focus {
-  box-shadow: 0 0 0 3px var(--color-error-muted);
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 100px;
-}
-
-.form-select {
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right var(--space-4) center;
-  padding-right: 2.5rem;
-}
-
-.form-error {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--color-error);
-}
+/* Form field primitives: styles live in index.css */
 
 .incident-submit {
   margin-top: var(--space-2);
@@ -450,12 +380,6 @@
   width: 100%;
   max-height: 220px;
   object-fit: contain;
-}
-
-.form-hint-muted {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
 }
 
 .incident-form--modern {
@@ -634,4 +558,43 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* Desktop — categorías, búsqueda y listado más amplios */
+@media (min-width: 768px) {
+  .incident-list-search__row {
+    flex-wrap: nowrap;
+  }
+}
+
+@media (min-width: 1200px) {
+  .incidents-page .page-header {
+    margin-bottom: var(--section-gap-lg);
+  }
+
+  .incident-category-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .incident-form {
+    max-width: 50rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .incident-form-field--urgency {
+    max-width: 16rem;
+  }
+
+  .incident-management-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+    gap: var(--space-4);
+  }
+
+  .incident-archive-filters__row {
+    flex-wrap: nowrap;
+    align-items: flex-end;
+  }
 }

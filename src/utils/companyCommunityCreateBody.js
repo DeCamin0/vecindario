@@ -91,6 +91,7 @@ export function buildCompanyCommunityCreateBody(form) {
   body.paqueteriaKeyLoansEnabled =
     form.appNavPaqueteriaEnabled === true && form.paqueteriaKeyLoansEnabled === true
   body.appNavCuadernoDiarioEnabled = form.appNavCuadernoDiarioEnabled === true
+  body.appNavControlEntradaEnabled = form.appNavControlEntradaEnabled === true
 
   const pcc = String(form.padelCourtCount ?? '').trim()
   if (pcc) {

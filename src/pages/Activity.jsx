@@ -62,6 +62,13 @@ export default function Activity() {
   const { accessToken, communityId, appNavFlags, appNavFlagsReady } = useAuth()
   const navFlags = appNavFlagsReady ? appNavFlags : NAV_FALLBACK
   const anyActivityModule = navFlags.services || navFlags.incidents || navFlags.bookings
+  const activityColCount = [navFlags.services, navFlags.incidents, navFlags.bookings].filter(Boolean).length
+  const activityColsClass =
+    activityColCount <= 1
+      ? 'activity-page--cols-1'
+      : activityColCount === 2
+        ? 'activity-page--cols-2'
+        : 'activity-page--cols-3'
   const [serviceRows, setServiceRows] = useState([])
   const [servicesLoading, setServicesLoading] = useState(false)
   const [servicesError, setServicesError] = useState('')
@@ -191,7 +198,7 @@ export default function Activity() {
   }, [loadServices])
 
   return (
-    <div className="page-container activity-page">
+    <div className={`page-container activity-page ${activityColsClass}`}>
       <header className="page-header">
         <h1 className="page-title">Mi actividad</h1>
         <p className="page-subtitle">{activitySubtitle(navFlags, appNavFlagsReady)}</p>

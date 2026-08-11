@@ -96,6 +96,10 @@ model VecindarioUser {
   keyLoansCreated            CommunityKeyLoan[]          @relation("KeyLoanCreatedBy")
   keyLoansReturned           CommunityKeyLoan[]          @relation("KeyLoanReturnedBy")
   diarioEntriesCreated       CommunityDiarioEntry[]      @relation("DiarioCreatedBy")
+  diarioEntriesUpdated       CommunityDiarioEntry[]      @relation("DiarioUpdatedBy")
+  controlEntradaCreated      CommunityControlEntradaEntry[] @relation("ControlEntradaCreatedBy")
+  controlEntradaSalida       CommunityControlEntradaEntry[] @relation("ControlEntradaSalidaBy")
+  controlEntradaUpdated      CommunityControlEntradaEntry[] @relation("ControlEntradaUpdatedBy")
 
   @@index([communityId], map: "vecindario_users_community_id_idx")
   @@index([companyAdminCompanyId], map: "vecindario_users_company_admin_company_idx")
@@ -216,6 +220,8 @@ model Community {
   paqueteriaKeyLoansEnabled Boolean @default(false) @map("paqueteria_key_loans_enabled")
   /// Cuaderno diario del conserje (junta y administración: solo lectura).
   appNavCuadernoDiarioEnabled Boolean @default(false) @map("app_nav_cuaderno_diario_enabled")
+  /// Control de entrada/salida de personas (conserjería; junta/admin: lectura).
+  appNavControlEntradaEnabled Boolean @default(false) @map("app_nav_control_entrada_enabled")
   /// Sistema de acceso a piscina (códigos / validación por socorrista).
   poolAccessSystemEnabled Boolean @default(false) @map("pool_access_system_enabled")
   /// Temporada de piscina activa (interruptor rápido).
@@ -245,6 +251,7 @@ model Community {
   conciergeParcels         CommunityConciergeParcel[]
   keyLoans                 CommunityKeyLoan[]
   diarioEntries            CommunityDiarioEntry[]
+  controlEntradaEntries    CommunityControlEntradaEntry[]
 
   @@index([companyId], map: "communities_company_id_idx")
   @@index([serviceProviderCompanyId], map: "communities_service_provider_company_id_idx")
@@ -263,12 +270,52 @@ model CommunityDiarioEntry {
   createdByUserId Int            @map("created_by_user_id")
   createdBy       VecindarioUser @relation("DiarioCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   createdByName   String?        @map("created_by_name") @db.VarChar(255)
+  /// Última edición (null si nunca se editó).
+  updatedByUserId Int?           @map("updated_by_user_id")
+  updatedBy       VecindarioUser? @relation("DiarioUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedByName   String?        @map("updated_by_name") @db.VarChar(255)
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([communityId, entryDate, startMinute], map: "cdiario_comm_date_min_idx")
   @@index([createdByUserId], map: "cdiario_created_by_idx")
+  @@index([updatedByUserId], map: "cdiario_updated_by_idx")
   @@map("community_diario_entries")
+}
+
+/// Control de entrada/salida de personas (conserjería).
+model CommunityControlEntradaEntry {
+  id                 Int            @id @default(autoincrement())
+  communityId        Int            @map("community_id")
+  community          Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  entryDate          DateTime       @map("entry_date") @db.Date
+  nombre             String         @db.VarChar(255)
+  identificacion     String         @db.VarChar(255)
+  /// Minutos desde medianoche (0–1439), hora de entrada.
+  horaEntradaMinute  Int            @map("hora_entrada_minute")
+  /// Minutos desde medianoche; null = aún dentro.
+  horaSalidaMinute   Int?           @map("hora_salida_minute")
+  ubicacion          String         @db.VarChar(255)
+  motivo             String?        @db.Text
+  createdByUserId    Int            @map("created_by_user_id")
+  createdBy          VecindarioUser @relation("ControlEntradaCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByName      String?        @map("created_by_name") @db.VarChar(255)
+  /// Quién marcó la salida (null si aún no hay salida).
+  salidaByUserId     Int?           @map("salida_by_user_id")
+  salidaBy           VecindarioUser? @relation("ControlEntradaSalidaBy", fields: [salidaByUserId], references: [id], onDelete: SetNull)
+  salidaByName       String?        @map("salida_by_name") @db.VarChar(255)
+  /// Última edición del registro (null si nunca se editó).
+  updatedByUserId    Int?           @map("updated_by_user_id")
+  updatedBy          VecindarioUser? @relation("ControlEntradaUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedByName      String?        @map("updated_by_name") @db.VarChar(255)
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  @@index([communityId, entryDate], map: "cce_comm_date_idx")
+  @@index([createdByUserId], map: "cce_created_by_idx")
+  @@index([salidaByUserId], map: "cce_salida_by_idx")
+  @@index([updatedByUserId], map: "cce_updated_by_idx")
+  @@map("community_control_entrada_entries")
 }
 
 /// Paquetes en conserjería (registro por portal/piso/puerta; firma al recoger).

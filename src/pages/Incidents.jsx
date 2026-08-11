@@ -69,6 +69,9 @@ export default function Incidents() {
   const [archivedDateTo, setArchivedDateTo] = useState('')
   const [archivedSearchApplied, setArchivedSearchApplied] = useState({ from: '', to: '' })
   const archivedDateSearchActive = Boolean(archivedSearchApplied.from || archivedSearchApplied.to)
+  const [listSearchInput, setListSearchInput] = useState('')
+  const [listSearchApplied, setListSearchApplied] = useState('')
+  const listTextSearchActive = listSearchApplied.length >= 2
 
   const [list, setList] = useState([])
   const [listLoading, setListLoading] = useState(false)
@@ -107,6 +110,9 @@ export default function Incidents() {
       } else {
         params.set('status', 'pendiente')
       }
+      if (listSearchApplied.length >= 2) {
+        params.set('q', listSearchApplied)
+      }
       const res = await fetch(apiUrl(`/api/incidents?${params.toString()}`), {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
@@ -123,14 +129,28 @@ export default function Incidents() {
     } finally {
       setListLoading(false)
     }
-  }, [accessToken, communityId, listTab, archivedSearchApplied])
+  }, [accessToken, communityId, listTab, archivedSearchApplied, listSearchApplied])
 
   useEffect(() => {
     void loadList()
   }, [loadList])
 
   useEffect(() => {
+    const qText = listSearchInput.trim()
+    if (qText.length < 2) {
+      setListSearchApplied('')
+      return
+    }
+    const timer = setTimeout(() => {
+      setListSearchApplied(qText.slice(0, 80))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [listSearchInput])
+
+  useEffect(() => {
     setPortalChoice('')
+    setListSearchInput('')
+    setListSearchApplied('')
   }, [communityId])
 
   useEffect(() => {
@@ -500,6 +520,7 @@ export default function Incidents() {
               </div>
 
               {portalOptions != null && portalOptions.length > 0 ? (
+                <div className="incident-form-grid">
                 <div className="form-field">
                   <label className="form-label" htmlFor="incident-portal">
                     Portal <span className="form-required">*</span>
@@ -520,7 +541,6 @@ export default function Incidents() {
                   </select>
                   {errors.portal && <p className="form-error" role="alert">{errors.portal}</p>}
                 </div>
-              ) : null}
 
               <div className="form-field">
                 <label className="form-label" htmlFor="incident-location">
@@ -537,8 +557,26 @@ export default function Incidents() {
                 />
                 {errors.location && <p className="form-error" role="alert">{errors.location}</p>}
               </div>
-
+                </div>
+              ) : (
               <div className="form-field">
+                <label className="form-label" htmlFor="incident-location">
+                  Ubicación <span className="form-required">*</span>
+                </label>
+                <input
+                  id="incident-location"
+                  type="text"
+                  className={`form-input ${errors.location ? 'form-input--error' : ''}`}
+                  placeholder="Ej. escalera 2, garaje, zona lavandería"
+                  value={form.location}
+                  onChange={(e) => handleChange('location', e.target.value)}
+                  required
+                />
+                {errors.location && <p className="form-error" role="alert">{errors.location}</p>}
+              </div>
+              )}
+
+              <div className="form-field form-field--full">
                 <label className="form-label" htmlFor="incident-description">
                   Descripción <span className="form-required">*</span>
                 </label>
@@ -556,7 +594,7 @@ export default function Incidents() {
                 )}
               </div>
 
-              <div className="form-field">
+              <div className="form-field incident-form-field--urgency">
                 <label className="form-label" htmlFor="incident-urgency">Urgencia</label>
                 <select
                   id="incident-urgency"
@@ -621,6 +659,39 @@ export default function Incidents() {
             </button>
           </div>
         </div>
+        <div className="incident-list-search card">
+          <label className="form-label" htmlFor="incident-list-q">
+            Buscar
+          </label>
+          <div className="incident-list-search__row">
+            <input
+              id="incident-list-q"
+              type="search"
+              className="form-input"
+              placeholder="Descripción, ubicación, tipo o portal…"
+              value={listSearchInput}
+              onChange={(e) => setListSearchInput(e.target.value)}
+              autoComplete="off"
+              maxLength={80}
+            />
+            {listSearchInput ? (
+              <button
+                type="button"
+                className="btn btn--ghost incident-list-search__clear"
+                onClick={() => setListSearchInput('')}
+              >
+                Limpiar
+              </button>
+            ) : null}
+          </div>
+          <p className="incident-list-search__hint">
+            {listSearchInput.trim().length > 0 && listSearchInput.trim().length < 2
+              ? 'Escribe al menos 2 caracteres.'
+              : listTextSearchActive
+                ? `Mostrando coincidencias de «${listSearchApplied}».`
+                : 'Los resultados aparecen al teclear (mín. 2 caracteres).'}
+          </p>
+        </div>
         {listTab === 'archivados' ? (
           <form
             className="incident-archive-filters card"
@@ -635,7 +706,9 @@ export default function Incidents() {
             <p className="incident-archive-filters__hint">
               {archivedDateSearchActive
                 ? 'Resultados filtrados por fecha de cierre. Usa «Limpiar fechas» para volver a las 5 más recientes.'
-                : 'Por defecto se muestran solo las 5 incidencias resueltas más recientes. Indica fechas y pulsa Buscar para ver más.'}
+                : listTextSearchActive
+                  ? 'La búsqueda por texto incluye más resultados archivados. También puedes filtrar por fechas de cierre.'
+                  : 'Por defecto se muestran solo las 5 incidencias resueltas más recientes. Indica fechas y pulsa Buscar fechas para ver más.'}
             </p>
             <div className="incident-archive-filters__row">
               <div className="form-field incident-archive-filters__field">
@@ -663,7 +736,7 @@ export default function Incidents() {
                 />
               </div>
               <button type="submit" className="btn btn--secondary incident-archive-filters__btn">
-                Buscar
+                Buscar fechas
               </button>
               {(archivedDateFrom || archivedDateTo || archivedDateSearchActive) ? (
                 <button
@@ -691,13 +764,15 @@ export default function Incidents() {
           {!listLoading && list.length === 0 ? (
             <div className="incident-management-empty card">
               <p className="incident-management-empty-text">
-                {listTab === 'archivados'
-                  ? archivedDateSearchActive
-                    ? 'No hay incidencias resueltas en ese intervalo de fechas.'
-                    : 'No hay incidencias archivadas recientes.'
-                  : showReportForm
-                    ? 'No hay incidencias pendientes en la comunidad.'
-                    : 'No hay incidencias pendientes.'}
+                {listTextSearchActive
+                  ? `No hay incidencias que coincidan con «${listSearchApplied}».`
+                  : listTab === 'archivados'
+                    ? archivedDateSearchActive
+                      ? 'No hay incidencias resueltas en ese intervalo de fechas.'
+                      : 'No hay incidencias archivadas recientes.'
+                    : showReportForm
+                      ? 'No hay incidencias pendientes en la comunidad.'
+                      : 'No hay incidencias pendientes.'}
               </p>
             </div>
           ) : (

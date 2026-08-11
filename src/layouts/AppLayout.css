@@ -18,8 +18,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
   min-height: 56px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-xs);
 }
 
 .app-brand-link {
@@ -168,6 +169,17 @@
 
   .app-main {
     padding-bottom: var(--space-8);
+  }
+}
+
+@media (min-width: 1200px) {
+  .app-header {
+    padding-left: var(--space-8);
+    padding-right: var(--space-8);
+  }
+
+  .app-header-right {
+    gap: var(--space-5);
   }
 }
 

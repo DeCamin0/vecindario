@@ -850,7 +850,13 @@ function Login() {
             ) : null}
 
         {loginStep === 'form' ? (
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form
+          onSubmit={handleSubmit}
+          className="auth-form"
+          name="vecindario-login"
+          autoComplete="on"
+          data-password-manager-title="Vecindario"
+        >
           <div className="auth-field">
             <button
               type="button"
@@ -920,12 +926,16 @@ function Login() {
               <div className="auth-code-row">
                 <input
                   id="vec-code"
+                  name="vecindario_vec_code"
                   type="text"
                   className="auth-input auth-input--code"
                   placeholder="VEC-XXXXXXXX"
                   value={vecCode}
                   onChange={(e) => setVecCode(e.target.value)}
                   autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore
                   spellCheck={false}
                 />
                 <button
@@ -981,12 +991,13 @@ function Login() {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 className="auth-input"
                 placeholder="tu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
+                autoComplete="username"
                 autoFocus={loginMode === 'super_admin' || loginMode === 'company_admin'}
               />
               {role === 'resident' ? (
@@ -1166,6 +1177,7 @@ function Login() {
             </label>
             <input
               id="password"
+              name="password"
               type="password"
               className="auth-input"
               placeholder="••••••••"

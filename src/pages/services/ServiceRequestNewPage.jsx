@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../../config/api.js'
 import {
@@ -21,8 +21,11 @@ import './serviceRequestsPages.css'
 export default function ServiceRequestNewPage() {
   const { accessToken, communityId, appNavFlagsReady, serviceRequestCategoryModes } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const galleryInputRef = useRef(null)
   const cameraInputRef = useRef(null)
+  const preselectAppliedRef = useRef(false)
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [serviceSubtype, setServiceSubtype] = useState(null)
   const [needsTechnicalVisit, setNeedsTechnicalVisit] = useState(false)
@@ -32,6 +35,11 @@ export default function ServiceRequestNewPage() {
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
 
+  const needsSubtypeStep =
+    Boolean(selectedCategory) && SERVICE_CATEGORIES_WITH_SUBTYPE.includes(selectedCategory)
+  const detailsStepNumber = needsSubtypeStep ? 3 : 2
+  const photosStepNumber = needsSubtypeStep ? 4 : 3
+
   useEffect(() => {
     if (!serviceRequestCategoryModes || !selectedCategory) return
     if (!isServiceCategoryActiveForCommunity(serviceRequestCategoryModes, selectedCategory)) {
@@ -40,6 +48,33 @@ export default function ServiceRequestNewPage() {
       setNeedsTechnicalVisit(false)
     }
   }, [serviceRequestCategoryModes, selectedCategory])
+
+  const selectCategory = (id) => {
+    if (!isServiceCategoryActiveForCommunity(serviceRequestCategoryModes, id)) return
+    setSelectedCategory(id)
+    setServiceSubtype(null)
+    setNeedsTechnicalVisit(false)
+    if (errors.category) setErrors((x) => ({ ...x, category: null }))
+    if (errors.serviceSubtype) setErrors((x) => ({ ...x, serviceSubtype: null }))
+  }
+
+  useEffect(() => {
+    if (preselectAppliedRef.current) return
+    const stateId =
+      location.state && typeof location.state === 'object' && typeof location.state.categoryId === 'string'
+        ? location.state.categoryId.trim()
+        : ''
+    const queryId = (searchParams.get('category') || '').trim()
+    const raw = stateId || queryId
+    if (!raw) return
+    if (!SERVICE_CATEGORIES.some((c) => c.id === raw)) return
+    if (communityId != null && !appNavFlagsReady) return
+    if (!isServiceCategoryActiveForCommunity(serviceRequestCategoryModes, raw)) return
+    selectCategory(raw)
+    preselectAppliedRef.current = true
+    // One-shot preselect from URL/state; selectCategory closes over errors intentionally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, searchParams, serviceRequestCategoryModes, appNavFlagsReady, communityId])
 
   const onFiles = useCallback(
     (e) => {
@@ -68,15 +103,6 @@ export default function ServiceRequestNewPage() {
 
   const removePhoto = (idx) => {
     setPhotos((prev) => prev.filter((_, i) => i !== idx))
-  }
-
-  const selectCategory = (id) => {
-    if (!isServiceCategoryActiveForCommunity(serviceRequestCategoryModes, id)) return
-    setSelectedCategory(id)
-    setServiceSubtype(null)
-    setNeedsTechnicalVisit(false)
-    if (errors.category) setErrors((x) => ({ ...x, category: null }))
-    if (errors.serviceSubtype) setErrors((x) => ({ ...x, serviceSubtype: null }))
   }
 
   const validate = () => {
@@ -285,9 +311,10 @@ export default function ServiceRequestNewPage() {
           </p>
         ) : null}
 
-        <h2 className="section-label sr-new-form__step">3. Detalles</h2>
+        <h2 className="section-label sr-new-form__step">{detailsStepNumber}. Detalles</h2>
 
-        <div className="form-field">
+        <div className="sr-new-form-grid">
+        <div className="form-field form-field--full">
           <label className="form-label" htmlFor="sr-desc">
             Descripción <span className="form-optional">(recomendada)</span>
           </label>
@@ -321,6 +348,7 @@ export default function ServiceRequestNewPage() {
             onChange={(e) => setPreferredDate(e.target.value)}
           />
         </div>
+        </div>
 
         {selectedCategory === 'renovation' ? (
           <div className="sr-renovation-visit">
@@ -337,7 +365,7 @@ export default function ServiceRequestNewPage() {
 
         <div className="form-field">
           <span className="form-label">
-            4. Fotos del problema <span className="form-required">*</span>
+            {photosStepNumber}. Fotos del problema <span className="form-required">*</span>
           </span>
           <div className={`sr-upload-zone ${errors.photos ? 'sr-upload-zone--error' : ''}`}>
             <p className="sr-upload-zone__title">Añade fotos del problema</p>

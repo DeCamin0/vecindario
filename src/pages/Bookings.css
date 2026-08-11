@@ -67,6 +67,59 @@
   margin-bottom: var(--space-10);
 }
 
+.booking-history-back {
+  margin: 0 0 var(--space-4);
+}
+
+.booking-history-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.booking-history-back-link:hover {
+  color: var(--color-primary);
+}
+
+.booking-history-search {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+}
+
+.booking-history-search .form-label {
+  margin-bottom: var(--space-2);
+}
+
+.booking-history-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.booking-history-search__row .form-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.booking-history-search__clear {
+  flex: 0 0 auto;
+}
+
+.booking-history-search__hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.booking-history-count {
+  margin-bottom: var(--space-3);
+}
+
 .booking-my-records-head {
   display: flex;
   align-items: baseline;
@@ -200,14 +253,6 @@
 /* Facility selection */
 .booking-facilities-section {
   margin-bottom: var(--section-gap-lg);
-}
-
-.form-error--block {
-  margin-bottom: var(--space-3);
-}
-
-.form-error--inline {
-  margin-top: var(--space-2);
 }
 
 .booking-facility-grid {
@@ -436,12 +481,10 @@
   margin-bottom: var(--space-5);
 }
 
-.form-label {
-  display: block;
+/* Booking label spacing (tighter vertical rhythm than shared .form-label) */
+.booking-field .form-label,
+.booking-form .form-label {
   margin-bottom: var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-heading);
 }
 
 .form-label--with-month {
@@ -455,15 +498,6 @@
   font-weight: 500;
   font-size: var(--text-sm);
   color: var(--text-muted);
-}
-
-.form-required {
-  color: var(--color-error);
-}
-
-.form-error {
-  font-size: var(--text-sm);
-  color: var(--color-error);
 }
 
 /* Date strip */
@@ -1125,3 +1159,164 @@
 }
 
 /* Buttons: use global .btn from index.css */
+
+/* Desktop — más ancho útil sin alterar el flujo de reserva */
+@media (min-width: 1200px) {
+  .bookings-page .page-header {
+    margin-bottom: var(--section-gap-lg);
+  }
+
+  .booking-facility-grid {
+    grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+    gap: var(--space-4);
+    max-width: 56rem;
+  }
+
+  .booking-facility-card {
+    min-height: 6.5rem;
+    padding: var(--space-5);
+  }
+
+  .booking-form {
+    max-width: 50rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .booking-form:has(.booking-date-strip),
+  .booking-form:has(.salon-cal),
+  .booking-form:has(.booking-slots) {
+    max-width: 60rem;
+  }
+
+  .booking-date-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    overflow-x: visible;
+    max-width: none;
+  }
+
+  .booking-date-cell {
+    flex: 1 1 5rem;
+    min-width: 4.75rem;
+    max-width: 8rem;
+    min-height: 4.75rem;
+    padding: var(--space-3) var(--space-2);
+  }
+
+  .booking-slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+    gap: var(--space-3);
+  }
+
+  .booking-gym-access-card {
+    max-width: 50rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .booking-management-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+    gap: var(--space-4);
+  }
+
+  .booking-my-records-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+    gap: var(--space-4);
+  }
+
+  .booking-management-card-main,
+  .booking-my-records-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .booking-management-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
+}
+
+@media (min-width: 1600px) {
+  .booking-facility-grid {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    max-width: 64rem;
+  }
+}
+
+/*
+ * Spike BLOQUE 4 — layout 2 columnas SOLO pádel (desktop ≥1200).
+ * Presentacional: no cambia handlers/state. Gym/salón no llevan esta clase.
+ */
+@media (min-width: 1200px) {
+  .booking-form.booking-form--padel-desktop {
+    display: grid;
+    grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
+    column-gap: var(--space-6);
+    row-gap: var(--space-4);
+    align-items: start;
+    max-width: min(72rem, 100%);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .booking-form--padel-desktop > .booking-form-header {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .booking-form--padel-desktop > .booking-form-info {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+  }
+
+  .booking-form--padel-desktop > .booking-field--date {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .booking-form--padel-desktop > .booking-field--slots {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .booking-form--padel-desktop > .booking-field-hint,
+  .booking-form--padel-desktop > .form-error,
+  .booking-form--padel-desktop > .booking-salon-regulations,
+  .booking-form--padel-desktop > .booking-submit {
+    grid-column: 2;
+  }
+
+  .booking-form--padel-desktop .booking-date-strip {
+    max-width: 100%;
+  }
+
+  .booking-form--padel-desktop .booking-date-cell {
+    flex: 1 1 4.25rem;
+    max-width: 6.5rem;
+    min-width: 4rem;
+  }
+
+  .booking-form--padel-desktop .booking-slots {
+    grid-template-columns: repeat(auto-fill, minmax(6.75rem, 1fr));
+  }
+
+  .booking-form--padel-desktop > .booking-submit {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (min-width: 1600px) {
+  .booking-form.booking-form--padel-desktop {
+    max-width: min(80rem, 100%);
+    column-gap: var(--space-8);
+  }
+}

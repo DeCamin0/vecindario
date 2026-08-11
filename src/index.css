@@ -78,6 +78,26 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04);
+
+  /* Surfaces */
+  --surface-muted: #f1f5f9;
+  --surface-selected: var(--color-primary-soft);
+
+  /* Layout widths — content-aware, not one-size-fits-all */
+  --layout-form: 36rem;       /* ~576px — inputs legibles */
+  --layout-readable: 42rem;   /* ~672px — texto / formularios largos */
+  --layout-content: 56rem;    /* ~896px — listas medias */
+  --layout-wide: 72rem;       /* ~1152px — dashboards / grids */
+  --layout-max: 87.5rem;      /* ~1400px — desktop grande */
+
+  /* Breakpoint reference (media queries still use px) */
+  --bp-sm: 480px;
+  --bp-md: 640px;
+  --bp-nav: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1200px;
+  --bp-2xl: 1600px;
 
   /* Touch targets */
   --touch-min: 44px;
@@ -133,19 +153,262 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
-/* Card — elevated surface */
+/* Card — elevated surface (unified system) */
 .card {
   background: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   border: 1px solid var(--color-border-light);
   overflow: hidden;
-  transition: box-shadow var(--transition-base), border-color var(--transition-base);
+  transition:
+    box-shadow var(--transition-base),
+    border-color var(--transition-base),
+    transform var(--transition-fast);
 }
 
 .card:hover {
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card-hover);
   border-color: var(--color-border);
+}
+
+.card--interactive:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.card--selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 1px var(--color-primary), var(--shadow-card);
+}
+
+/* Shared selection / category tile (Services, Incidents, Bookings) */
+.tile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+  cursor: pointer;
+  background: var(--color-bg-elevated);
+  border: 2px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color var(--transition-base),
+    background var(--transition-base),
+    box-shadow var(--transition-base),
+    transform var(--transition-fast);
+}
+
+.tile-card:hover {
+  border-color: var(--color-primary-muted);
+  background: var(--color-primary-soft);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.tile-card--selected,
+.tile-card[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 1px var(--color-primary), var(--shadow-sm);
+}
+
+/* Status / meta badge — shared shell for neutral chips (not domain status pills) */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  border-radius: var(--radius-full);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.ui-badge--primary {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.ui-badge--success {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.ui-badge--warning {
+  background: var(--color-warning-muted);
+  color: var(--color-warning);
+}
+
+.ui-badge--error {
+  background: var(--color-error-muted);
+  color: var(--color-error);
+}
+
+/*
+ * Pill tab strip — shared by design-system class + Incidents/Paquetería list filters.
+ * Keep page-specific class names in JSX (handlers/state unchanged).
+ */
+.ui-tabs,
+.incident-list-tabs,
+.pq-list-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-muted, #f1f5f9);
+  border-radius: var(--radius-full);
+}
+
+.ui-tabs__tab,
+.incident-list-tab,
+.pq-list-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: inherit;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  min-height: var(--touch-min);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.ui-tabs__tab--active,
+.ui-tabs__tab[aria-selected='true'],
+.incident-list-tab--active,
+.pq-list-tab--active {
+  background: var(--surface, var(--color-bg-elevated));
+  color: var(--color-primary);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+/* Form fields — readable width on wide layouts */
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--layout-form);
+  width: 100%;
+}
+
+.form-stack--wide {
+  max-width: var(--layout-readable);
+}
+
+@media (min-width: 768px) {
+  .form-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    max-width: var(--layout-readable);
+  }
+}
+
+/*
+ * Shared form field primitives (Incidents, Services, Bookings, Paquetería search, etc.).
+ * Prefer these classes over page-local copies. Domain layout wrappers stay in page CSS.
+ */
+.form-field {
+  margin-bottom: var(--space-5);
+}
+
+.form-field:last-of-type {
+  margin-bottom: var(--space-4);
+}
+
+.form-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.form-required {
+  color: var(--color-error);
+}
+
+.form-optional {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.form-input {
+  width: 100%;
+  padding: var(--space-4);
+  font-size: var(--text-md);
+  font-family: inherit;
+  line-height: var(--leading-normal);
+  color: var(--text-heading);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input::placeholder {
+  color: var(--text-quiet);
+}
+
+.form-input:hover {
+  border-color: var(--text-quiet);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.form-input--error {
+  border-color: var(--color-error);
+}
+
+.form-input--error:focus {
+  box-shadow: 0 0 0 3px var(--color-error-muted);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.form-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-4) center;
+  padding-right: 2.5rem;
+}
+
+.form-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-error);
+}
+
+.form-error--block {
+  margin-bottom: var(--space-3);
+}
+
+.form-error--inline {
+  margin-top: var(--space-2);
+}
+
+.form-hint-muted {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 /* Buttons — base interactive styles (pages can extend) */
@@ -164,7 +427,7 @@ a.btn:focus-visible {
   outline-offset: 2px;
 }
 
-/* Page container — max width + consistent padding, mobile-first */
+/* Page container — mobile-first; desktop widens by content needs via modifiers */
 .page-container {
   max-width: 100%;
   width: 100%;
@@ -187,10 +450,157 @@ a.btn:focus-visible {
   }
 }
 
+@media (min-width: 768px) {
+  .page-container {
+    max-width: 720px;
+  }
+}
+
 @media (min-width: 1024px) {
   .page-container {
-    max-width: 800px;
+    max-width: 960px;
     padding: var(--space-10) var(--space-8);
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-container {
+    max-width: var(--layout-wide); /* ~1152px — dashboards / lists */
+    padding: var(--space-10) var(--space-8);
+  }
+}
+
+@media (min-width: 1600px) {
+  .page-container {
+    max-width: var(--layout-max); /* ~1400px */
+  }
+}
+
+/* Narrower shell for form-heavy flows (optional class on page root) */
+.page-container--form {
+  max-width: 100%;
+}
+
+@media (min-width: 480px) {
+  .page-container--form {
+    max-width: 480px;
+  }
+}
+
+@media (min-width: 640px) {
+  .page-container--form {
+    max-width: 640px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-container--form {
+    max-width: var(--layout-readable);
+  }
+}
+
+@media (min-width: 1200px) {
+  .page-container--form {
+    max-width: 48rem; /* ~768px — forms stay legible */
+  }
+}
+
+/* Mid width for activity-style stacked content */
+.page-container--content {
+  /* inherits page-container up to lg, then caps below full wide */
+}
+
+@media (min-width: 1200px) {
+  .page-container--content {
+    max-width: var(--layout-content);
+  }
+}
+
+@media (min-width: 1600px) {
+  .page-container--content {
+    max-width: 64rem; /* ~1024px */
+  }
+}
+
+/* Form panels — ancho cómodo + centrado en desktop (no pegados a la izquierda) */
+.form-panel,
+.service-form,
+.incident-form,
+.booking-form,
+.booking-gym-access-card,
+.pq-form-card,
+.pq-keyloan-form,
+.cd-form-panel,
+.sr-new-form,
+.profile-my-data-card,
+.profile-change-password-layout,
+.profile-notifications-card,
+.profile-help-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (min-width: 1024px) {
+  .form-panel,
+  .service-form,
+  .incident-form,
+  .booking-form,
+  .booking-gym-access-card,
+  .pq-form-card,
+  .pq-keyloan-form,
+  .cd-form-panel,
+  .sr-new-form {
+    max-width: 48rem; /* ~768px */
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .booking-form--wide,
+  .booking-salon-flow {
+    max-width: 56rem; /* ~896px — calendarios / flujos densos */
+  }
+}
+
+@media (min-width: 1200px) {
+  .form-panel,
+  .service-form,
+  .incident-form,
+  .booking-form,
+  .booking-gym-access-card,
+  .pq-form-card,
+  .pq-keyloan-form,
+  .cd-form-panel,
+  .sr-new-form {
+    max-width: 50rem; /* ~800px */
+  }
+
+  .booking-form--wide,
+  .booking-salon-flow {
+    max-width: 60rem; /* ~960px */
+  }
+
+  .sr-new-form-grid,
+  .incident-form-grid,
+  .pq-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-5);
+    align-items: start;
+  }
+
+  .sr-new-form-grid .form-field--full,
+  .incident-form-grid .form-field--full,
+  .pq-form-grid .form-field--full,
+  .sr-new-form-grid .form-field:has(textarea),
+  .incident-form-grid .form-field:has(textarea) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1600px) {
+  .booking-form--wide,
+  .booking-salon-flow {
+    max-width: 64rem;
   }
 }
 

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { apiUrl, jsonAuthHeaders } from '../../config/api.js'
-import { SERVICE_CATEGORIES, SERVICE_STATUS_LABELS } from '../../constants/serviceRequests.js'
+import {
+  SERVICE_CATEGORIES,
+  SERVICE_STATUS_LABELS,
+  isServiceCategoryActiveForCommunity,
+} from '../../constants/serviceRequests.js'
 import '../Services.css'
 import './serviceRequestsPages.css'
 
@@ -20,7 +24,7 @@ function statusClass(status) {
 }
 
 export default function ServicesListPage() {
-  const { accessToken, communityId } = useAuth()
+  const { accessToken, communityId, appNavFlagsReady, serviceRequestCategoryModes } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -69,6 +73,47 @@ export default function ServicesListPage() {
           Solicitar servicio
         </Link>
       </header>
+
+      <section className="sr-quick-cats" aria-label="Empezar por tipo de servicio">
+        <h2 className="section-label">Empezar por categoría</h2>
+        {communityId && !appNavFlagsReady ? (
+          <p className="sr-muted">Cargando opciones…</p>
+        ) : (
+          <div className="category-grid sr-quick-cats__grid">
+            {SERVICE_CATEGORIES.map(({ id, name, icon }) => {
+              const available = isServiceCategoryActiveForCommunity(serviceRequestCategoryModes, id)
+              if (!available) {
+                return (
+                  <span
+                    key={id}
+                    className="category-card card category-card--soon sr-quick-cats__item"
+                    aria-disabled="true"
+                  >
+                    <span className="category-icon" aria-hidden="true">
+                      {icon}
+                    </span>
+                    <span className="category-name">{name}</span>
+                    <span className="category-card-badge-soon">Pronto</span>
+                  </span>
+                )
+              }
+              return (
+                <Link
+                  key={id}
+                  to={`/services/new?category=${encodeURIComponent(id)}`}
+                  state={{ categoryId: id }}
+                  className="category-card card sr-quick-cats__item"
+                >
+                  <span className="category-icon" aria-hidden="true">
+                    {icon}
+                  </span>
+                  <span className="category-name">{name}</span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
       {err ? (
         <p className="sr-inline-error" role="alert">

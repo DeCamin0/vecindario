@@ -8,6 +8,7 @@ export const COMMUNITY_MGMT_NAV_DEFAULT = {
   poolAccess: false,
   paqueteria: false,
   cuadernoDiario: false,
+  controlEntrada: false,
 }
 
 /**
