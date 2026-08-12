@@ -32,8 +32,23 @@ import {
   parseAvatarDataUrl,
   writeAvatarFile,
 } from '../lib/profile-avatar.js'
+import {
+  FORGOT_GENERIC_MESSAGE,
+  ForgotPasswordRateLimitError,
+  completePasswordReset,
+  requestPasswordReset,
+} from '../lib/password-reset.js'
 
 export const authRouter = Router()
+
+function clientIp(req: import('express').Request): string {
+  const xf = req.headers['x-forwarded-for']
+  if (typeof xf === 'string' && xf.trim()) {
+    return xf.split(',')[0]!.trim()
+  }
+  if (Array.isArray(xf) && xf[0]) return String(xf[0]).trim()
+  return req.socket?.remoteAddress || 'unknown'
+}
 
 function normEmail(s: string | null | undefined): string | null {
   if (!s) return null
@@ -145,6 +160,57 @@ function userJsonWithPrefs(
  * Conserje: email + password + VEC. Administrador: email + password (sin VEC; siempre por communityAdminEmail).
  * Presidente: email + password; sin VEC se elige comunidad por presidentEmail (igual criterio que administrador).
  */
+/**
+ * Forgot password — siempre 200 + mensaje genérico (anti-enumeración).
+ * Rate limit: 429 con mensaje genérico de reintento (no revela usuarios).
+ *
+ * Nota JWT: este flujo no revoca access tokens ya emitidos; caducan con JWT_EXPIRES_IN.
+ * Mejora futura: denylist / rotate session version.
+ */
+authRouter.post('/forgot-password', async (req, res) => {
+  try {
+    const result = await requestPasswordReset({
+      emailRaw: req.body?.email,
+      ip: clientIp(req),
+      userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+    })
+    res.status(200).json({ ok: true, message: result.message })
+  } catch (e) {
+    if (e instanceof ForgotPasswordRateLimitError) {
+      res.status(429).json({ error: e.message, message: e.message })
+      return
+    }
+    console.error('[auth forgot-password]', e)
+    // Aun ante error interno: no filtrar existencia; mensaje genérico.
+    res.status(200).json({ ok: true, message: FORGOT_GENERIC_MESSAGE })
+  }
+})
+
+/**
+ * Reset password con token del email.
+ * Actualiza passwordHash (bcrypt 12), pone passwordPlainSnapshot = null, invalida token.
+ */
+authRouter.post('/reset-password', async (req, res) => {
+  try {
+    const result = await completePasswordReset({
+      tokenRaw: req.body?.token,
+      newPassword: req.body?.newPassword,
+      confirmPassword: req.body?.confirmPassword,
+    })
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error })
+      return
+    }
+    res.json({
+      ok: true,
+      message: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+    })
+  } catch (e) {
+    console.error('[auth reset-password]', e)
+    res.status(500).json({ error: 'No se pudo restablecer la contraseña. Inténtalo de nuevo.' })
+  }
+})
+
 authRouter.post('/login', async (req, res) => {
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
   const accessCodeRaw = typeof req.body?.accessCode === 'string' ? req.body.accessCode.trim() : ''

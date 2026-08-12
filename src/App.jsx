@@ -5,6 +5,8 @@ import { NotificationsProvider } from './context/NotificationsContext'
 import { ActivityProvider } from './context/ActivityContext'
 import AppLayout from './layouts/AppLayout'
 import Login from './pages/Login'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import QuoteRequestPage from './pages/QuoteRequestPage'
 import AdminQuoteRequests from './pages/AdminQuoteRequests'
 import Home from './pages/Home'
@@ -19,9 +21,13 @@ import Profile from './pages/Profile'
 import ProfileMyData from './pages/ProfileMyData'
 import ProfileNotifications from './pages/ProfileNotifications'
 import ProfileHelp from './pages/ProfileHelp'
+import ProfileSupport from './pages/ProfileSupport'
+import ProfileSupportNew from './pages/ProfileSupportNew'
+import ProfileSupportDetail from './pages/ProfileSupportDetail'
 import ProfileChangePassword from './pages/ProfileChangePassword'
 import Admin from './pages/Admin'
 import AdminServices from './pages/AdminServices'
+import AdminSupport from './pages/AdminSupport'
 import CommunityAdmin from './pages/CommunityAdmin'
 import CommunityServicesOverview from './pages/CommunityServicesOverview'
 import CommunityResidents from './pages/CommunityResidents'
@@ -68,6 +74,8 @@ function App() {
           <Route path="/access" element={<Navigate to={getSignInPath()} replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/c/:loginSlug/login" element={<Login />} />
+          <Route path="/olvidar-contrasena" element={<ForgotPassword />} />
+          <Route path="/restablecer-contrasena" element={<ResetPassword />} />
           <Route path="/open-app" element={<OpenAppLanding />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/delete-account" element={<AccountDeletionPage />} />
@@ -97,6 +105,14 @@ function App() {
             element={
               <RequireRole role="super_admin">
                 <AdminServices />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/admin/support"
+            element={
+              <RequireRole role="super_admin">
+                <AdminSupport />
               </RequireRole>
             }
           />
@@ -196,6 +212,36 @@ function App() {
             <Route path="profile/cambiar-contrasena" element={<ProfileChangePassword />} />
             <Route path="profile/notificaciones" element={<ProfileNotifications />} />
             <Route path="profile/ayuda" element={<ProfileHelp />} />
+            <Route
+              path="profile/soporte"
+              element={
+                <RequireRole
+                  role={['concierge', 'community_admin', 'company_admin', 'super_admin']}
+                >
+                  <ProfileSupport />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="profile/soporte/nuevo"
+              element={
+                <RequireRole
+                  role={['concierge', 'community_admin', 'company_admin', 'super_admin']}
+                >
+                  <ProfileSupportNew />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="profile/soporte/:ticketId"
+              element={
+                <RequireRole
+                  role={['concierge', 'community_admin', 'company_admin', 'super_admin']}
+                >
+                  <ProfileSupportDetail />
+                </RequireRole>
+              }
+            />
             <Route
               path="pool"
               element={

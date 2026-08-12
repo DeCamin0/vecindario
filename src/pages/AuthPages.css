@@ -291,6 +291,28 @@
   border-radius: var(--radius-sm);
 }
 
+.auth-success {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: var(--radius-sm);
+}
+
+.auth-forgot {
+  margin: 0.35rem 0 0;
+  font-size: var(--text-sm);
+}
+
+.auth-lead {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .auth-submit {
   margin-top: var(--space-2);
 }

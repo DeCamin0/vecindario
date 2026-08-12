@@ -36,7 +36,7 @@ export const pushDelivery = {
     userIds: number[],
     title: string,
     body: string,
-    data?: { serviceRequestId?: number; parcelId?: number },
+    data?: { serviceRequestId?: number; parcelId?: number; supportTicketId?: number },
   ) {
     const ids = [...new Set(userIds)].filter((id) => Number.isInteger(id) && id >= 1)
     await Promise.all(ids.map((uid) => this.sendToUser(uid, title, body, data)))
@@ -46,7 +46,7 @@ export const pushDelivery = {
     userId: number,
     title: string,
     body: string,
-    data?: { serviceRequestId?: number; parcelId?: number },
+    data?: { serviceRequestId?: number; parcelId?: number; supportTicketId?: number },
   ) {
     const prefs = await getUserNotificationPrefs(userId)
     if (!prefs) return
@@ -55,6 +55,7 @@ export const pushDelivery = {
       body,
       serviceRequestId: data?.serviceRequestId,
       parcelId: data?.parcelId,
+      supportTicketId: data?.supportTicketId,
     })
     if (prefs.notifyMobilePush) {
       await sendExpo(userId, title, body, data)
@@ -69,7 +70,7 @@ async function sendExpo(
   userId: number,
   title: string,
   body: string,
-  data?: { serviceRequestId?: number; parcelId?: number },
+  data?: { serviceRequestId?: number; parcelId?: number; supportTicketId?: number },
 ) {
   const rows = await pushDb.vecindarioExpoPushToken.findMany({
     where: { userId },
@@ -78,6 +79,7 @@ async function sendExpo(
   const expoData: Record<string, string> = {}
   if (data?.serviceRequestId != null) expoData.serviceRequestId = String(data.serviceRequestId)
   if (data?.parcelId != null) expoData.parcelId = String(data.parcelId)
+  if (data?.supportTicketId != null) expoData.supportTicketId = String(data.supportTicketId)
   const messages = rows.map((r) => ({
     to: r.token,
     sound: 'default' as const,

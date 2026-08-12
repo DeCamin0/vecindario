@@ -10,6 +10,7 @@ import {
   PROFILE_HELP_FAQ_STAFF,
   PROFILE_HELP_INTRO,
 } from '../content/profileHelpContent.js'
+import { canUseSupportSelfService } from '../lib/supportAccess.js'
 import './ProfileHelp.css'
 
 const STAFF_ROLES = new Set([
@@ -119,6 +120,9 @@ export default function ProfileHelp() {
         <div className="profile-help-hero-text">
           <p id="profile-help-hero-title">{PROFILE_HELP_INTRO}</p>
           <nav className="profile-help-quick" aria-label="Accesos rápidos">
+            {canUseSupportSelfService(userRole) ? (
+              <Link to="/profile/soporte">Soporte Vecindario</Link>
+            ) : null}
             <Link to="/profile/notificaciones">Notificaciones</Link>
             <Link to="/profile/mis-datos">Mis datos</Link>
             {reportMailto ? (

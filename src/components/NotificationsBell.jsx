@@ -1,7 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useNotifications } from '../context/NotificationsContext'
+import {
+  resolveSupportTicketId,
+  supportNotificationPath,
+} from '../lib/supportNotificationLink.js'
 import './NotificationsBell.css'
+
+function NotifBody({ n }) {
+  return (
+    <>
+      <span className="notif-bell__item-title">{n.title}</span>
+      <span className="notif-bell__item-body">{n.body}</span>
+      <time className="notif-bell__item-time" dateTime={n.createdAt}>
+        {new Date(n.createdAt).toLocaleString('es-ES', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </time>
+    </>
+  )
+}
 
 export default function NotificationsBell({ variant = 'header' }) {
   const { unreadCount, items, loadingList, refreshList, markRead, markAllRead } = useNotifications()
@@ -23,6 +44,11 @@ export default function NotificationsBell({ variant = 'header' }) {
   }, [open])
 
   const rootClass = `notif-bell notif-bell--${variant}`
+
+  function onOpenLinked(n) {
+    if (!n.read) void markRead(n.id)
+    setOpen(false)
+  }
 
   return (
     <div className={rootClass} ref={wrapRef}>
@@ -57,70 +83,38 @@ export default function NotificationsBell({ variant = 'header' }) {
               <p className="notif-bell__muted">No hay notificaciones.</p>
             ) : (
               <ul className="notif-bell__list">
-                {items.map((n) => (
-                  <li key={n.id} className={`notif-bell__item ${n.read ? '' : 'notif-bell__item--unread'}`}>
-                    {n.serviceRequestId ? (
-                      <Link
-                        to={`/services/${n.serviceRequestId}`}
-                        className="notif-bell__item-link"
-                        onClick={() => {
-                          if (!n.read) void markRead(n.id)
-                          setOpen(false)
-                        }}
-                      >
-                        <span className="notif-bell__item-title">{n.title}</span>
-                        <span className="notif-bell__item-body">{n.body}</span>
-                        <time className="notif-bell__item-time" dateTime={n.createdAt}>
-                          {new Date(n.createdAt).toLocaleString('es-ES', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </time>
-                      </Link>
-                    ) : n.parcelId ? (
-                      <Link
-                        to={`/paqueteria/${n.parcelId}`}
-                        className="notif-bell__item-link"
-                        onClick={() => {
-                          if (!n.read) void markRead(n.id)
-                          setOpen(false)
-                        }}
-                      >
-                        <span className="notif-bell__item-title">{n.title}</span>
-                        <span className="notif-bell__item-body">{n.body}</span>
-                        <time className="notif-bell__item-time" dateTime={n.createdAt}>
-                          {new Date(n.createdAt).toLocaleString('es-ES', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </time>
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        className="notif-bell__item-link notif-bell__item-link--btn"
-                        onClick={() => {
-                          if (!n.read) void markRead(n.id)
-                        }}
-                      >
-                        <span className="notif-bell__item-title">{n.title}</span>
-                        <span className="notif-bell__item-body">{n.body}</span>
-                        <time className="notif-bell__item-time" dateTime={n.createdAt}>
-                          {new Date(n.createdAt).toLocaleString('es-ES', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </time>
-                      </button>
-                    )}
-                  </li>
-                ))}
+                {items.map((n) => {
+                  const supportId = resolveSupportTicketId(n)
+                  const supportTo = supportId ? supportNotificationPath(n.type, supportId) : null
+                  const to = n.serviceRequestId
+                    ? `/services/${n.serviceRequestId}`
+                    : n.parcelId
+                      ? `/paqueteria/${n.parcelId}`
+                      : supportTo
+                  return (
+                    <li key={n.id} className={`notif-bell__item ${n.read ? '' : 'notif-bell__item--unread'}`}>
+                      {to ? (
+                        <Link
+                          to={to}
+                          className="notif-bell__item-link"
+                          onClick={() => onOpenLinked(n)}
+                        >
+                          <NotifBody n={n} />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          className="notif-bell__item-link notif-bell__item-link--btn"
+                          onClick={() => {
+                            if (!n.read) void markRead(n.id)
+                          }}
+                        >
+                          <NotifBody n={n} />
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>

@@ -28,11 +28,14 @@ self.addEventListener('notificationclick', function (event) {
   var d = event.notification.data || {}
   var parcelId = d.parcelId
   var serviceRequestId = d.serviceRequestId
+  var supportTicketId = d.supportTicketId
   var path = '/'
   if (parcelId != null && parcelId !== '') {
     path = '/paqueteria/' + encodeURIComponent(String(parcelId))
   } else if (serviceRequestId != null && serviceRequestId !== '') {
     path = '/services/' + encodeURIComponent(String(serviceRequestId))
+  } else if (supportTicketId != null && supportTicketId !== '') {
+    path = '/profile/soporte/' + encodeURIComponent(String(supportTicketId))
   }
   var targetUrl
   try {

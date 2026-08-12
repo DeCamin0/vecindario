@@ -12,6 +12,7 @@ function mapRow(n: {
   readAt: Date | null
   serviceRequestId: number | null
   parcelId: number | null
+  supportTicketId: number | null
   createdAt: Date
 }) {
   return {
@@ -22,6 +23,7 @@ function mapRow(n: {
     read: n.readAt != null,
     serviceRequestId: n.serviceRequestId,
     parcelId: n.parcelId,
+    supportTicketId: n.supportTicketId,
     createdAt: n.createdAt.toISOString(),
   }
 }

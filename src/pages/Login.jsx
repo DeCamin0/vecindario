@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { apiUrl } from '../config/api.js'
 import { useCommunityPortalOptions } from '../hooks/useCommunityPortalOptions.js'
@@ -79,6 +79,8 @@ function showVecCodeField(role) {
 
 function Login() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const resetSuccess = searchParams.get('reset') === 'ok'
   const { loginSlug: loginSlugParam } = useParams()
   const loginSlugFromRoute = loginSlugParam ? String(loginSlugParam).trim().toLowerCase() : ''
   const fromSlugRoute = Boolean(loginSlugFromRoute)
@@ -1185,7 +1187,18 @@ function Login() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
+            <p className="auth-forgot">
+              <Link to="/olvidar-contrasena" className="auth-link">
+                ¿Has olvidado tu contraseña?
+              </Link>
+            </p>
           </div>
+
+          {resetSuccess ? (
+            <p className="auth-success" role="status">
+              Contraseña actualizada. Ya puedes iniciar sesión.
+            </p>
+          ) : null}
 
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button

@@ -4,12 +4,14 @@ import ProfileAvatarEditor from '../components/ProfileAvatarEditor.jsx'
 import { APP_VERSION } from '../config/version'
 import { getSignInPath } from '../utils/signInWebPath'
 import { PROFILE_ROLE_LABELS } from '../utils/userFromMeResponse.js'
+import { canUseSupportSelfService } from '../lib/supportAccess.js'
 import './Profile.css'
 
-const menuItems = [
+const menuItemsBase = [
   { to: '/profile/mis-datos', label: 'Mis datos', icon: '👤' },
   { to: '/profile/cambiar-contrasena', label: 'Cambiar contraseña', icon: '🔒' },
   { to: '/profile/notificaciones', label: 'Notificaciones', icon: '🔔' },
+  { to: '/profile/soporte', label: 'Soporte', icon: '💬', supportOnly: true },
   { to: '/profile/ayuda', label: 'Ayuda', icon: '❓' },
   { to: '/privacy', label: 'Privacidad y términos', icon: '📄' },
 ]
@@ -20,6 +22,9 @@ export default function Profile() {
     useAuth()
   const displayName = user?.name ?? 'Vecino'
   const roleLabel = PROFILE_ROLE_LABELS[userRole] || userRole
+  const menuItems = menuItemsBase.filter(
+    (item) => !item.supportOnly || canUseSupportSelfService(userRole),
+  )
 
   const handleLogout = () => {
     logout()

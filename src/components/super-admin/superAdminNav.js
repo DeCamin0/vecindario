@@ -52,6 +52,14 @@ export const SA_NAV_ITEMS = [
     to: '/admin/solicitudes-oferta',
     superOnly: true,
   },
+  {
+    id: 'soporte',
+    label: 'Soporte',
+    icon: '💬',
+    kind: 'link',
+    to: '/admin/support',
+    superOnly: true,
+  },
 ]
 
 /**
@@ -97,5 +105,9 @@ export const SA_SECTION_TITLES = {
   solicitudes: {
     title: 'Solicitudes',
     subtitle: 'Ofertas desde web y app · seguimiento interno',
+  },
+  soporte: {
+    title: 'Soporte',
+    subtitle: 'Tickets de usuarios · hilo y estados',
   },
 }
