@@ -23,6 +23,7 @@
     "test:auth": "tsx --test src/lib/password-reset.test.ts",
     "test:password-reset": "tsx --test src/lib/password-reset.test.ts",
     "test:support": "tsx --test src/lib/support.test.ts",
+    "test:booking-mail": "tsx --test src/lib/booking-confirmation-mail.test.ts",
     "subscription:expire-once": "tsx src/scripts/run-subscription-expiry-once.ts",
     "prefs:disable-concierge-email": "tsx src/scripts/disable-concierge-notify-email.ts",
     "storage:avatar-backfill": "tsx src/scripts/avatar-r2-backfill.ts"

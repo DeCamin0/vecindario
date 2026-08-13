@@ -66,8 +66,16 @@ Fecha: ${fecha}
 Tramo: ${tramo}${portal ? `\nPortal: ${portal}` : ''}${piso ? `\nPiso / puerta: ${piso}` : ''}`
 }
 
-/** Respeta Perfil → Notificaciones → Correo (`notifyEmail`). Sin cuenta en la comunidad: se envía (como antes). */
-async function userAllowsNotificationEmail(
+/**
+ * Respeta Perfil → Notificaciones → Correo (`notifyEmail`).
+ *
+ * Orden:
+ * 1) cuenta por userId (si se pasa)
+ * 2) cuenta con ese email en la comunidad
+ * 3) cuenta staff (conserje/admin/presidente) con ese email — aunque `communityId` sea null
+ * 4) sin cuenta Vecindario → se envía (email solo en ficha, como antes)
+ */
+export async function userAllowsNotificationEmail(
   email: string,
   communityId: number,
   userId?: number | null,
@@ -75,18 +83,31 @@ async function userAllowsNotificationEmail(
   if (userId != null && Number.isInteger(userId) && userId > 0) {
     const byId = await prisma.vecindarioUser.findUnique({
       where: { id: userId },
-      select: { notifyEmail: true, communityId: true },
+      select: { notifyEmail: true },
     })
-    if (byId && byId.communityId === communityId) return byId.notifyEmail !== false
+    if (byId) return byId.notifyEmail !== false
   }
+
   const actorNorm = normEmail(email)
   if (!actorNorm) return false
-  const user = await prisma.vecindarioUser.findFirst({
+
+  const inCommunity = await prisma.vecindarioUser.findFirst({
     where: { communityId, email: actorNorm },
     select: { notifyEmail: true },
   })
-  if (!user) return true
-  return user.notifyEmail !== false
+  if (inCommunity) return inCommunity.notifyEmail !== false
+
+  // Conserjes (y staff) suelen tener communityId=null; sin este paso el toggle de Perfil no aplica.
+  const staffByEmail = await prisma.vecindarioUser.findFirst({
+    where: {
+      email: actorNorm,
+      role: { in: ['concierge', 'community_admin', 'president'] },
+    },
+    select: { notifyEmail: true },
+  })
+  if (staffByEmail) return staffByEmail.notifyEmail !== false
+
+  return true
 }
 
 async function conciergeEmailsForBookingAlerts(
