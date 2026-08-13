@@ -58,9 +58,9 @@ function buildTotalLine(summary) {
   if (!summary?.netEur) return null
   const parts = []
   if (summary.planPartEur != null) parts.push(String(summary.planPartEur))
-  const size = formatMoneyPart(summary.sizeSurchargeEur)
+  const size = formatMoneyPart(summary?.sizeSurchargeEur)
   if (size) parts.push(`+${size}`)
-  const disc = formatMoneyPart(summary.discountEur)
+  const disc = formatMoneyPart(summary?.discountEur)
   if (disc) parts.push(`−${disc}`)
 
   const net = String(summary.netEur)

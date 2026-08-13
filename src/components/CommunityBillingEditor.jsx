@@ -438,9 +438,10 @@ export default function CommunityBillingEditor({
 
   const sizeSuggestion = preview?.sizeSuggestion ?? detail?.sizeSuggestion ?? null
   const suggestedSurcharge = sizeSuggestion?.suggestedSurchargeEur ?? null
-  const contractualSurchargeNorm = normalizeMoneyCompare(form.sizeSurchargeEur)
+  const contractualSurchargeNorm = normalizeMoneyCompare(form?.sizeSurchargeEur)
   const suggestedNorm = suggestedSurcharge != null ? normalizeMoneyCompare(suggestedSurcharge) : null
   const isManualSizeAdjustment =
+    form != null &&
     suggestedNorm != null &&
     contractualSurchargeNorm != null &&
     contractualSurchargeNorm !== suggestedNorm
