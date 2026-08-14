@@ -8,6 +8,7 @@ import {
   cuadernoDiarioAccessForUser,
   type CuadernoDiarioAccess,
 } from '../lib/community-diario-access.js'
+import { todayYmdInTz } from '../lib/community-dashboard-stats.js'
 
 export const communityDiarioRouter = Router()
 
@@ -41,19 +42,11 @@ function formatMinuteRange(min: number): string {
   return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
 }
 
-/** Fecha local del servidor (alineada con la UI web/móvil). */
-function localTodayYmd(d = new Date()): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 function entryYmd(entryDate: Date): string {
   return entryDate.toISOString().slice(0, 10)
 }
 
-/** Solo el autor puede editar/borrar, y solo el día de hoy. */
+/** Solo el autor puede editar/borrar, y solo el día de hoy (Europe/Madrid). */
 function mutateEntryDenied(
   userId: number,
   existing: { createdByUserId: number; entryDate: Date },
@@ -61,7 +54,7 @@ function mutateEntryDenied(
   if (existing.createdByUserId !== userId) {
     return 'Solo puedes modificar tus propias anotaciones.'
   }
-  if (entryYmd(existing.entryDate) !== localTodayYmd()) {
+  if (entryYmd(existing.entryDate) !== todayYmdInTz()) {
     return 'Solo puedes modificar anotaciones del día de hoy.'
   }
   return null
@@ -292,7 +285,7 @@ communityDiarioRouter.post('/diario', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'La descripción es obligatoria.' })
     return
   }
-  if (entryYmd(entryDate) !== localTodayYmd()) {
+  if (entryYmd(entryDate) !== todayYmdInTz()) {
     res.status(403).json({ error: 'Solo puedes añadir anotaciones para el día de hoy.' })
     return
   }

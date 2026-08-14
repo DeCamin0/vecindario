@@ -34,17 +34,22 @@ function emptyStats(): CommunityDashboardStats {
   }
 }
 
-/** Fecha calendario en TZ → Date a medianoche UTC (compatible Prisma @db.Date). */
-export function todayDateInTz(): Date {
-  const s = new Date().toLocaleDateString('en-CA', {
+/** Día civil YYYY-MM-DD en COMMUNITY_STATS_TZ (por defecto Europe/Madrid). */
+export function todayYmdInTz(now = new Date()): string {
+  return now.toLocaleDateString('en-CA', {
     timeZone: STATS_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   })
+}
+
+/** Fecha calendario en TZ → Date a medianoche UTC (compatible Prisma @db.Date). */
+export function todayDateInTz(now = new Date()): Date {
+  const s = todayYmdInTz(now)
   const [y, m, d] = s.split('-').map((x) => Number.parseInt(x, 10))
   if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
-    const n = new Date()
+    const n = now
     return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()))
   }
   return new Date(Date.UTC(y, m - 1, d))
